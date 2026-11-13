@@ -1,0 +1,23 @@
+# Build output
+/build/
+/build-*/
+CMakeUserPresets.json
+compile_commands.json
+.cache/
+.qmlls.ini
+
+# Editors / IDEs
+*.user
+*.user.*
+.vscode/
+.idea/
+*.swp
+*~
+
+# Secrets (Last.fm / Discord keys are supplied at runtime, never committed)
+.env
+*.secret
+secrets.*
+
+# Local test media
+/testdata/local/
