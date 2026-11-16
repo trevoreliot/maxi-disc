@@ -33,6 +33,9 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   `./build/debug/tools/mmm-play/mmm-play FILE...` (space, ←/→, +/-, n/p, q).
 - `tools/mmm-tags/` — prints what `TagReader` sees: `mmm-tags [--cover DIR] [--db FILE] PATH...`
   (files or folders, recursive).
+- `tools/mmm-scan/` — manage library folders and scan them: `mmm-scan --add DIR`, `--scan`,
+  `--watch`, `--list`, `--remove DIR`. Uses the app's DB (`AppPaths::defaultDatabasePath()`,
+  `~/.local/share/music-md-manager/library.db`) unless `--db FILE`.
 - `tests/core/` — Qt Test, one `tst_*.cpp` per class, `QTEST_GUILESS_MAIN`.
 - `tests/qml/` — Qt Quick Test, `tst_*.qml` files, picked up by `tst_qml`.
 - `docs/` — plan and design notes (udev rules, device notes, etc.).
@@ -60,6 +63,11 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   edit a released step. Write methods use SAVEPOINTs so callers can batch in one outer
   transaction. Call `finish()` on queries with `RETURNING` (or leave scope) before
   RELEASE, or SQLite errors with "SQL statements in progress".
+- `LibraryScanner`: scans run in `runScan()` on a pool thread with their own `Database`;
+  the worker takes everything by value and only talks back through queued calls. Never
+  remove tracks after an interrupted walk, and never treat a missing library *root* as
+  deleted (unmounted drive). Track `file_mtime` is in **milliseconds**.
+- Tests that create many files use hard links (`::link`) to one tagged file: fast, no space.
 - moc preprocesses test files: no raw string literals (`R"(...)"`) inside macro
   arguments like `QVERIFY`/`QCOMPARE`. Assign to a variable first.
 - Tag tests: GStreamer `mp4mux` writes track-level MP4 tags that TagLib/iTunes don't read,

@@ -92,7 +92,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - [x] **M2 Tag reader + DB schema** — Done when: reads tags + embedded art via TagLib; SQLite schema with migrations; unit tests on sample files. User test: tests pass on a few of the user's own files.
 
 ### Phase 2: Library
-- [ ] **M3 Library scanner** — Done when: background scan of chosen folders into SQLite; incremental rescan; folder monitor. User test: scan the real library; note time and track count.
+- [x] **M3 Library scanner** — Done when: background scan of chosen folders into SQLite; incremental rescan; folder monitor. User test: scan the real library; note time and track count.
 - [ ] **M4 Library UI** — Done when: QML artist / album / track browser on C++ list models, album grid with art (async, cached thumbnails), search box (FTS5). User test: browse and search feel instant on the full library; profile with the QML Profiler.
 - [ ] **M5 Queue, gapless, playlists** — Done when: play queue, gapless transitions, ReplayGain, .m3u import/export, MPRIS. User test: a live or classical album plays with no gaps; media keys work.
 - [ ] **M6 Tag editor** — Done when: edit single and multiple tracks; writes to files and DB. User test: edit a test copy of an album, then verify in another app.
@@ -141,3 +141,11 @@ and the user has run the "User test". Tick the box, commit, then stop.
   stored; orphaned artists/albums/genres aren't pruned on track removal (M3 scanner should).
 - M2 user test: `MMM_TEST_MEDIA_DIR=~/Music/some-folder ./build/debug/tests/tst_tagreader userFiles`
   reads every file, checks covers, inserts into an in-memory DB and searches each title.
+- M3: orphan pruning is done (the scanner prunes after every scan). Remaining notes:
+  - Unreadable files aren't stored, so they're re-read on every scan. Fine for a handful;
+    if a library has many, store them in a "failed files" table keyed on path+mtime.
+  - Folder art (`cover|folder|front|album` .jpg/.png) is recorded in `albums.cover_path` only
+    when the album has none; M7 should decide precedence vs embedded art.
+  - A watcher-triggered rescan walks the changed directory's whole subtree. Changes directly
+    in a library root therefore rewalk the whole folder (stat only, but slow on a HDD).
+  - Watcher fallback: if inotify watches run out, a full rescan runs every 15 minutes.

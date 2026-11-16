@@ -21,6 +21,10 @@ qt_add_executable(tst_database core/tst_database.cpp)
 target_link_libraries(tst_database PRIVATE mmm_core Qt6::Test mmm_build_flags)
 add_test(NAME tst_database COMMAND tst_database)
 
+qt_add_executable(tst_libraryscanner core/tst_libraryscanner.cpp core/testmedia.h core/testmedia.cpp)
+target_link_libraries(tst_libraryscanner PRIVATE mmm_core PkgConfig::GST TagLib::tag Qt6::Test mmm_build_flags)
+add_test(NAME tst_libraryscanner COMMAND tst_libraryscanner)
+
 # --- QML tests (Qt Quick Test) ---
 qt_add_executable(tst_qml qml/tst_qml.cpp)
 target_link_libraries(tst_qml PRIVATE mmm_ui mmm_uiplugin Qt6::QuickTest mmm_build_flags)
@@ -28,14 +32,14 @@ target_compile_definitions(tst_qml PRIVATE
     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
 add_test(NAME tst_qml COMMAND tst_qml)
 
-foreach(t tst_appinfo tst_player tst_tagreader tst_database tst_qml)
+foreach(t tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_qml)
     mmm_add_sanitizer_defaults(${t})
 endforeach()
 
 # --- App smoke test: window loads and exits cleanly ---
 add_test(NAME app_smoke COMMAND music-md-manager --quit-after-load)
 
-set_tests_properties(tst_appinfo tst_player tst_tagreader tst_database tst_qml app_smoke PROPERTIES
+set_tests_properties(tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_qml app_smoke PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # --- qmllint: any warning fails the test ---

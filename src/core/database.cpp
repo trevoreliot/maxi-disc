@@ -230,7 +230,7 @@ bool Database::migrate(QString *error)
     }
 
     for (int version = current + 1; version <= latest; ++version) {
-        qCInfo(lcDb) << "migrating schema to v" << version;
+        qCInfo(lcDb).noquote() << QStringLiteral("migrating schema to v%1").arg(version);
         if (!exec(QStringLiteral("BEGIN IMMEDIATE"), error))
             return false;
         bool ok = true;
@@ -249,9 +249,188 @@ bool Database::migrate(QString *error)
     return true;
 }
 
-std::optional<qint64> Database::upsertTrack(const QString &path, qint64 fileMtime, qint64 fileSize,
-                                            const TrackTags &tags, QString *error)
+// [dir + "/", dir + "0"): every path strictly below `dir`. '0' is the byte after '/',
+// and SQLite compares TEXT bytewise (BINARY collation), so this uses the path index.
+std::pair<QString, QString> Database::prefixRange(const QString &dir)
 {
+    QString base = dir;
+    while (base.size() > 1 && base.endsWith(QLatin1Char('/')))
+        base.chop(1);
+    if (base == QLatin1String("/"))
+        base.clear();
+    return {base + QLatin1Char('/'), base + QLatin1Char('0')};
+}
+
+std::optional<qint64> Database::addLibraryFolder(const QString &path, QString *error)
+{
+    for (const LibraryFolder &f : libraryFolders()) {
+        if (path == f.path || path.startsWith(prefixRange(f.path).first)) {
+            if (error)
+                *error = QStringLiteral("%1 is already in the library (inside %2)").arg(path, f.path);
+            return std::nullopt;
+        }
+    }
+    if (!exec(QStringLiteral("SAVEPOINT add_folder"), error))
+        return std::nullopt;
+    auto fail = [&]() -> std::optional<qint64> {
+        exec(QStringLiteral("ROLLBACK TO add_folder"), nullptr);
+        exec(QStringLiteral("RELEASE add_folder"), nullptr);
+        return std::nullopt;
+    };
+
+    QSqlQuery ins(m_db);
+    ins.prepare(QStringLiteral("INSERT INTO library_folders (path) VALUES (?) RETURNING id"));
+    ins.addBindValue(path);
+    const auto id = execReturningId(ins, error);
+    if (!id)
+        return fail();
+
+    // Absorb existing library folders nested inside the new one.
+    const auto [lo, hi] = prefixRange(path);
+    QSqlQuery move(m_db);
+    move.prepare(QStringLiteral("UPDATE tracks SET folder_id = :id WHERE folder_id IN "
+                                "(SELECT id FROM library_folders WHERE path >= :lo AND path < :hi)"));
+    move.bindValue(QStringLiteral(":id"), *id);
+    move.bindValue(QStringLiteral(":lo"), lo);
+    move.bindValue(QStringLiteral(":hi"), hi);
+    QSqlQuery del(m_db);
+    del.prepare(QStringLiteral("DELETE FROM library_folders WHERE path >= ? AND path < ?"));
+    del.addBindValue(lo);
+    del.addBindValue(hi);
+    if (!move.exec() || !del.exec()) {
+        if (error)
+            *error = describe(move.lastError().isValid() ? move : del);
+        return fail();
+    }
+    if (!exec(QStringLiteral("RELEASE add_folder"), error))
+        return fail();
+    return id;
+}
+
+bool Database::removeLibraryFolder(const QString &path, QString *error)
+{
+    QSqlQuery find(m_db);
+    find.prepare(QStringLiteral("SELECT id FROM library_folders WHERE path = ?"));
+    find.addBindValue(path);
+    if (!find.exec() || !find.next()) {
+        if (error)
+            *error = QStringLiteral("%1 is not a library folder").arg(path);
+        return false;
+    }
+    const qint64 id = find.value(0).toLongLong();
+    find.finish();
+
+    if (!exec(QStringLiteral("SAVEPOINT remove_folder"), error))
+        return false;
+    QSqlQuery fts(m_db);
+    fts.prepare(QStringLiteral("DELETE FROM tracks_fts WHERE rowid IN (SELECT id FROM tracks WHERE folder_id = ?)"));
+    fts.addBindValue(id);
+    QSqlQuery del(m_db); // ON DELETE CASCADE removes the folder's tracks
+    del.prepare(QStringLiteral("DELETE FROM library_folders WHERE id = ?"));
+    del.addBindValue(id);
+    if (!fts.exec() || !del.exec()) {
+        if (error)
+            *error = describe(fts.lastError().isValid() ? fts : del);
+        exec(QStringLiteral("ROLLBACK TO remove_folder"), nullptr);
+        exec(QStringLiteral("RELEASE remove_folder"), nullptr);
+        return false;
+    }
+    pruneOrphans();
+    return exec(QStringLiteral("RELEASE remove_folder"), error);
+}
+
+QList<LibraryFolder> Database::libraryFolders() const
+{
+    QList<LibraryFolder> out;
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral("SELECT id, path FROM library_folders ORDER BY path")))
+        return out;
+    while (q.next())
+        out << LibraryFolder{q.value(0).toLongLong(), q.value(1).toString()};
+    return out;
+}
+
+QHash<QString, FileState> Database::fileStatesUnder(const QString &dir) const
+{
+    QHash<QString, FileState> out;
+    const auto [lo, hi] = prefixRange(dir);
+    QSqlQuery q(m_db);
+    q.setForwardOnly(true);
+    q.prepare(QStringLiteral("SELECT path, file_mtime, file_size FROM tracks WHERE path >= ? AND path < ?"));
+    q.addBindValue(lo);
+    q.addBindValue(hi);
+    if (!q.exec()) {
+        qCWarning(lcDb) << "fileStatesUnder failed:" << describe(q);
+        return out;
+    }
+    while (q.next())
+        out.insert(q.value(0).toString(), FileState{q.value(1).toLongLong(), q.value(2).toLongLong()});
+    return out;
+}
+
+int Database::pruneOrphans()
+{
+    int removed = 0;
+    for (const char *sql : {
+             "DELETE FROM albums WHERE NOT EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = albums.id)",
+             "DELETE FROM genres WHERE NOT EXISTS (SELECT 1 FROM tracks t WHERE t.genre_id = genres.id)",
+             "DELETE FROM artists WHERE NOT EXISTS (SELECT 1 FROM tracks t WHERE t.artist_id = artists.id) "
+             "AND NOT EXISTS (SELECT 1 FROM albums a WHERE a.artist_id = artists.id)",
+         }) {
+        QSqlQuery q(m_db);
+        if (q.exec(QString::fromLatin1(sql)))
+            removed += q.numRowsAffected();
+        else
+            qCWarning(lcDb) << "pruneOrphans failed:" << describe(q);
+    }
+    return removed;
+}
+
+bool Database::setFolderCover(const QString &dir, const QString &coverPath)
+{
+    const auto [lo, hi] = prefixRange(dir);
+    QSqlQuery q(m_db);
+    // Tracks directly in `dir`: below it, with no further '/' after the prefix.
+    q.prepare(QStringLiteral(R"(
+        UPDATE albums SET cover_path = :cover
+        WHERE cover_path IS NULL AND id IN (
+            SELECT album_id FROM tracks
+            WHERE path >= :lo AND path < :hi AND album_id IS NOT NULL
+              AND instr(substr(path, length(:lo) + 1), '/') = 0))"));
+    q.bindValue(QStringLiteral(":cover"), coverPath);
+    q.bindValue(QStringLiteral(":lo"), lo);
+    q.bindValue(QStringLiteral(":hi"), hi);
+    if (!q.exec()) {
+        qCWarning(lcDb) << "setFolderCover failed:" << describe(q);
+        return false;
+    }
+    return true;
+}
+
+int Database::clearMissingCovers()
+{
+    QList<qint64> missing;
+    {
+        QSqlQuery q(m_db);
+        if (!q.exec(QStringLiteral("SELECT id, cover_path FROM albums WHERE cover_path IS NOT NULL")))
+            return 0;
+        while (q.next()) {
+            if (!QFileInfo::exists(q.value(1).toString()))
+                missing << q.value(0).toLongLong();
+        }
+    }
+    for (const qint64 id : std::as_const(missing)) {
+        QSqlQuery u(m_db);
+        u.prepare(QStringLiteral("UPDATE albums SET cover_path = NULL WHERE id = ?"));
+        u.addBindValue(id);
+        u.exec();
+    }
+    return static_cast<int>(missing.size());
+}
+
+std::optional<qint64> Database::upsertTrack(const TrackFile &file, const TrackTags &tags, QString *error)
+{
+    const QString &path = file.path;
     if (!exec(QStringLiteral("SAVEPOINT upsert_track"), error))
         return std::nullopt;
 
@@ -301,16 +480,17 @@ std::optional<qint64> Database::upsertTrack(const QString &path, qint64 fileMtim
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(R"(
         INSERT INTO tracks (
-            path, file_mtime, file_size, title, artist_id, album_id, genre_id, composer, comment,
+            path, folder_id, file_mtime, file_size, title, artist_id, album_id, genre_id, composer, comment,
             year, track_no, track_total, disc_no, disc_total,
             duration_ms, bitrate_kbps, sample_rate, channels, bits_per_sample, codec,
             rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak, mb_track_id, has_embedded_art)
         VALUES (
-            :path, :mtime, :size, :title, :artist, :album, :genre, :composer, :comment,
+            :path, :folder, :mtime, :size, :title, :artist, :album, :genre, :composer, :comment,
             :year, :track, :trackTotal, :disc, :discTotal,
             :duration, :bitrate, :rate, :channels, :bits, :codec,
             :rgTG, :rgTP, :rgAG, :rgAP, :mbTrack, :art)
         ON CONFLICT (path) DO UPDATE SET
+            folder_id = excluded.folder_id,
             file_mtime = excluded.file_mtime, file_size = excluded.file_size,
             title = excluded.title, artist_id = excluded.artist_id, album_id = excluded.album_id,
             genre_id = excluded.genre_id, composer = excluded.composer, comment = excluded.comment,
@@ -325,8 +505,9 @@ std::optional<qint64> Database::upsertTrack(const QString &path, qint64 fileMtim
             updated_at = %1
         RETURNING id)").arg(QString::fromLatin1(kNow)));
     q.bindValue(QStringLiteral(":path"), path);
-    q.bindValue(QStringLiteral(":mtime"), fileMtime);
-    q.bindValue(QStringLiteral(":size"), fileSize);
+    q.bindValue(QStringLiteral(":folder"), file.folderId > 0 ? QVariant(file.folderId) : QVariant());
+    q.bindValue(QStringLiteral(":mtime"), file.mtimeMs);
+    q.bindValue(QStringLiteral(":size"), file.size);
     q.bindValue(QStringLiteral(":title"), title);
     q.bindValue(QStringLiteral(":artist"), artistId ? QVariant(*artistId) : QVariant());
     q.bindValue(QStringLiteral(":album"), albumId ? QVariant(*albumId) : QVariant());

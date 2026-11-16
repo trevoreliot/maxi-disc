@@ -163,7 +163,7 @@ int main(int argc, char *argv[])
 
         if (useDb) {
             const QFileInfo fi(path);
-            if (!db.upsertTrack(fi.absoluteFilePath(), fi.lastModified().toSecsSinceEpoch(), fi.size(), *tags, &error)) {
+            if (!db.upsertTrack(fi.absoluteFilePath(), fi.lastModified().toMSecsSinceEpoch(), fi.size(), *tags, &error)) {
                 err << "DB FAILED " << path << ": " << error << Qt::endl;
                 ++failed;
             }

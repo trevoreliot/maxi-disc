@@ -397,7 +397,7 @@ private Q_SLOTS:
                 ++withArt;
             }
             const QFileInfo fi(path);
-            const auto id = db.upsertTrack(path, fi.lastModified().toSecsSinceEpoch(), fi.size(), *t, &error);
+            const auto id = db.upsertTrack(path, fi.lastModified().toMSecsSinceEpoch(), fi.size(), *t, &error);
             if (!id) {
                 failures << path + QStringLiteral(": DB: ") + error;
                 continue;

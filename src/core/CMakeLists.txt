@@ -12,10 +12,13 @@ add_library(mmm_core STATIC
     player.h player.cpp
     tracktags.h
     tagreader.h tagreader.cpp
-    database.h database.cpp)
+    database.h database.cpp
+    apppaths.h apppaths.cpp
+    libraryscanner.h libraryscanner.cpp)
 target_include_directories(mmm_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(mmm_core
     PUBLIC Qt6::Core Qt6::Sql
+    PRIVATE Qt6::Concurrent
     PRIVATE PkgConfig::GST TagLib::tag mmm_build_flags)
