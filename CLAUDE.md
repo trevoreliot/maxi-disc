@@ -31,6 +31,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - `src/app/` — `main.cpp` only: app setup and loads `MusicMdManager/Main`.
 - `tools/mmm-play/` — terminal player on `mmm::Player` (manual testing / debugging):
   `./build/debug/tools/mmm-play/mmm-play FILE...` (space, ←/→, +/-, n/p, q).
+- `tools/mmm-tags/` — prints what `TagReader` sees: `mmm-tags [--cover DIR] [--db FILE] PATH...`
+  (files or folders, recursive).
 - `tests/core/` — Qt Test, one `tst_*.cpp` per class, `QTEST_GUILESS_MAIN`.
 - `tests/qml/` — Qt Quick Test, `tst_*.qml` files, picked up by `tst_qml`.
 - `docs/` — plan and design notes (udev rules, device notes, etc.).
@@ -53,6 +55,15 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - GStreamer: bus messages reach `Player` through a sync handler and a queued
   invocation (no GLib main loop needed). A handler returning `GST_BUS_DROP` **owns** the
   message. Stale messages are dropped through `Player::Private::generation`.
+- Database: one `mmm::Database` per thread (Qt SQL connections are thread-bound).
+  Schema changes = **append** a migration step in `database.cpp` (`kMigrations`); never
+  edit a released step. Write methods use SAVEPOINTs so callers can batch in one outer
+  transaction. Call `finish()` on queries with `RETURNING` (or leave scope) before
+  RELEASE, or SQLite errors with "SQL statements in progress".
+- moc preprocesses test files: no raw string literals (`R"(...)"`) inside macro
+  arguments like `QVERIFY`/`QCOMPARE`. Assign to a variable first.
+- Tag tests: GStreamer `mp4mux` writes track-level MP4 tags that TagLib/iTunes don't read,
+  so MP4 tag coverage comes from TagLib-written files. MP4 cover art has no picture type.
 - Sanitizer defaults (full unwind + LSan suppressions) are compiled into debug
   executables from `src/sanitizer/sanitizer_defaults.cpp`, so a plain run of the binary
   is checked the same way as ctest. Suppress only verified third-party leaks, with a

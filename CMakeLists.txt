@@ -20,7 +20,7 @@ if(CCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
 endif()
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Sql Gui Qml Quick QuickControls2)
 qt_standard_project_setup(REQUIRES 6.8)
 qt_policy(SET QTP0004 NEW)
 set(QT_QML_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml")
@@ -49,6 +49,7 @@ endfunction()
 
 add_subdirectory(src)
 add_subdirectory(tools/mmm-play)
+add_subdirectory(tools/mmm-tags)
 
 if(BUILD_TESTING)
     enable_testing()

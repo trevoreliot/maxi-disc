@@ -7,7 +7,7 @@
 
 namespace mmm::test {
 
-QString generateTone(const QString &path, const QString &encoder, int durationMs)
+QString generateTone(const QString &path, const QString &encoder, int durationMs, const QString &tags)
 {
     gst::ensureInitialized();
 
@@ -17,11 +17,12 @@ QString generateTone(const QString &path, const QString &encoder, int durationMs
 
     const QString desc =
         QStringLiteral("audiotestsrc wave=sine freq=440 volume=0.3 num-buffers=%1 samplesperbuffer=%2 "
-                       "! audio/x-raw,rate=%3,channels=2 ! audioconvert ! %4 ! filesink location=\"%5\"")
+                       "! audio/x-raw,rate=%3,channels=2 ! taginject name=tagger "
+                       "! audioconvert ! audioresample ! %4 ! filesink name=sink")
             .arg(buffers)
             .arg(kSamplesPerBuffer)
             .arg(kRate)
-            .arg(encoder, path);
+            .arg(encoder);
 
     GError *err = nullptr;
     GstElement *pipeline = gst_parse_launch(desc.toUtf8().constData(), &err);
@@ -31,6 +32,16 @@ QString generateTone(const QString &path, const QString &encoder, int durationMs
         return msg;
     }
     g_clear_error(&err); // non-fatal warnings
+
+    // Set path and tags as properties: no gst-launch quoting/escaping issues.
+    GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "sink");
+    g_object_set(sink, "location", path.toUtf8().constData(), nullptr);
+    gst_object_unref(sink);
+    if (!tags.isEmpty()) {
+        GstElement *tagger = gst_bin_get_by_name(GST_BIN(pipeline), "tagger");
+        g_object_set(tagger, "tags", tags.toUtf8().constData(), nullptr);
+        gst_object_unref(tagger);
+    }
 
     QString result;
     gst_element_set_state(pipeline, GST_STATE_PLAYING);

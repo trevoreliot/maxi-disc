@@ -89,7 +89,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 ### Phase 1: Foundation
 - [x] **M0 Project skeleton** — Done when: CMake builds a Qt Quick window; `ctest` runs; ASan debug build works; .gitignore, CLAUDE.md, docs/PLAN.md in place. User test: app opens and closes cleanly.
 - [x] **M1 Playback engine** — Done when: `Player` class wraps playbin3: play, pause, stop, seek, volume, position signals. User test: play a FLAC, a 320k MP3 and a WAV from the command line.
-- [ ] **M2 Tag reader + DB schema** — Done when: reads tags + embedded art via TagLib; SQLite schema with migrations; unit tests on sample files. User test: tests pass on a few of the user's own files.
+- [x] **M2 Tag reader + DB schema** — Done when: reads tags + embedded art via TagLib; SQLite schema with migrations; unit tests on sample files. User test: tests pass on a few of the user's own files.
 
 ### Phase 2: Library
 - [ ] **M3 Library scanner** — Done when: background scan of chosen folders into SQLite; incremental rescan; folder monitor. User test: scan the real library; note time and track count.
@@ -135,3 +135,9 @@ and the user has run the "User test". Tick the box, commit, then stop.
   Revisit if debug runs get too slow during large scans (M3+).
 - M1: `Player` is single-track; EOS → Stopped. M5 adds the queue and gapless playback
   (playbin3 `about-to-finish`). `volume` is linear 0–1; the UI should map a cubic/perceptual slider onto it.
+- M2: v1 simplifications to revisit when they bite:
+  albums are keyed on (album artist, title), so two releases with the same name by the same
+  artist merge (consider mb_album_id or folder as a tiebreaker); only the first GENRE is
+  stored; orphaned artists/albums/genres aren't pruned on track removal (M3 scanner should).
+- M2 user test: `MMM_TEST_MEDIA_DIR=~/Music/some-folder ./build/debug/tests/tst_tagreader userFiles`
+  reads every file, checks covers, inserts into an in-memory DB and searches each title.
