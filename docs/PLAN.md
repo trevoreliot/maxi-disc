@@ -149,3 +149,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
   - A watcher-triggered rescan walks the changed directory's whole subtree. Changes directly
     in a library root therefore rewalk the whole folder (stat only, but slow on a HDD).
   - Watcher fallback: if inotify watches run out, a full rescan runs every 15 minutes.
+  - Verified: the watcher does NOT see in-place file modifications (QFileSystemWatcher
+    directory watches report entries added/removed/renamed only). Taggers that write a temp
+    file and rename are caught; in-place writers are only caught by the next scan. M6 updates
+    the DB itself. If needed later: watch track files for IN_MODIFY, or rescan on app focus.
