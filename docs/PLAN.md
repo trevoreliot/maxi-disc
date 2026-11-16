@@ -88,7 +88,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 
 ### Phase 1: Foundation
 - [x] **M0 Project skeleton** — Done when: CMake builds a Qt Quick window; `ctest` runs; ASan debug build works; .gitignore, CLAUDE.md, docs/PLAN.md in place. User test: app opens and closes cleanly.
-- [ ] **M1 Playback engine** — Done when: `Player` class wraps playbin3: play, pause, stop, seek, volume, position signals. User test: play a FLAC, a 320k MP3 and a WAV from the command line.
+- [x] **M1 Playback engine** — Done when: `Player` class wraps playbin3: play, pause, stop, seek, volume, position signals. User test: play a FLAC, a 320k MP3 and a WAV from the command line.
 - [ ] **M2 Tag reader + DB schema** — Done when: reads tags + embedded art via TagLib; SQLite schema with migrations; unit tests on sample files. User test: tests pass on a few of the user's own files.
 
 ### Phase 2: Library
@@ -133,3 +133,5 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - M0: ctest runs offscreen, so GPU-driver leaks (NVIDIA EGL/GBM) only appear on a real display.
   Suppressed in `src/sanitizer/sanitizer_defaults.cpp`; full unwinding costs ~1 s debug startup.
   Revisit if debug runs get too slow during large scans (M3+).
+- M1: `Player` is single-track; EOS → Stopped. M5 adds the queue and gapless playback
+  (playbin3 `about-to-finish`). `volume` is linear 0–1; the UI should map a cubic/perceptual slider onto it.

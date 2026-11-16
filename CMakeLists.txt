@@ -48,6 +48,7 @@ function(mmm_add_sanitizer_defaults target)
 endfunction()
 
 add_subdirectory(src)
+add_subdirectory(tools/mmm-play)
 
 if(BUILD_TESTING)
     enable_testing()

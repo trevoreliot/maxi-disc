@@ -29,6 +29,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - `src/ui/` — `mmm_ui` QML module (URI `MusicMdManager`). C++ models/bridges exposed
   with `QML_ELEMENT` / `QML_SINGLETON`; QML files under `src/ui/qml/`.
 - `src/app/` — `main.cpp` only: app setup and loads `MusicMdManager/Main`.
+- `tools/mmm-play/` — terminal player on `mmm::Player` (manual testing / debugging):
+  `./build/debug/tools/mmm-play/mmm-play FILE...` (space, ←/→, +/-, n/p, q).
 - `tests/core/` — Qt Test, one `tst_*.cpp` per class, `QTEST_GUILESS_MAIN`.
 - `tests/qml/` — Qt Quick Test, `tst_*.qml` files, picked up by `tst_qml`.
 - `docs/` — plan and design notes (udev rules, device notes, etc.).
@@ -45,7 +47,12 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - Last.fm / Discord keys and secrets are supplied at runtime. **Never commit them.**
 - QML files inside the `MusicMdManager` module must not `import MusicMdManager`
   (qmllint flags it); same-module types are visible already.
-- Add a test for every new core class.
+- Add a test for every new core class. Tests that need media generate it with
+  `tests/core/testmedia.h` (GStreamer `audiotestsrc`). Never commit audio files.
+- Player tests use `PlayerOptions{.audioSink = "fakesink sync=true"}`: real-time but silent.
+- GStreamer: bus messages reach `Player` through a sync handler and a queued
+  invocation (no GLib main loop needed). A handler returning `GST_BUS_DROP` **owns** the
+  message. Stale messages are dropped through `Player::Private::generation`.
 - Sanitizer defaults (full unwind + LSan suppressions) are compiled into debug
   executables from `src/sanitizer/sanitizer_defaults.cpp`, so a plain run of the binary
   is checked the same way as ctest. Suppress only verified third-party leaks, with a
