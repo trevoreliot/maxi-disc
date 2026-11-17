@@ -208,3 +208,9 @@ and the user has run the "User test". Tick the box, commit, then stop.
     close + reuse?). Not reproduced in 30 targeted runs. Next: catch it with GStreamer debug
     symbols / GST_DEBUG, check the fd; independently consider running pipeline state changes
     off the UI thread so any GStreamer stall can't freeze the app.
+    Update: a 2nd stall signature caught with tools/dev/catch-stall.sh (fds were fine): a
+    typefind streaming thread waiting for a state lock in playbin3's decoder setup during a
+    rapid play→queue change; the UI thread kept running but playback never progressed. So at
+    least three distinct GStreamer-internal stalls, all triggered by rapid state changes.
+    Proposed fix: Player runs GStreamer control calls on its own thread + recovers from a
+    stalled state change by abandoning the pipeline and resuming on a fresh one.
