@@ -20,4 +20,10 @@ QString coverCacheDir()
     return QDir(base).filePath(AppInfo::name() + QStringLiteral("/covers"));
 }
 
+QString artCacheDir()
+{
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation);
+    return QDir(base).filePath(AppInfo::name() + QStringLiteral("/art"));
+}
+
 } // namespace mmm::AppPaths

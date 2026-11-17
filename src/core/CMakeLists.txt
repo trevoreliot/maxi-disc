@@ -15,11 +15,19 @@ add_library(mmm_core STATIC
     database.h database.cpp
     apppaths.h apppaths.cpp
     libraryscanner.h libraryscanner.cpp
-    libraryquery.h libraryquery.cpp)
+    libraryquery.h libraryquery.cpp
+    playqueue.h playqueue.cpp
+    playbackcontroller.h playbackcontroller.cpp
+    m3u.h m3u.cpp
+    artcache.h artcache.cpp
+    mprisservice.h mprisservice.cpp)
 target_include_directories(mmm_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(mmm_core
-    PUBLIC Qt6::Core Qt6::Sql
+    PUBLIC Qt6::Core Qt6::Sql Qt6::DBus
     PRIVATE Qt6::Concurrent
     PRIVATE PkgConfig::GST TagLib::tag mmm_build_flags)
+
+# Publish moc metatypes so QML modules can use core types via QML_FOREIGN (e.g. PlayQueue).
+qt_extract_metatypes(mmm_core)

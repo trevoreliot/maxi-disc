@@ -98,7 +98,17 @@ and the user has run the "User test". Tick the box, commit, then stop.
 ### Phase 2: Library
 - [x] **M3 Library scanner** — Done when: background scan of chosen folders into SQLite; incremental rescan; folder monitor. User test: scan the real library; note time and track count.
 - [x] **M4 Library UI** — Done when: QML artist / album / track browser on C++ list models, album grid with art (async, cached thumbnails), search box (FTS5). User test: browse and search feel instant on the full library; profile with the QML Profiler.
-- [ ] **M5 Queue, gapless, playlists** — Done when: play queue, gapless transitions, ReplayGain, .m3u import/export, MPRIS. User test: a live or classical album plays with no gaps; media keys work.
+- [x] **M5 Queue, gapless, playlists** — Done when: play queue, gapless transitions, ReplayGain, .m3u import/export, MPRIS. User test: a live or classical album plays with no gaps; media keys work.
+- [ ] **M5b UI redesign + Vim/Evil keyboard navigation** — Scheduled right after M5 so later
+  milestones' screens (tag editor, artwork, sync, MiniDisc) are built to the final layout once.
+  Done when: the shell/layout follows the user's drawings (to be supplied in `docs/design/`);
+  a keyboard focus model across panes and lists; Vim/Evil-style keys active whenever a text field
+  doesn't have focus: `/` focuses search (Ctrl+F kept), `h`/`j`/`k`/`l` move left/down/up/right
+  (between panes and within lists/grids), Enter activates, Esc backs out / leaves search; key
+  bindings defined in one place (C++ or a single QML component) so more can be added (e.g. `gg`/`G`,
+  `n`/`N` next/prev search hit, Space play/pause) without touching every view; qmllint clean and
+  QML tests for the key handling. Visual polish/animation stays in "Later". User test: navigate
+  browse → album → play → queue using only the keyboard; the UI matches the drawings.
 - [ ] **M6 Tag editor** — Done when: edit single and multiple tracks; writes to files and DB. User test: edit a test copy of an album, then verify in another app.
 
 ### Phase 3: Artwork
@@ -175,3 +185,13 @@ and the user has run the "User test". Tick the box, commit, then stop.
   - No translations are loaded yet; strings are wrapped in qsTr for later.
   - A scan that changes the library reloads every view; reloads that keep the same rows refresh
     in place, but a changed album list resets the grid's scroll position.
+- M5 notes / known limits:
+  - Repeat-one (and repeat-all with one track) restarts the track at EOS: a tiny gap by design,
+    because playbin3 can't reliably play a stream gaplessly into itself. Album playback is gapless.
+  - Turning ReplayGain on/off takes effect at the next track (GStreamer only swaps the filter
+    while stopped); Track ↔ Album switches immediately.
+  - Not yet: shuffle, saving the queue across restarts, drag-to-reorder in the queue panel
+    (`PlayQueue::move` exists), MPRIS TrackList/OpenUri, "add to playlist" from track rows.
+  - Testing: one unexplained hang in tst_playbackcontroller in ~60 runs right after the gapless
+    fixes, not reproduced since (incl. 36 stress runs). If it recurs, catch it with
+    `tools/dev/catch-stall.sh -n 20 build/release/tests/tst_playbackcontroller`.

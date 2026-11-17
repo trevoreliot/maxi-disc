@@ -36,6 +36,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   - `CoverImageProvider` ("image://cover/…"): folder art, else embedded art; resized to
     128/256/512/1024 buckets and cached as JPEG in `AppPaths::coverCacheDir()`.
   - Read-side SQL lives in core `LibraryQuery` (tested headless, incl. a 100k-track timing test).
+  - `Playback` (QML singleton): wraps core `PlaybackController` + owns `MprisService`; persists
+    volume/repeat/ReplayGain in QSettings. Construct before the engine, like `Library`.
 - `src/app/` — `main.cpp` only: app setup and loads `MusicMdManager/Main`.
 - `tools/mmm-play/` — terminal player on `mmm::Player` (manual testing / debugging):
   `./build/debug/tools/mmm-play/mmm-play FILE...` (space, ←/→, +/-, n/p, q).
@@ -51,6 +53,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   the fixture library). `MMM_SCREENSHOT_DIR=/tmp/x ./build/debug/tests/tst_qml` saves a PNG
   per view: use it to *look* at UI changes.
 - App dev flags: `--database FILE`, `--no-scan`, and hidden `--screenshot FILE [--screenshot-delay MS]`.
+- `tools/dev/catch-stall.sh BINARY [FUNCS]` — reruns a test 3-at-a-time and dumps all thread
+  backtraces (gdb) if one stalls. Use it on any intermittent hang instead of guessing.
 - `docs/` — plan and design notes (udev rules, device notes, etc.).
 
 ## Conventions
@@ -71,8 +75,19 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - GStreamer: bus messages reach `Player` through a sync handler and a queued
   invocation (no GLib main loop needed). A handler returning `GST_BUS_DROP` **owns** the
   message. Stale messages are dropped through `Player::Private::generation`.
+- Playback: **every** playback/queue command goes through `PlaybackController` (UI, MPRIS, and
+  later the Emacs D-Bus interface): no playback logic in QML. The queue wins over GStreamer:
+  if the gapless track that started isn't the queue's next, the controller plays the queue's.
+- Gapless (`Player`): the next URI is set from `about-to-finish` on a streaming thread (mutex).
+  Pitfalls already hit: (1) the *first* STREAM_START after a load is the current track even if
+  the next was committed already: only later ones are advances; (2) committing overwrites
+  playbin3's `uri`, so `stop()` must restore it; (3) never pass the current URI as its own next
+  (self-gapless ends early), so loops restart at EOS. Always run the release tests too: debug
+  timing hid (1) and (2).
+- MPRIS tests run under `dbus-run-session` (private bus); client calls must be async (the service
+  is on the same thread). The app smoke test passes `--no-mpris`.
 - Database: one `mmm::Database` per thread (Qt SQL connections are thread-bound).
-  Schema changes = **append** a migration step in `database.cpp` (`kMigrations`); never
+  Schema (v2: + playlists, items stored by path) changes = **append** a migration step in `database.cpp` (`kMigrations`); never
   edit a released step. Write methods use SAVEPOINTs so callers can batch in one outer
   transaction. Call `finish()` on queries with `RETURNING` (or leave scope) before
   RELEASE, or SQLite errors with "SQL statements in progress".

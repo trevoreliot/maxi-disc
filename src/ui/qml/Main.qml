@@ -12,23 +12,28 @@ ApplicationWindow {
     width: 1280
     height: 800
     visible: true
-    title: AppBridge.displayName
+    title: Playback.hasTrack ? Playback.title + " — " + AppBridge.displayName : AppBridge.displayName
 
     // Browse state.
     property int artistId: 0
     property int genreId: 0
     property string filterLabel: ""
-    // Open album (0 = album grid).
+    // Open album (0 = none).
     property int albumId: 0
     property string albumTitle
     property string albumArtist
     property int albumYear: 0
     property string albumCoverUrl
+    // Open playlist (0 = none).
+    property int playlistId: 0
+    property string playlistName
+    property int playlistItemCount: 0
 
     readonly property bool hasLibrary: Library.folders.length > 0
     readonly property bool searching: searchField.text.trim() !== ""
 
     function openAlbum(id: int, title: string, artist: string, year: int, coverUrl: string) {
+        playlistId = 0;
         albumId = id;
         albumTitle = title;
         albumArtist = artist;
@@ -38,6 +43,14 @@ ApplicationWindow {
 
     function closeAlbum() {
         albumId = 0;
+    }
+
+    function openPlaylist(id: int, name: string, itemCount: int) {
+        albumId = 0;
+        playlistId = id;
+        playlistName = name;
+        playlistItemCount = itemCount;
+        searchField.text = "";
     }
 
     header: ToolBar {
@@ -64,6 +77,29 @@ ApplicationWindow {
                         enabled: root.hasLibrary
                         onTriggered: Library.rescan()
                     }
+                    MenuSeparator {}
+                    Menu {
+                        title: qsTr("ReplayGain")
+
+                        MenuItem {
+                            text: qsTr("Album (keeps an album's dynamics)")
+                            checkable: true
+                            checked: Playback.replayGainMode === 2
+                            onTriggered: Playback.replayGainMode = 2
+                        }
+                        MenuItem {
+                            text: qsTr("Track")
+                            checkable: true
+                            checked: Playback.replayGainMode === 1
+                            onTriggered: Playback.replayGainMode = 1
+                        }
+                        MenuItem {
+                            text: qsTr("Off")
+                            checkable: true
+                            checked: Playback.replayGainMode === 0
+                            onTriggered: Playback.replayGainMode = 0
+                        }
+                    }
                 }
             }
 
@@ -79,7 +115,7 @@ ApplicationWindow {
             }
 
             Label {
-                visible: root.filterLabel !== "" && !root.searching
+                visible: root.filterLabel !== "" && !root.searching && root.playlistId === 0
                 text: root.filterLabel
                 font.bold: true
                 elide: Text.ElideRight
@@ -106,19 +142,58 @@ ApplicationWindow {
         }
     }
 
-    footer: ToolBar {
-        visible: Library.errorString !== ""
+    footer: ColumnLayout {
+        spacing: 0
 
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 8
+        Pane {
+            Layout.fillWidth: true
+            visible: Library.errorString !== ""
+            padding: 6
+
+            RowLayout {
+                anchors.fill: parent
+
+                Label {
+                    Layout.fillWidth: true
+                    text: Library.errorString
+                    elide: Text.ElideRight
+                    color: "#d9534f"
+                }
+                ToolButton {
+                    text: "✕"
+                    onClicked: Library.clearError()
+                }
+            }
+        }
+
+        Pane {
+            id: statusBanner
+            Layout.fillWidth: true
+            visible: false
+            padding: 6
 
             Label {
-                Layout.fillWidth: true
-                text: Library.errorString
+                text: Library.statusMessage
                 elide: Text.ElideRight
-                color: "#d9534f"
             }
+
+            Connections {
+                target: Library
+                function onStatusMessageChanged() {
+                    statusBanner.visible = Library.statusMessage !== "";
+                    statusTimer.restart();
+                }
+            }
+            Timer {
+                id: statusTimer
+                interval: 6000
+                onTriggered: statusBanner.visible = false
+            }
+        }
+
+        NowPlayingBar {
+            id: nowPlaying
+            Layout.fillWidth: true
         }
     }
 
@@ -140,8 +215,27 @@ ApplicationWindow {
     }
     Shortcut {
         sequence: "Escape"
-        enabled: !root.searching && root.albumId !== 0
-        onActivated: root.closeAlbum()
+        enabled: !root.searching && (root.albumId !== 0 || root.playlistId !== 0)
+        onActivated: {
+            root.albumId = 0;
+            root.playlistId = 0;
+        }
+    }
+    // Playback keys, disabled while typing so they don't eat spaces/arrows.
+    Shortcut {
+        sequence: "Space"
+        enabled: !searchField.activeFocus
+        onActivated: Playback.playPause()
+    }
+    Shortcut {
+        sequence: "Ctrl+Right"
+        enabled: !searchField.activeFocus
+        onActivated: Playback.next()
+    }
+    Shortcut {
+        sequence: "Ctrl+Left"
+        enabled: !searchField.activeFocus
+        onActivated: Playback.previous()
     }
 
     EmptyLibrary {
@@ -159,21 +253,25 @@ ApplicationWindow {
             SplitView.minimumWidth: 160
             artistId: root.artistId
             genreId: root.genreId
+            playlistId: root.playlistId
 
             onArtistSelected: (id, name) => {
                 root.artistId = id;
                 root.genreId = 0;
                 root.filterLabel = name;
-                root.closeAlbum();
+                root.albumId = 0;
+                root.playlistId = 0;
                 searchField.text = "";
             }
             onGenreSelected: (id, name) => {
                 root.genreId = id;
                 root.artistId = 0;
                 root.filterLabel = name;
-                root.closeAlbum();
+                root.albumId = 0;
+                root.playlistId = 0;
                 searchField.text = "";
             }
+            onPlaylistSelected: (id, name, itemCount) => root.openPlaylist(id, name, itemCount)
         }
 
         Item {
@@ -182,7 +280,7 @@ ApplicationWindow {
             AlbumGrid {
                 anchors.fill: parent
                 anchors.margins: 8
-                visible: !root.searching && root.albumId === 0
+                visible: !root.searching && root.albumId === 0 && root.playlistId === 0
                 artistId: root.artistId
                 genreId: root.genreId
                 onAlbumActivated: (id, title, artist, year, coverUrl) => root.openAlbum(id, title, artist, year, coverUrl)
@@ -199,11 +297,26 @@ ApplicationWindow {
                 onBack: root.closeAlbum()
             }
 
+            PlaylistPage {
+                anchors.fill: parent
+                visible: !root.searching && root.playlistId !== 0
+                playlistId: root.playlistId
+                playlistName: root.playlistName
+                itemCount: root.playlistItemCount
+                onClosed: root.playlistId = 0
+            }
+
             SearchResults {
                 id: searchResults
                 anchors.fill: parent
                 visible: root.searching
             }
+        }
+
+        QueuePanel {
+            visible: nowPlaying.queueVisible
+            SplitView.preferredWidth: 340
+            SplitView.minimumWidth: 220
         }
     }
 }

@@ -342,6 +342,74 @@ private Q_SLOTS:
         QCOMPARE(scalar(db, QStringLiteral("SELECT count(*) FROM tracks")).toInt(), 1);
     }
 
+    // --- Migrations & playlists (M5) ---
+
+    void migratesV1DatabaseToV2()
+    {
+        const QString path = dbPath("v1.db");
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            QVERIFY(db.upsertTrack(QStringLiteral("/m/keep.flac"), 1, 1, makeTags(QStringLiteral("Keep me"), {}, {})));
+            // Turn it back into a v1 database: as written by M2–M4.
+            QSqlQuery q(db.connection());
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE playlist_items")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE playlists")));
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 1")));
+        }
+        Database db;
+        QString error;
+        QVERIFY2(db.open(path, &error), qPrintable(error));
+        QCOMPARE(db.schemaVersion(), 2);
+        QCOMPARE(Database::latestSchemaVersion(), 2);
+        QVERIFY(db.trackIdByPath(QStringLiteral("/m/keep.flac"))); // data kept
+        QVERIFY(db.createPlaylist(QStringLiteral("Works")));       // new tables usable
+    }
+
+    void playlists()
+    {
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        const QStringList paths{QStringLiteral("/m/a.flac"), QStringLiteral("/m/b.flac"), QStringLiteral("/m/a.flac")};
+        QString error;
+        const auto id = db.createPlaylist(QStringLiteral("  Road trip  "), paths, &error);
+        QVERIFY2(id, qPrintable(error));
+        QCOMPARE(db.playlistPaths(*id), paths); // order and duplicates kept
+        QCOMPARE(scalar(db, QStringLiteral("SELECT name FROM playlists")).toString(), QStringLiteral("Road trip"));
+
+        QVERIFY(db.appendToPlaylist(*id, {QStringLiteral("/m/c.flac")}));
+        QCOMPARE(db.playlistPaths(*id).size(), 4);
+        QVERIFY(db.setPlaylistPaths(*id, {QStringLiteral("/m/z.flac")}));
+        QCOMPARE(db.playlistPaths(*id), QStringList{QStringLiteral("/m/z.flac")});
+
+        QVERIFY(db.renamePlaylist(*id, QStringLiteral("Renamed")));
+        QVERIFY(!db.renamePlaylist(*id, QStringLiteral("   "))); // empty names refused
+        QVERIFY(!db.renamePlaylist(999, QStringLiteral("x")));
+
+        const auto unnamed = db.createPlaylist(QString());
+        QVERIFY(unnamed);
+        QCOMPARE(scalar(db, QStringLiteral("SELECT name FROM playlists WHERE id = %1").arg(*unnamed)).toString(),
+                 QStringLiteral("Untitled playlist"));
+
+        QVERIFY(db.deletePlaylist(*id));
+        QVERIFY(db.playlistPaths(*id).isEmpty()); // items cascade
+        QCOMPARE(scalar(db, QStringLiteral("SELECT count(*) FROM playlist_items")).toInt(), 0);
+        QVERIFY(!db.deletePlaylist(*id));
+    }
+
+    void playlistSurvivesTrackReadd()
+    {
+        // Paths, not ids: a rescan that removes and re-adds a file keeps it in playlists.
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        const QString path = QStringLiteral("/m/song.flac");
+        QVERIFY(db.upsertTrack(path, 1, 1, makeTags(QStringLiteral("Song"), {}, {})));
+        const auto pl = db.createPlaylist(QStringLiteral("P"), {path});
+        QVERIFY(db.removeTrack(path));
+        QVERIFY(db.upsertTrack(path, 2, 1, makeTags(QStringLiteral("Song"), {}, {})));
+        QCOMPARE(db.playlistPaths(*pl), QStringList{path});
+    }
+
     void toFtsQuery()
     {
         QCOMPARE(Database::toFtsQuery(QStringLiteral("beat abb")), QStringLiteral("\"beat\"* \"abb\"*"));

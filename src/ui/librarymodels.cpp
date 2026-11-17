@@ -2,6 +2,7 @@
 #include "librarymodels.h"
 
 #include "appinfo.h"
+#include "coverimageprovider.h"
 
 #include <QSet>
 #include <QTimer>
@@ -106,6 +107,39 @@ void GenreListModel::startLoad()
     fetchInto(&m_rows, [](const mmm::LibraryQuery &q) { return q.genres(); });
 }
 
+// --- PlaylistListModel ------------------------------------------------------
+
+int PlaylistListModel::rowCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : static_cast<int>(m_rows.size());
+}
+
+QVariant PlaylistListModel::data(const QModelIndex &index, int role) const
+{
+    if (!validRow(index, m_rows.size()))
+        return {};
+    const mmm::PlaylistRow &r = m_rows.at(index.row());
+    switch (role) {
+    case PlaylistIdRole: return static_cast<int>(r.id);
+    case Qt::DisplayRole:
+    case NameRole: return r.name;
+    case ItemCountRole: return r.itemCount;
+    case AvailableCountRole: return r.availableCount;
+    default: return {};
+    }
+}
+
+QHash<int, QByteArray> PlaylistListModel::roleNames() const
+{
+    return {{PlaylistIdRole, "playlistId"}, {NameRole, "name"}, {ItemCountRole, "itemCount"},
+            {AvailableCountRole, "availableCount"}};
+}
+
+void PlaylistListModel::startLoad()
+{
+    fetchInto(&m_rows, [](const mmm::LibraryQuery &q) { return q.playlists(); });
+}
+
 // --- AlbumListModel ---------------------------------------------------------
 
 void AlbumListModel::setArtistId(int id)
@@ -128,12 +162,7 @@ void AlbumListModel::setGenreId(int id)
 
 QString AlbumListModel::coverUrl(const mmm::AlbumRow &row)
 {
-    if (row.coverPath.isEmpty() && row.artTrackPath.isEmpty())
-        return {};
-    const QByteArray payload = (row.coverPath + QLatin1Char('\n') + row.artTrackPath).toUtf8();
-    return QStringLiteral("image://cover/%1/%2")
-        .arg(row.id)
-        .arg(QString::fromLatin1(payload.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)));
+    return CoverLoader::url(row.id, row.coverPath, row.artTrackPath);
 }
 
 int AlbumListModel::rowCount(const QModelIndex &parent) const
@@ -185,6 +214,15 @@ void TrackListModel::setAlbumId(int id)
         return;
     m_albumId = id;
     Q_EMIT albumIdChanged();
+    reload();
+}
+
+void TrackListModel::setPlaylistId(int id)
+{
+    if (m_playlistId == id)
+        return;
+    m_playlistId = id;
+    Q_EMIT playlistIdChanged();
     reload();
 }
 
@@ -270,6 +308,8 @@ void TrackListModel::startLoad()
     const QString text = m_searchText.trimmed();
     if (!text.isEmpty()) {
         fetchInto(&m_rows, [text, limit = m_searchLimit](const mmm::LibraryQuery &q) { return q.search(text, limit); });
+    } else if (m_playlistId > 0) {
+        fetchInto(&m_rows, [pl = m_playlistId](const mmm::LibraryQuery &q) { return q.playlistTracks(pl); });
     } else if (m_albumId > 0) {
         fetchInto(&m_rows, [album = m_albumId](const mmm::LibraryQuery &q) { return q.albumTracks(album); });
     } else {

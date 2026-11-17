@@ -132,6 +132,16 @@ int CoverLoader::bucketFor(const QSize &requested)
     return kBuckets[std::size(kBuckets) - 1];
 }
 
+QString CoverLoader::url(qint64 key, const QString &folderCover, const QString &artTrack)
+{
+    if (folderCover.isEmpty() && artTrack.isEmpty())
+        return {};
+    const QByteArray payload = (folderCover + QLatin1Char('\n') + artTrack).toUtf8();
+    return QStringLiteral("image://cover/%1/%2")
+        .arg(key)
+        .arg(QString::fromLatin1(payload.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)));
+}
+
 std::pair<QString, QString> CoverLoader::decodeId(const QString &id)
 {
     const qsizetype slash = id.indexOf(QLatin1Char('/'));

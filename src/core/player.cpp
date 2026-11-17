@@ -5,6 +5,7 @@
 
 #include <QLoggingCategory>
 #include <QMetaObject>
+#include <QMutex>
 #include <QTimer>
 
 #include <gst/gst.h>
@@ -60,7 +61,22 @@ struct Player::Private
     // and are ignored.
     std::atomic<quint64> generation{0};
 
+    // Gapless: guarded by nextMutex (about-to-finish runs on a streaming thread).
+    mutable QMutex nextMutex;
+    QUrl nextSource;     // what to continue with
+    QUrl committedNext;  // handed to playbin3; becomes `source` at the next STREAM_START
+    // Whether the current source's own STREAM_START has been handled (UI thread only).
+    // about-to-finish can commit the next URI before that first message is processed
+    // (short local files are read instantly), so only *later* stream starts are advances.
+    bool currentStreamStarted = false;
+
+    ReplayGainMode rgMode = ReplayGainMode::Album;
+    bool rgFilterActive = false;    // whether the pipeline currently has the rgvolume filter
+    GstElement *rgVolume = nullptr; // owned ref while the filter is installed
+
     static GstBusSyncReply busSyncHandler(GstBus *bus, GstMessage *msg, gpointer self);
+    static void onAboutToFinish(GstElement *playbin, gpointer self);
+    void applyAudioFilter(); // only while the pipeline is in NULL/READY
     void handleMessage(GstMessage *msg);
 
     void setState(PlaybackState s);
@@ -93,6 +109,51 @@ GstBusSyncReply Player::Private::busSyncHandler(GstBus *, GstMessage *msg, gpoin
     return GST_BUS_DROP;
 }
 
+// Streaming thread: the current URI has been fully read. Setting "uri" now makes playbin3
+// continue with it seamlessly.
+void Player::Private::onAboutToFinish(GstElement *playbin, gpointer self)
+{
+    auto *d = static_cast<Private *>(self);
+    QByteArray uri;
+    {
+        QMutexLocker lock(&d->nextMutex);
+        if (d->nextSource.isEmpty())
+            return;
+        d->committedNext = d->nextSource;
+        d->nextSource.clear();
+        uri = d->committedNext.toEncoded();
+    }
+    g_object_set(playbin, "uri", uri.constData(), nullptr);
+}
+
+void Player::Private::applyAudioFilter()
+{
+    const bool want = rgMode != ReplayGainMode::Off;
+    if (want == rgFilterActive)
+        return;
+    if (rgVolume) {
+        gst_object_unref(rgVolume);
+        rgVolume = nullptr;
+    }
+    if (!want) {
+        g_object_set(pipeline, "audio-filter", nullptr, nullptr);
+        rgFilterActive = false;
+        return;
+    }
+    GError *err = nullptr;
+    GstElement *bin = gst_parse_bin_from_description("rgvolume name=rg ! rglimiter", TRUE, &err);
+    if (!bin) {
+        qCWarning(lcPlayer) << "ReplayGain unavailable (gst-plugins-good):" << (err ? err->message : "");
+        g_clear_error(&err);
+        return;
+    }
+    g_clear_error(&err);
+    rgVolume = gst_bin_get_by_name(GST_BIN(bin), "rg"); // our ref
+    g_object_set(rgVolume, "album-mode", rgMode == ReplayGainMode::Album, nullptr);
+    g_object_set(pipeline, "audio-filter", bin, nullptr); // playbin takes the floating ref
+    rgFilterActive = true;
+}
+
 void Player::Private::handleMessage(GstMessage *msg)
 {
     const bool fromPipeline = GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline);
@@ -101,6 +162,7 @@ void Player::Private::handleMessage(GstMessage *msg)
     case GST_MESSAGE_EOS:
         changeState(GST_STATE_READY);
         invalidatePendingMessages();
+        currentStreamStarted = false;
         target = PlaybackState::Stopped;
         prerolled = false;
         setPosition(0);
@@ -119,6 +181,7 @@ void Player::Private::handleMessage(GstMessage *msg)
 
         changeState(GST_STATE_NULL);
         invalidatePendingMessages(); // one errorOccurred per failure, not one per element
+        currentStreamStarted = false;
         target = PlaybackState::Stopped;
         prerolled = false;
         pendingSeek = -1;
@@ -169,6 +232,30 @@ void Player::Private::handleMessage(GstMessage *msg)
     case GST_MESSAGE_DURATION_CHANGED:
         queryDurationAndSeekable();
         break;
+
+    case GST_MESSAGE_STREAM_START: {
+        if (!fromPipeline)
+            break;
+        if (!currentStreamStarted) {
+            currentStreamStarted = true; // the current source itself starting, never an advance
+            break;
+        }
+        QUrl next;
+        {
+            QMutexLocker lock(&nextMutex);
+            next = committedNext;
+            committedNext.clear();
+        }
+        if (next.isEmpty())
+            break;
+        source = next;
+        setPosition(0);
+        setDuration(-1); // re-queried as soon as the new stream reports it
+        queryDurationAndSeekable();
+        Q_EMIT q->sourceChanged(source);
+        Q_EMIT q->advancedToNext(source);
+        break;
+    }
 
     default:
         break;
@@ -224,6 +311,8 @@ void Player::Private::setSeekable(bool s)
 
 void Player::Private::updatePosition()
 {
+    if (duration < 0)
+        queryDurationAndSeekable(); // after a gapless switch the duration arrives a bit later
     gint64 pos = 0;
     if (gst_element_query_position(pipeline, GST_FORMAT_TIME, &pos) && pos >= 0)
         setPosition(nsToMs(pos));
@@ -272,6 +361,8 @@ Player::Player(const PlayerOptions &options, QObject *parent)
     gst_object_ref_sink(d->pipeline);
 
     g_object_set(d->pipeline, "flags", kPlayFlagAudio | kPlayFlagSoftVolume, nullptr);
+    g_signal_connect(d->pipeline, "about-to-finish", G_CALLBACK(&Private::onAboutToFinish), d.get());
+    d->applyAudioFilter();
 
     if (!options.audioSink.isEmpty()) {
         GError *err = nullptr;
@@ -301,6 +392,8 @@ Player::~Player()
     GstBus *bus = gst_element_get_bus(d->pipeline);
     gst_bus_set_sync_handler(bus, nullptr, nullptr, nullptr);
     gst_object_unref(bus);
+    if (d->rgVolume)
+        gst_object_unref(d->rgVolume);
     gst_object_unref(d->pipeline);
     // Queued message functors still pending for `this` are discarded by ~QObject,
     // which releases their message refs.
@@ -310,8 +403,15 @@ QUrl Player::source() const { return d->source; }
 
 void Player::setSource(const QUrl &url)
 {
-    d->changeState(GST_STATE_READY);
+    d->changeState(GST_STATE_READY); // streaming threads stopped: no about-to-finish now
     d->invalidatePendingMessages();
+    {
+        QMutexLocker lock(&d->nextMutex);
+        d->nextSource.clear();
+        d->committedNext.clear();
+    }
+    d->currentStreamStarted = false;
+    d->applyAudioFilter();
     d->target = PlaybackState::Stopped;
     d->setState(PlaybackState::Stopped);
     d->resetStreamInfo();
@@ -323,6 +423,41 @@ void Player::setSource(const QUrl &url)
 
     if (changed)
         Q_EMIT sourceChanged(url);
+}
+
+void Player::setNextSource(const QUrl &url)
+{
+    QMutexLocker lock(&d->nextMutex);
+    d->nextSource = url;
+}
+
+QUrl Player::nextSource() const
+{
+    QMutexLocker lock(&d->nextMutex);
+    return d->nextSource;
+}
+
+Player::ReplayGainMode Player::replayGainMode() const { return d->rgMode; }
+
+void Player::setReplayGainMode(ReplayGainMode mode)
+{
+    if (d->rgMode == mode)
+        return;
+    d->rgMode = mode;
+    if (d->rgVolume && mode != ReplayGainMode::Off)
+        g_object_set(d->rgVolume, "album-mode", mode == ReplayGainMode::Album, nullptr);
+    if (d->state == PlaybackState::Stopped)
+        d->applyAudioFilter(); // pipeline is at READY/NULL: safe to swap the filter
+    Q_EMIT replayGainModeChanged(mode);
+}
+
+double Player::replayGainDb() const
+{
+    if (!d->rgVolume || d->rgMode == ReplayGainMode::Off)
+        return 0.0;
+    gdouble gain = 0.0;
+    g_object_get(d->rgVolume, "result-gain", &gain, nullptr);
+    return gain;
 }
 
 Player::PlaybackState Player::playbackState() const { return d->state; }
@@ -365,6 +500,17 @@ void Player::stop()
     d->target = PlaybackState::Stopped;
     d->changeState(GST_STATE_READY);
     d->invalidatePendingMessages();
+    {
+        // A committed next was already handed to playbin3; stopping cancels it.
+        QMutexLocker lock(&d->nextMutex);
+        d->committedNext.clear();
+    }
+    // Committing the next track overwrote playbin3's "uri"; point it back at the current
+    // source, or play() after stop() would start the next track instead.
+    const QByteArray uri = d->source.toEncoded();
+    g_object_set(d->pipeline, "uri", uri.isEmpty() ? nullptr : uri.constData(), nullptr);
+    d->currentStreamStarted = false;
+    d->applyAudioFilter();
     d->prerolled = false;
     d->pendingSeek = -1;
     d->setPosition(0);
@@ -378,13 +524,14 @@ void Player::seek(qint64 positionMs)
         positionMs = std::min(positionMs, d->duration);
 
     if (!d->prerolled) {
-        d->pendingSeek = positionMs;
+        d->pendingSeek = positionMs; // applied (and seeked() emitted) once prerolled
         return;
     }
     const auto flags = static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE);
-    if (gst_element_seek_simple(d->pipeline, GST_FORMAT_TIME, flags, msToNs(positionMs)))
+    if (gst_element_seek_simple(d->pipeline, GST_FORMAT_TIME, flags, msToNs(positionMs))) {
         d->setPosition(positionMs);
-    else
+        Q_EMIT seeked(positionMs);
+    } else
         qCWarning(lcPlayer) << "seek failed:" << positionMs << "ms";
 }
 

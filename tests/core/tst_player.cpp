@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <QElapsedTimer>
+#include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+
+#include <taglib/fileref.h>
+#include <taglib/tpropertymap.h>
 
 #include "player.h"
 #include "testmedia.h"
@@ -250,6 +255,123 @@ private Q_SLOTS:
         waitForState(p, State::Playing);
         QTRY_COMPARE_WITH_TIMEOUT(eos.count(), 1, kTimeoutMs);
         QCOMPARE(errors.count(), 0);
+    }
+
+    // --- Gapless (M5) ---
+
+    void gaplessChainAcrossFormats()
+    {
+        Player p(testOptions());
+        QSignalSpy advanced(&p, &Player::advancedToNext);
+        QSignalSpy eos(&p, &Player::endOfStream);
+        QSignalSpy states(&p, &Player::playbackStateChanged);
+        QSignalSpy errors(&p, &Player::errorOccurred);
+        const QUrl a = QUrl::fromLocalFile(m_flac), b = QUrl::fromLocalFile(m_mp3), c = QUrl::fromLocalFile(m_wav);
+
+        // Queue the following track each time one starts, like the controller does.
+        connect(&p, &Player::advancedToNext, &p, [&](const QUrl &url) {
+            if (url == b)
+                p.setNextSource(c);
+        });
+        p.setSource(a);
+        p.setNextSource(b);
+        QCOMPARE(p.nextSource(), b);
+        QElapsedTimer t;
+        t.start();
+        p.play();
+        waitForState(p, State::Playing);
+        states.clear();
+
+        QTRY_COMPARE_WITH_TIMEOUT(advanced.count(), 1, kTimeoutMs);
+        QCOMPARE(advanced.at(0).at(0).toUrl(), b);
+        QCOMPARE(p.source(), b);
+        QVERIFY2(p.position() < 1000, qPrintable(QString::number(p.position()))); // position restarts per track
+        QTRY_VERIFY_WITH_TIMEOUT(p.duration() > 0, kTimeoutMs); // re-queried for the new track
+
+        QTRY_COMPARE_WITH_TIMEOUT(advanced.count(), 2, kTimeoutMs);
+        QCOMPARE(advanced.at(1).at(0).toUrl(), c);
+        QTRY_COMPARE_WITH_TIMEOUT(eos.count(), 1, kTimeoutMs);
+        const qint64 elapsed = t.elapsed();
+
+        // Never stopped between tracks: the only state change is the final Stopped.
+        QCOMPARE(states.count(), 1);
+        QCOMPARE(states.at(0).at(0).value<State>(), State::Stopped);
+        QCOMPARE(errors.count(), 0);
+        // Three 2 s tracks back to back (real-time sink): ~6 s, without per-track restarts.
+        QVERIFY2(elapsed > 5500 && elapsed < 9000, qPrintable(QString::number(elapsed)));
+    }
+
+    void nextSourceClearedBySetSourceAndStop()
+    {
+        Player p(testOptions());
+        QSignalSpy advanced(&p, &Player::advancedToNext);
+        QSignalSpy eos(&p, &Player::endOfStream);
+        p.setSource(QUrl::fromLocalFile(m_flac));
+        p.setNextSource(QUrl::fromLocalFile(m_wav));
+        p.setSource(QUrl::fromLocalFile(m_mp3)); // replacing the source discards the next one
+        QVERIFY(p.nextSource().isEmpty());
+        p.play();
+        QTRY_COMPARE_WITH_TIMEOUT(eos.count(), 1, kTimeoutMs);
+        QCOMPARE(advanced.count(), 0);
+
+        // stop() after the next was committed (very early for short local files) cancels it.
+        p.setSource(QUrl::fromLocalFile(m_flac));
+        p.setNextSource(QUrl::fromLocalFile(m_wav));
+        p.play();
+        waitForState(p, State::Playing);
+        QTest::qWait(300);
+        p.stop();
+        p.play(); // replays the current source, not the cancelled next one
+        QTRY_COMPARE_WITH_TIMEOUT(eos.count(), 2, kTimeoutMs);
+        QCOMPARE(advanced.count(), 0);
+    }
+
+    // --- ReplayGain (M5) ---
+
+    void replayGain()
+    {
+        const QString tagged = m_dir.filePath(QStringLiteral("rg.flac"));
+        QVERIFY(QFile::copy(m_flac, tagged));
+        QFile::setPermissions(tagged, QFile::ReadOwner | QFile::WriteOwner);
+        {
+            const QByteArray name = QFile::encodeName(tagged);
+            TagLib::FileRef ref(name.constData());
+            TagLib::PropertyMap props;
+            props.replace("REPLAYGAIN_TRACK_GAIN", TagLib::String("-6.00 dB"));
+            props.replace("REPLAYGAIN_TRACK_PEAK", TagLib::String("0.5"));
+            props.replace("REPLAYGAIN_ALBUM_GAIN", TagLib::String("-9.00 dB"));
+            props.replace("REPLAYGAIN_ALBUM_PEAK", TagLib::String("0.5"));
+            ref.setProperties(props);
+            QVERIFY(ref.save());
+        }
+
+        auto appliedGain = [&](Player::ReplayGainMode mode, const QString &file) {
+            Player p(testOptions());
+            p.setReplayGainMode(mode);
+            p.setSource(QUrl::fromLocalFile(file));
+            p.play();
+            if (!QTest::qWaitFor([&] { return p.playbackState() == State::Playing; }, kTimeoutMs))
+                return 999.0;
+            QTest::qWait(300); // tags reach rgvolume with the first buffers
+            return p.replayGainDb();
+        };
+
+        QCOMPARE(Player(testOptions()).replayGainMode(), Player::ReplayGainMode::Album); // default
+        QVERIFY(qAbs(appliedGain(Player::ReplayGainMode::Track, tagged) - (-6.0)) < 0.01);
+        QVERIFY(qAbs(appliedGain(Player::ReplayGainMode::Album, tagged) - (-9.0)) < 0.01);
+        QCOMPARE(appliedGain(Player::ReplayGainMode::Off, tagged), 0.0);
+        QCOMPARE(appliedGain(Player::ReplayGainMode::Album, m_flac), 0.0); // untagged: no change
+
+        // Off → Album while stopped installs the filter right away.
+        Player p(testOptions());
+        p.setReplayGainMode(Player::ReplayGainMode::Off);
+        QSignalSpy modeSpy(&p, &Player::replayGainModeChanged);
+        p.setReplayGainMode(Player::ReplayGainMode::Album);
+        QCOMPARE(modeSpy.count(), 1);
+        p.setSource(QUrl::fromLocalFile(tagged));
+        p.play();
+        waitForState(p, State::Playing);
+        QTRY_VERIFY_WITH_TIMEOUT(qAbs(p.replayGainDb() - (-9.0)) < 0.01, kTimeoutMs);
     }
 
     void destroyWhilePlaying()

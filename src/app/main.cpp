@@ -11,6 +11,7 @@
 #include "apppaths.h"
 #include "coverimageprovider.h"
 #include "library.h"
+#include "playback.h"
 
 int main(int argc, char *argv[])
 {
@@ -34,6 +35,8 @@ int main(int argc, char *argv[])
         QStringLiteral("FILE"), mmm::AppPaths::defaultDatabasePath());
     const QCommandLineOption noScanOpt(
         QStringLiteral("no-scan"), QStringLiteral("Don't scan or watch the library folders."));
+    const QCommandLineOption noMprisOpt(
+        QStringLiteral("no-mpris"), QStringLiteral("Don't register on D-Bus (no media keys / desktop controls)."));
     QCommandLineOption screenshotOpt(
         QStringLiteral("screenshot"), QStringLiteral("Save a PNG of the window after loading, then exit."),
         QStringLiteral("FILE"));
@@ -42,7 +45,7 @@ int main(int argc, char *argv[])
         QStringLiteral("screenshot-delay"), QStringLiteral("Milliseconds to wait before --screenshot."),
         QStringLiteral("MS"), QStringLiteral("1500"));
     screenshotDelayOpt.setFlags(QCommandLineOption::HiddenFromHelp);
-    parser.addOptions({quitAfterLoad, databaseOpt, noScanOpt, screenshotOpt, screenshotDelayOpt});
+    parser.addOptions({quitAfterLoad, databaseOpt, noScanOpt, noMprisOpt, screenshotOpt, screenshotDelayOpt});
     parser.process(app);
 
     // Fusion follows the desktop palette (light/dark) and looks the same everywhere.
@@ -55,6 +58,8 @@ int main(int argc, char *argv[])
 
     // Created before (and so destroyed after) the QML engine that uses it.
     Library library({.databasePath = databasePath, .scanOnStart = scan, .watch = scan});
+    Playback playback({.player = {}, .mpris = !parser.isSet(noMprisOpt), .persistSettings = true});
+    QObject::connect(&playback, &Playback::quitRequested, &app, &QCoreApplication::quit);
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("cover"), new CoverImageProvider(mmm::AppPaths::coverCacheDir()));
@@ -65,6 +70,14 @@ int main(int argc, char *argv[])
 
     if (engine.rootObjects().isEmpty())
         return EXIT_FAILURE;
+
+    if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst())) {
+        QObject::connect(&playback, &Playback::raiseRequested, window, [window] {
+            window->show();
+            window->raise();
+            window->requestActivate();
+        });
+    }
 
     if (parser.isSet(quitAfterLoad))
         QTimer::singleShot(0, &app, &QCoreApplication::quit);

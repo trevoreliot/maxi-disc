@@ -50,6 +50,19 @@ struct TrackRow
     int year = 0;
     qint64 durationMs = 0;
     QString codec;
+    QString coverPath;          // the album's folder art, if any
+    bool hasEmbeddedArt = false;
+
+    // Folder art if there is some, else this track's own embedded art (empty if neither).
+    QString artSourcePath() const { return !coverPath.isEmpty() ? coverPath : (hasEmbeddedArt ? path : QString()); }
+};
+
+struct PlaylistRow
+{
+    qint64 id = 0;
+    QString name;
+    int itemCount = 0;      // entries in the playlist
+    int availableCount = 0; // entries whose file is in the library
 };
 
 struct LibraryCounts
@@ -77,6 +90,13 @@ public:
     QList<AlbumRow> albums(qint64 artistId = 0, qint64 genreId = 0) const;
     // An album's tracks by disc, track number, then title.
     QList<TrackRow> albumTracks(qint64 albumId) const;
+    // Playlists by name.
+    QList<PlaylistRow> playlists() const;
+    // A playlist's tracks in order; entries whose file isn't in the library are skipped.
+    QList<TrackRow> playlistTracks(qint64 playlistId) const;
+    // Library tracks for these file paths, in the given order (unknown paths skipped).
+    QList<TrackRow> tracksByPaths(const QStringList &paths) const;
+
     // Rows for these track ids, in the given order (missing ids are skipped).
     QList<TrackRow> tracksByIds(const QList<qint64> &ids) const;
     // Full-text search (see Database::search), best match first.

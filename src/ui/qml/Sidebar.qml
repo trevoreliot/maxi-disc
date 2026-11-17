@@ -3,20 +3,37 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
-// Browse by album artist or by genre. Id 0 means "all".
+// Browse by album artist, genre, or playlist. Id 0 means "all" / none.
 Pane {
     id: root
 
     property int artistId: 0
     property int genreId: 0
+    property int playlistId: 0
 
     // Emitted when the user picks an entry; name is "" for "all".
     signal artistSelected(int artistId, string name)
     signal genreSelected(int genreId, string name)
+    signal playlistSelected(int playlistId, string name, int itemCount)
 
     padding: 0
+
+    FileDialog {
+        id: importDialog
+        title: qsTr("Import playlist")
+        nameFilters: [qsTr("Playlists (*.m3u *.m3u8)")]
+        onAccepted: {
+            const id = Library.importPlaylist(selectedFile);
+            if (id > 0) {
+                // Same name Library gives it: the file's base name.
+                const file = decodeURIComponent(selectedFile.toString().split("/").pop());
+                root.playlistSelected(id, file.replace(/\.m3u8?$/i, ""), -1);
+            }
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -31,6 +48,9 @@ Pane {
             }
             TabButton {
                 text: qsTr("Genres")
+            }
+            TabButton {
+                text: qsTr("Playlists")
             }
         }
 
@@ -115,6 +135,56 @@ Pane {
                             opacity: 0.5
                         }
                     }
+                }
+            }
+
+            ListView {
+                id: playlistList
+                objectName: "playlistList"
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                model: PlaylistListModel {}
+                ScrollBar.vertical: ScrollBar {}
+
+                header: ItemDelegate {
+                    width: playlistList.width
+                    text: qsTr("Import .m3u…")
+                    font.bold: true
+                    onClicked: importDialog.open()
+                }
+
+                delegate: ItemDelegate {
+                    id: playlistRow
+                    required property int playlistId
+                    required property string name
+                    required property int itemCount
+                    required property int availableCount
+
+                    width: playlistList.width
+                    highlighted: root.playlistId === playlistId
+                    onClicked: root.playlistSelected(playlistId, name, itemCount)
+
+                    contentItem: RowLayout {
+                        Label {
+                            Layout.fillWidth: true
+                            text: playlistRow.name
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            text: playlistRow.availableCount
+                            opacity: 0.5
+                        }
+                    }
+                }
+
+                Label {
+                    anchors.centerIn: parent
+                    visible: playlistList.count === 0
+                    width: parent.width - 24
+                    wrapMode: Text.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                    text: qsTr("No playlists yet. Save the queue as one, or import an .m3u file.")
+                    opacity: 0.6
                 }
             }
         }

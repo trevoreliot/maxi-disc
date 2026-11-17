@@ -23,6 +23,10 @@ public:
 
     // Folder cover path and art track path encoded in an id.
     static std::pair<QString, QString> decodeId(const QString &id);
+
+    // "image://cover/<key>/<base64url(folderCover \n artTrack)>", or "" when both are empty.
+    // `key` only keeps URLs of different albums apart in QML's image cache.
+    static QString url(qint64 key, const QString &folderCover, const QString &artTrack);
 };
 
 // QML image provider "cover": image://cover/<id>. Loads on its own thread pool.

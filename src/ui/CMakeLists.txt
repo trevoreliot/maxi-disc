@@ -12,11 +12,16 @@ qt_add_qml_module(mmm_ui
         qml/SearchResults.qml
         qml/CoverArt.qml
         qml/EmptyLibrary.qml
+        qml/NowPlayingBar.qml
+        qml/QueuePanel.qml
+        qml/PlaylistPage.qml
+        qml/TextPrompt.qml
     SOURCES
         appbridge.h appbridge.cpp
         library.h library.cpp
         librarymodels.h librarymodels.cpp
-        coverimageprovider.h coverimageprovider.cpp)
+        coverimageprovider.h coverimageprovider.cpp
+        playback.h playback.cpp)
 
 target_link_libraries(mmm_ui
     PUBLIC Qt6::Quick Qt6::QuickControls2 Qt6::Concurrent mmm_core

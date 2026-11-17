@@ -90,6 +90,15 @@ public:
     // Clears folder art paths whose file no longer exists. Returns albums changed.
     int clearMissingCovers();
 
+    // --- Playlists (items are file paths, in order; duplicates allowed) ---
+    std::optional<qint64> createPlaylist(const QString &name, const QStringList &paths = {},
+                                         QString *error = nullptr);
+    bool renamePlaylist(qint64 id, const QString &name);
+    bool deletePlaylist(qint64 id);
+    bool setPlaylistPaths(qint64 id, const QStringList &paths, QString *error = nullptr);
+    bool appendToPlaylist(qint64 id, const QStringList &paths, QString *error = nullptr);
+    QStringList playlistPaths(qint64 id) const;
+
     // Full-text search over title / artist / album / album artist / genre / composer.
     // Every word is a prefix match ("beat abb" finds "The Beatles – Abbey Road").
     // Returns track ids, best match first.

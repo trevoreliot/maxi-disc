@@ -45,14 +45,20 @@ Pane {
             delegate: ItemDelegate {
                 id: row
 
+                required property int index
+                required property int trackId
                 required property string title
                 required property string artist
                 required property string album
                 required property string duration
 
+                readonly property bool playingNow: trackId === Playback.currentTrackId
+
                 width: list.width
                 leftPadding: 16
                 rightPadding: 16
+                // Plays the results from here, so "next" continues through them.
+                onDoubleClicked: Playback.playFromModel(results, index)
 
                 contentItem: RowLayout {
                     spacing: 12
@@ -60,7 +66,8 @@ Pane {
                     Label {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 4
-                        text: row.title
+                        text: (row.playingNow ? "▶ " : "") + row.title
+                        font.bold: row.playingNow
                         elide: Text.ElideRight
                     }
                     Label {

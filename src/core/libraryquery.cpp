@@ -20,7 +20,7 @@ namespace {
 
 const QString kTrackSelect = QStringLiteral(R"(
     SELECT t.id, t.path, t.title, ar.name, al.title, t.album_id, aa.name,
-           t.track_no, t.disc_no, t.year, t.duration_ms, t.codec
+           t.track_no, t.disc_no, t.year, t.duration_ms, t.codec, al.cover_path, t.has_embedded_art
     FROM tracks t
     LEFT JOIN artists ar ON ar.id = t.artist_id
     LEFT JOIN albums  al ON al.id = t.album_id
@@ -41,6 +41,8 @@ TrackRow trackFrom(const QSqlQuery &q)
     r.year = q.value(9).toInt();
     r.durationMs = q.value(10).toLongLong();
     r.codec = q.value(11).toString();
+    r.coverPath = q.value(12).toString();
+    r.hasEmbeddedArt = q.value(13).toInt() != 0;
     return r;
 }
 
@@ -247,6 +249,55 @@ QList<TrackRow> LibraryQuery::tracksByIds(const QList<qint64> &ids) const
         const auto it = byId.constFind(id);
         if (it != byId.cend())
             rows << *it;
+    }
+    return rows;
+}
+
+QList<PlaylistRow> LibraryQuery::playlists() const
+{
+    QList<PlaylistRow> rows;
+    QSqlQuery q(m_db.connection());
+    q.setForwardOnly(true);
+    q.prepare(QStringLiteral(R"(
+        SELECT p.id, p.name, count(i.path), count(t.id)
+        FROM playlists p
+        LEFT JOIN playlist_items i ON i.playlist_id = p.id
+        LEFT JOIN tracks t ON t.path = i.path
+        GROUP BY p.id)"));
+    if (!run(q))
+        return rows;
+    while (q.next())
+        rows << PlaylistRow{q.value(0).toLongLong(), q.value(1).toString(), q.value(2).toInt(), q.value(3).toInt()};
+    sortBy(rows, [](const PlaylistRow &r) { return r.name; },
+           [](const PlaylistRow &a, const PlaylistRow &b) { return a.id < b.id; });
+    return rows;
+}
+
+QList<TrackRow> LibraryQuery::playlistTracks(qint64 playlistId) const
+{
+    QList<TrackRow> rows;
+    QSqlQuery q(m_db.connection());
+    q.setForwardOnly(true);
+    q.prepare(kTrackSelect + QStringLiteral(" JOIN playlist_items i ON i.path = t.path "
+                                            "WHERE i.playlist_id = ? ORDER BY i.position"));
+    q.addBindValue(playlistId);
+    if (!run(q))
+        return rows;
+    while (q.next())
+        rows << trackFrom(q);
+    return rows;
+}
+
+QList<TrackRow> LibraryQuery::tracksByPaths(const QStringList &paths) const
+{
+    QList<TrackRow> rows;
+    QSqlQuery q(m_db.connection());
+    q.prepare(kTrackSelect + QStringLiteral(" WHERE t.path = ?"));
+    for (const QString &path : paths) {
+        q.addBindValue(path);
+        if (run(q) && q.next())
+            rows << trackFrom(q);
+        q.finish();
     }
     return rows;
 }

@@ -96,9 +96,30 @@ QStringList migrationV1()
     };
 }
 
+// v2 (M5): playlists. Items reference tracks by path, not id, so playlists survive a
+// track being removed and re-added by a rescan (which gives it a new id).
+QStringList migrationV2()
+{
+    const QString now = QString::fromLatin1(kNow);
+    return {
+        QStringLiteral(R"(CREATE TABLE playlists (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL,
+            created_at  INTEGER NOT NULL DEFAULT %1,
+            updated_at  INTEGER NOT NULL DEFAULT %1))").arg(now),
+        QStringLiteral(R"(CREATE TABLE playlist_items (
+            playlist_id  INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+            position     INTEGER NOT NULL,
+            path         TEXT NOT NULL,
+            PRIMARY KEY (playlist_id, position)) WITHOUT ROWID)"),
+        QStringLiteral("CREATE INDEX playlist_items_path ON playlist_items(path)"),
+    };
+}
+
 using Migration = QStringList (*)();
 constexpr Migration kMigrations[] = {
     &migrationV1,
+    &migrationV2,
 };
 
 QVariant nullIfEmpty(const QString &s) { return s.isEmpty() ? QVariant() : QVariant(s); }
@@ -588,6 +609,108 @@ std::optional<qint64> Database::trackIdByPath(const QString &path) const
     if (q.exec() && q.next())
         return q.value(0).toLongLong();
     return std::nullopt;
+}
+
+std::optional<qint64> Database::createPlaylist(const QString &name, const QStringList &paths, QString *error)
+{
+    if (!exec(QStringLiteral("SAVEPOINT create_playlist"), error))
+        return std::nullopt;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("INSERT INTO playlists (name) VALUES (?) RETURNING id"));
+    q.addBindValue(name.trimmed().isEmpty() ? QStringLiteral("Untitled playlist") : name.trimmed());
+    const auto id = execReturningId(q, error);
+    if (!id || !setPlaylistPaths(*id, paths, error)) {
+        exec(QStringLiteral("ROLLBACK TO create_playlist"), nullptr);
+        exec(QStringLiteral("RELEASE create_playlist"), nullptr);
+        return std::nullopt;
+    }
+    if (!exec(QStringLiteral("RELEASE create_playlist"), error))
+        return std::nullopt;
+    return id;
+}
+
+bool Database::renamePlaylist(qint64 id, const QString &name)
+{
+    if (name.trimmed().isEmpty())
+        return false;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE playlists SET name = ?, updated_at = %1 WHERE id = ?").arg(QString::fromLatin1(kNow)));
+    q.addBindValue(name.trimmed());
+    q.addBindValue(id);
+    return q.exec() && q.numRowsAffected() == 1;
+}
+
+bool Database::deletePlaylist(qint64 id)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM playlists WHERE id = ?")); // items cascade
+    q.addBindValue(id);
+    return q.exec() && q.numRowsAffected() == 1;
+}
+
+bool Database::setPlaylistPaths(qint64 id, const QStringList &paths, QString *error)
+{
+    if (!exec(QStringLiteral("SAVEPOINT set_playlist"), error))
+        return false;
+    QSqlQuery del(m_db);
+    del.prepare(QStringLiteral("DELETE FROM playlist_items WHERE playlist_id = ?"));
+    del.addBindValue(id);
+    bool ok = del.exec();
+    if (ok)
+        ok = appendToPlaylist(id, paths, error);
+    else if (error)
+        *error = describe(del);
+    if (ok) {
+        QSqlQuery touch(m_db);
+        touch.prepare(QStringLiteral("UPDATE playlists SET updated_at = %1 WHERE id = ?").arg(QString::fromLatin1(kNow)));
+        touch.addBindValue(id);
+        touch.exec();
+    }
+    exec(ok ? QStringLiteral("RELEASE set_playlist") : QStringLiteral("ROLLBACK TO set_playlist"), nullptr);
+    if (!ok)
+        exec(QStringLiteral("RELEASE set_playlist"), nullptr);
+    return ok;
+}
+
+bool Database::appendToPlaylist(qint64 id, const QStringList &paths, QString *error)
+{
+    QSqlQuery next(m_db);
+    next.prepare(QStringLiteral("SELECT coalesce(max(position) + 1, 0) FROM playlist_items WHERE playlist_id = ?"));
+    next.addBindValue(id);
+    if (!next.exec() || !next.next()) {
+        if (error)
+            *error = describe(next);
+        return false;
+    }
+    qint64 position = next.value(0).toLongLong();
+    next.finish();
+
+    QSqlQuery ins(m_db);
+    ins.prepare(QStringLiteral("INSERT INTO playlist_items (playlist_id, position, path) VALUES (?, ?, ?)"));
+    for (const QString &path : paths) {
+        ins.addBindValue(id);
+        ins.addBindValue(position++);
+        ins.addBindValue(path);
+        if (!ins.exec()) {
+            if (error)
+                *error = describe(ins);
+            return false;
+        }
+    }
+    return true;
+}
+
+QStringList Database::playlistPaths(qint64 id) const
+{
+    QStringList out;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT path FROM playlist_items WHERE playlist_id = ? ORDER BY position"));
+    q.addBindValue(id);
+    if (q.exec()) {
+        while (q.next())
+            out << q.value(0).toString();
+    }
+    return out;
 }
 
 QString Database::toFtsQuery(const QString &text)

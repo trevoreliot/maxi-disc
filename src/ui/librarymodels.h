@@ -175,14 +175,36 @@ private:
     QList<mmm::AlbumRow> m_rows;
 };
 
-// Tracks: search results when searchText is set, otherwise an album's tracks (albumId),
-// otherwise empty. Roles: trackId, path, title, artist, album, albumId, albumArtist,
+// Playlists. Roles: playlistId, name, itemCount, availableCount.
+class PlaylistListModel : public LibraryListModel
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+public:
+    enum Role { PlaylistIdRole = Qt::UserRole + 1, NameRole, ItemCountRole, AvailableCountRole };
+    using LibraryListModel::LibraryListModel;
+
+    int rowCount(const QModelIndex &parent = {}) const override;
+    QVariant data(const QModelIndex &index, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
+
+protected:
+    void startLoad() override;
+
+private:
+    QList<mmm::PlaylistRow> m_rows;
+};
+
+// Tracks: search results when searchText is set, otherwise a playlist's tracks
+// (playlistId), otherwise an album's tracks (albumId), otherwise empty. Roles: trackId, path, title, artist, album, albumId, albumArtist,
 // trackNumber, discNumber, year, durationMs, duration (formatted), codec.
 class TrackListModel : public LibraryListModel
 {
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(int albumId READ albumId WRITE setAlbumId NOTIFY albumIdChanged FINAL)
+    Q_PROPERTY(int playlistId READ playlistId WRITE setPlaylistId NOTIFY playlistIdChanged FINAL)
     Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY searchTextChanged FINAL)
     Q_PROPERTY(int searchLimit READ searchLimit WRITE setSearchLimit NOTIFY searchLimitChanged FINAL)
     Q_PROPERTY(qint64 totalDurationMs READ totalDurationMs NOTIFY countChanged FINAL)
@@ -208,12 +230,15 @@ public:
 
     int albumId() const { return static_cast<int>(m_albumId); }
     void setAlbumId(int id);
+    int playlistId() const { return static_cast<int>(m_playlistId); }
+    void setPlaylistId(int id);
     QString searchText() const { return m_searchText; }
     void setSearchText(const QString &text);
     int searchLimit() const { return m_searchLimit; }
     void setSearchLimit(int limit);
     qint64 totalDurationMs() const;
     int discCount() const; // distinct disc numbers (an album shown with "Disc N" headers if > 1)
+    const QList<mmm::TrackRow> &rows() const { return m_rows; }
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -221,6 +246,7 @@ public:
 
 Q_SIGNALS:
     void albumIdChanged();
+    void playlistIdChanged();
     void searchTextChanged();
     void searchLimitChanged();
 
@@ -229,6 +255,7 @@ protected:
 
 private:
     qint64 m_albumId = 0;
+    qint64 m_playlistId = 0;
     QString m_searchText;
     int m_searchLimit = 500;
     QList<mmm::TrackRow> m_rows;

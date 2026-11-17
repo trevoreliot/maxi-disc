@@ -16,6 +16,7 @@ Pane {
     property string coverUrl
 
     readonly property alias trackCount: tracks.count
+    readonly property alias tracksModel: tracks
 
     signal back()
 
@@ -79,6 +80,27 @@ Pane {
                     }
                     opacity: 0.7
                 }
+                RowLayout {
+                    spacing: 8
+
+                    Button {
+                        objectName: "playAlbumButton"
+                        text: qsTr("▶ Play")
+                        highlighted: true
+                        enabled: tracks.count > 0
+                        onClicked: Playback.playFromModel(tracks, 0)
+                    }
+                    Button {
+                        text: qsTr("Add to queue")
+                        enabled: tracks.count > 0
+                        onClicked: Playback.enqueueFromModel(tracks, false)
+                    }
+                    Button {
+                        text: qsTr("Play next")
+                        enabled: tracks.count > 0
+                        onClicked: Playback.enqueueFromModel(tracks, true)
+                    }
+                }
             }
         }
 
@@ -106,14 +128,19 @@ Pane {
             delegate: ItemDelegate {
                 id: row
 
+                required property int index
+                required property int trackId
                 required property int trackNumber
                 required property string title
                 required property string artist
                 required property string duration
 
+                readonly property bool playingNow: trackId === Playback.currentTrackId
+
                 width: list.width
                 leftPadding: 16
                 rightPadding: 16
+                onDoubleClicked: Playback.playFromModel(tracks, index)
 
                 contentItem: RowLayout {
                     spacing: 12
@@ -121,12 +148,13 @@ Pane {
                     Label {
                         Layout.preferredWidth: 28
                         horizontalAlignment: Text.AlignRight
-                        text: row.trackNumber > 0 ? row.trackNumber : ""
+                        text: row.playingNow ? "▶" : (row.trackNumber > 0 ? row.trackNumber : "")
                         opacity: 0.6
                     }
                     Label {
                         Layout.fillWidth: true
                         text: row.title
+                        font.bold: row.playingNow
                         elide: Text.ElideRight
                     }
                     Label {

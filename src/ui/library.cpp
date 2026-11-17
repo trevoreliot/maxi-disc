@@ -3,6 +3,9 @@
 
 #include "database.h"
 #include "libraryscanner.h"
+#include "m3u.h"
+
+#include <QFileInfo>
 
 #include <QJSEngine>
 #include <QLoggingCategory>
@@ -26,6 +29,10 @@ Library::Library(const Options &options, QObject *parent)
 
     QString error;
     m_ready = m_scanner->open(&error);
+    if (m_ready) {
+        m_db = std::make_unique<mmm::Database>();
+        m_ready = m_db->open(m_databasePath, &error);
+    }
     if (!m_ready) {
         setError(QStringLiteral("Cannot open the library database %1: %2").arg(m_databasePath, error));
         return;
@@ -118,6 +125,112 @@ bool Library::removeFolder(const QString &path)
 void Library::rescan()
 {
     m_scanner->scan();
+}
+
+void Library::clearError()
+{
+    if (m_error.isEmpty())
+        return;
+    m_error.clear();
+    Q_EMIT errorStringChanged();
+}
+
+void Library::setStatusMessage(const QString &message)
+{
+    m_statusMessage = message;
+    Q_EMIT statusMessageChanged();
+}
+
+int Library::createPlaylist(const QString &name, const QStringList &paths)
+{
+    if (!m_db)
+        return 0;
+    QString error;
+    const auto id = m_db->createPlaylist(name, paths, &error);
+    if (!id) {
+        setError(QStringLiteral("Cannot create playlist: %1").arg(error));
+        return 0;
+    }
+    Q_EMIT changed();
+    return static_cast<int>(*id);
+}
+
+bool Library::renamePlaylist(int id, const QString &name)
+{
+    const bool ok = m_db && m_db->renamePlaylist(id, name);
+    if (ok)
+        Q_EMIT changed();
+    return ok;
+}
+
+bool Library::deletePlaylist(int id)
+{
+    const bool ok = m_db && m_db->deletePlaylist(id);
+    if (ok)
+        Q_EMIT changed();
+    return ok;
+}
+
+bool Library::appendToPlaylist(int id, const QStringList &paths)
+{
+    QString error;
+    const bool ok = m_db && m_db->appendToPlaylist(id, paths, &error);
+    if (ok)
+        Q_EMIT changed();
+    else
+        setError(QStringLiteral("Cannot add to playlist: %1").arg(error));
+    return ok;
+}
+
+int Library::importPlaylist(const QUrl &file)
+{
+    const QString path = file.isLocalFile() ? file.toLocalFile() : file.toString();
+    QList<mmm::M3u::Entry> entries;
+    QString error;
+    if (!mmm::M3u::read(path, &entries, &error)) {
+        setError(QStringLiteral("Cannot read %1: %2").arg(path, error));
+        return 0;
+    }
+    QStringList paths;
+    for (const auto &e : std::as_const(entries))
+        paths << e.path;
+    const int id = createPlaylist(QFileInfo(path).completeBaseName(), paths);
+    if (id) {
+        const qsizetype found = mmm::LibraryQuery(*m_db).tracksByPaths(paths).size();
+        setStatusMessage(found == paths.size()
+                             ? QStringLiteral("Imported %1 tracks").arg(found)
+                             : QStringLiteral("Imported %1 of %2 tracks (%3 not in the library)")
+                                   .arg(found).arg(paths.size()).arg(paths.size() - found));
+    }
+    return id;
+}
+
+bool Library::exportPlaylist(int id, const QUrl &file)
+{
+    if (!m_db)
+        return false;
+    const QStringList paths = m_db->playlistPaths(id);
+    QHash<QString, mmm::TrackRow> known;
+    for (const mmm::TrackRow &t : mmm::LibraryQuery(*m_db).tracksByPaths(paths))
+        known.insert(t.path, t);
+
+    QList<mmm::M3u::Entry> entries;
+    for (const QString &p : paths) {
+        mmm::M3u::Entry e{p, {}, -1};
+        if (const auto it = known.constFind(p); it != known.cend()) {
+            e.title = it->artist.isEmpty() ? it->title : it->artist + QStringLiteral(" - ") + it->title;
+            e.durationMs = it->durationMs;
+        }
+        entries << e;
+    }
+    const QString out = file.isLocalFile() ? file.toLocalFile() : file.toString();
+    QString error;
+    if (!mmm::M3u::write(out, entries, false, &error)) {
+        setError(QStringLiteral("Cannot write %1: %2").arg(out, error));
+        return false;
+    }
+    setStatusMessage(QStringLiteral("Exported %1 tracks to %2").arg(entries.size()).arg(QFileInfo(out).fileName()));
+    return true;
 }
 
 void Library::setError(const QString &message)

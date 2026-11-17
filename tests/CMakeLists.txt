@@ -10,7 +10,7 @@ target_link_libraries(tst_appinfo PRIVATE mmm_core Qt6::Test mmm_build_flags)
 add_test(NAME tst_appinfo COMMAND tst_appinfo)
 
 qt_add_executable(tst_player core/tst_player.cpp core/testmedia.h core/testmedia.cpp)
-target_link_libraries(tst_player PRIVATE mmm_core PkgConfig::GST Qt6::Test mmm_build_flags)
+target_link_libraries(tst_player PRIVATE mmm_core PkgConfig::GST TagLib::tag Qt6::Test mmm_build_flags)
 add_test(NAME tst_player COMMAND tst_player)
 
 qt_add_executable(tst_tagreader core/tst_tagreader.cpp core/testmedia.h core/testmedia.cpp)
@@ -29,6 +29,30 @@ qt_add_executable(tst_libraryquery core/tst_libraryquery.cpp)
 target_link_libraries(tst_libraryquery PRIVATE mmm_core Qt6::Test mmm_build_flags)
 add_test(NAME tst_libraryquery COMMAND tst_libraryquery)
 
+qt_add_executable(tst_playqueue core/tst_playqueue.cpp)
+target_link_libraries(tst_playqueue PRIVATE mmm_core Qt6::Test mmm_build_flags)
+add_test(NAME tst_playqueue COMMAND tst_playqueue)
+
+qt_add_executable(tst_m3u core/tst_m3u.cpp)
+target_link_libraries(tst_m3u PRIVATE mmm_core Qt6::Test mmm_build_flags)
+add_test(NAME tst_m3u COMMAND tst_m3u)
+
+qt_add_executable(tst_playbackcontroller core/tst_playbackcontroller.cpp core/testmedia.h core/testmedia.cpp)
+target_link_libraries(tst_playbackcontroller PRIVATE mmm_core PkgConfig::GST Qt6::Test mmm_build_flags)
+add_test(NAME tst_playbackcontroller COMMAND tst_playbackcontroller)
+
+# MPRIS needs a session bus: run it on a private one so tests never touch the desktop's.
+find_program(DBUS_RUN_SESSION dbus-run-session)
+qt_add_executable(tst_mpris core/tst_mpris.cpp core/testmedia.h core/testmedia.cpp)
+target_link_libraries(tst_mpris PRIVATE mmm_core PkgConfig::GST Qt6::Test mmm_build_flags)
+mmm_add_sanitizer_defaults(tst_mpris)
+if(DBUS_RUN_SESSION)
+    add_test(NAME tst_mpris COMMAND "${DBUS_RUN_SESSION}" -- $<TARGET_FILE:tst_mpris>)
+    set_tests_properties(tst_mpris PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+else()
+    message(WARNING "dbus-run-session not found: tst_mpris will not run")
+endif()
+
 # --- UI: C++ models, cover provider (needs a GUI app; runs offscreen) ---
 add_library(mmm_test_fixture STATIC ui/fixturelibrary.h ui/fixturelibrary.cpp core/testmedia.h core/testmedia.cpp)
 target_include_directories(mmm_test_fixture PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ui")
@@ -45,17 +69,17 @@ target_compile_definitions(tst_qml PRIVATE
     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
 add_test(NAME tst_qml COMMAND tst_qml)
 
-foreach(t tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_libraryquery tst_uimodels tst_qml)
+foreach(t tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml)
     mmm_add_sanitizer_defaults(${t})
 endforeach()
 
 # --- App smoke test: window loads and exits cleanly ---
 # Isolated database and cache: tests must never touch the user's real library.
 set(MMM_TEST_HOME "${CMAKE_BINARY_DIR}/test-home")
-add_test(NAME app_smoke COMMAND music-md-manager --quit-after-load --no-scan
+add_test(NAME app_smoke COMMAND music-md-manager --quit-after-load --no-scan --no-mpris
     --database "${MMM_TEST_HOME}/smoke.db")
 
-set_tests_properties(tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_libraryquery tst_uimodels tst_qml app_smoke PROPERTIES
+set_tests_properties(tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml app_smoke PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;XDG_DATA_HOME=${MMM_TEST_HOME}/data;XDG_CACHE_HOME=${MMM_TEST_HOME}/cache;XDG_CONFIG_HOME=${MMM_TEST_HOME}/config")
 
 # --- qmllint: any warning fails the test ---

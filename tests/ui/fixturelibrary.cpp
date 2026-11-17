@@ -77,7 +77,7 @@ QString buildFixtureLibrary(const QString &dir)
     // A real audio file with embedded art for Kid A's first track.
     const QString kidA = QDir(dir).filePath(QStringLiteral("Radiohead/Kid A/01.flac"));
     QDir().mkpath(QFileInfo(kidA).absolutePath());
-    if (const QString err = generateTone(kidA, QStringLiteral("flacenc"), 200); !err.isEmpty()) {
+    if (const QString err = generateTone(kidA, QStringLiteral("flacenc"), 8000); !err.isEmpty()) { // long enough for playback tests
         qWarning("fixture: %s", qPrintable(err));
         return {};
     }

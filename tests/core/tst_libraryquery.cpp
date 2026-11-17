@@ -243,6 +243,45 @@ private Q_SLOTS:
         QVERIFY(q.search(QString()).isEmpty());
     }
 
+    void artFieldsOnTrackRows()
+    {
+        const LibraryQuery q(m_db);
+        const auto homogenic = q.albumTracks(albumId(QStringLiteral("Homogenic")));
+        QCOMPARE(homogenic[0].coverPath, QStringLiteral("/m/bjork/h/cover.jpg"));
+        QCOMPARE(homogenic[0].artSourcePath(), QStringLiteral("/m/bjork/h/cover.jpg")); // folder art first
+        const auto abbey = q.albumTracks(albumId(QStringLiteral("Abbey Road")));
+        QVERIFY(abbey[0].hasEmbeddedArt);
+        QCOMPARE(abbey[0].artSourcePath(), abbey[0].path); // falls back to the track's own art
+        QVERIFY(abbey[1].artSourcePath().isEmpty());
+    }
+
+    void playlists()
+    {
+        const QString missing = QStringLiteral("/m/not-in-library.flac");
+        const auto road = m_db.createPlaylist(QStringLiteral("Road trip"),
+                                              {QStringLiteral("/m/pf/wall/d2t1.flac"), missing,
+                                               QStringLiteral("/m/beatles/ar/01.flac"), QStringLiteral("/m/pf/wall/d2t1.flac")});
+        const auto empty = m_db.createPlaylist(QStringLiteral("Already empty"));
+        QVERIFY(road && empty);
+
+        const LibraryQuery q(m_db);
+        const auto lists = q.playlists();
+        QCOMPARE(lists.size(), 2);
+        QCOMPARE(lists[0].name, QStringLiteral("Already empty")); // by name
+        QCOMPARE(lists[1].itemCount, 4);
+        QCOMPARE(lists[1].availableCount, 3); // the missing file doesn't count
+
+        QCOMPARE(titles(q.playlistTracks(*road)), (QStringList{QStringLiteral("Hey You"), QStringLiteral("Come Together"),
+                                                             QStringLiteral("Hey You")}));
+        QVERIFY(q.playlistTracks(*empty).isEmpty());
+
+        QCOMPARE(titles(q.tracksByPaths({QStringLiteral("/m/beatles/rv/01.flac"), missing, QStringLiteral("/m/bjork/h/01.flac")})),
+                 (QStringList{QStringLiteral("Taxman"), QStringLiteral("Hunter")}));
+
+        QVERIFY(m_db.deletePlaylist(*road));
+        QVERIFY(m_db.deletePlaylist(*empty));
+    }
+
     void performanceAt100kTracks()
     {
         // PLAN: browse/search < 100 ms on a 100k-track library. Generate synthetic rows in SQL

@@ -41,6 +41,8 @@ class Library : public QObject
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged FINAL)
     Q_PROPERTY(int trackCount READ trackCount NOTIFY countsChanged FINAL)
     Q_PROPERTY(int albumCount READ albumCount NOTIFY countsChanged FINAL)
+    // Short informational message for the status area (e.g. "Imported 12 of 14 tracks").
+    Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged FINAL)
 
 public:
     struct Options
@@ -66,10 +68,23 @@ public:
     int scanTotal() const;
     int trackCount() const;
     int albumCount() const;
+    QString statusMessage() const { return m_statusMessage; }
 
     Q_INVOKABLE bool addFolder(const QUrl &folder);
     Q_INVOKABLE bool removeFolder(const QString &path);
     Q_INVOKABLE void rescan();
+    Q_INVOKABLE void clearError();
+
+    // --- Playlists (UI thread; small writes). Ids are 0 on failure. ---
+    Q_INVOKABLE int createPlaylist(const QString &name, const QStringList &paths = {});
+    Q_INVOKABLE bool renamePlaylist(int id, const QString &name);
+    Q_INVOKABLE bool deletePlaylist(int id);
+    Q_INVOKABLE bool appendToPlaylist(int id, const QStringList &paths);
+    // Imports an .m3u/.m3u8 as a new playlist named after the file. Entries that aren't in
+    // the library are kept (they show up if the files are added later) and reported.
+    Q_INVOKABLE int importPlaylist(const QUrl &file);
+    // Writes the playlist as extended M3U with absolute paths.
+    Q_INVOKABLE bool exportPlaylist(int id, const QUrl &file);
 
     // Runs fn(const mmm::LibraryQuery &) on the query pool with that thread's own
     // connection. Continue with .then(context, ...) to get the result on a QObject's thread.
@@ -89,10 +104,12 @@ Q_SIGNALS:
     void scanningChanged();
     void scanProgressChanged();
     void countsChanged();
+    void statusMessageChanged();
 
 private:
     static const mmm::Database &threadDatabase(const QString &path);
     void setError(const QString &message);
+    void setStatusMessage(const QString &message);
     void refreshCounts();
     void onScanFinished(const mmm::ScanStats &stats);
 
@@ -103,6 +120,8 @@ private:
     int m_scanTotal = 0;
     int m_trackCount = 0;
     int m_albumCount = 0;
+    QString m_statusMessage;
     QThreadPool m_queryPool;
     std::unique_ptr<mmm::LibraryScanner> m_scanner;
+    std::unique_ptr<mmm::Database> m_db; // UI-thread connection for playlist edits
 };
