@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QElapsedTimer>
 #include <QFile>
+#include <QSemaphore>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -24,6 +25,26 @@ mmm::PlayerOptions testOptions()
 {
     return {.audioSink = QByteArrayLiteral("fakesink sync=true")};
 }
+
+// Simulates a GStreamer deadlock: while armed, the next state change on the engine thread
+// blocks until released (or forever, from the Player's point of view).
+struct StallInjector
+{
+    std::atomic<bool> armed{false};
+    std::atomic<bool> sticky{false}; // block every state change, not just the next one
+    QSemaphore gate;
+
+    mmm::PlayerOptions options(std::shared_ptr<StallInjector> self)
+    {
+        mmm::PlayerOptions o = testOptions();
+        o.beforeStateChange = [self](int) {
+            if (self->sticky.load() || self->armed.exchange(false))
+                self->gate.acquire();
+        };
+        return o;
+    }
+    void releaseAll() { gate.release(1000); }
+};
 
 } // namespace
 
@@ -380,6 +401,80 @@ private Q_SLOTS:
         p.play();
         waitForState(p, State::Playing);
         QTRY_VERIFY_WITH_TIMEOUT(qAbs(p.replayGainDb() - (-9.0)) < 0.01, kTimeoutMs);
+    }
+
+    // --- Stall recovery (docs/decisions/0001) ---
+
+    void stalledEngineIsReplaced()
+    {
+        auto stall = std::make_shared<StallInjector>();
+        Player p(stall->options(stall));
+        QSignalSpy recovered(&p, &Player::engineRecovered);
+        QSignalSpy eos(&p, &Player::endOfStream);
+        p.setSource(QUrl::fromLocalFile(m_flac));
+        p.play();
+        waitForState(p, State::Playing);
+        QTRY_VERIFY_WITH_TIMEOUT(p.position() > 500, kTimeoutMs);
+
+        stall->armed = true;
+        QElapsedTimer t;
+        t.start();
+        p.pause(); // the engine blocks in this state change
+        QVERIFY2(t.elapsed() < 100, "pause() must never block the calling thread");
+        const qint64 pausedAround = p.position();
+
+        QTRY_COMPARE_WITH_TIMEOUT(recovered.count(), 1, kTimeoutMs);
+        waitForState(p, State::Paused); // resumed as it was asked to be...
+        QTRY_VERIFY_WITH_TIMEOUT(p.isSeekable(), kTimeoutMs);
+        QVERIFY2(qAbs(p.position() - pausedAround) < 400, // ...where it was
+                 qPrintable(QStringLiteral("%1 vs %2").arg(p.position()).arg(pausedAround)));
+        QCOMPARE(p.source(), QUrl::fromLocalFile(m_flac));
+
+        p.play();
+        waitForState(p, State::Playing);
+        QTRY_COMPARE_WITH_TIMEOUT(eos.count(), 1, kTimeoutMs);
+
+        stall->releaseAll(); // let the abandoned engine finish and clean itself up
+        QTest::qWait(300);
+    }
+
+    void destroyWhileStalledDoesNotHang()
+    {
+        auto stall = std::make_shared<StallInjector>();
+        auto p = std::make_unique<Player>(stall->options(stall));
+        p->setSource(QUrl::fromLocalFile(m_flac));
+        p->play();
+        waitForState(*p, State::Playing);
+        stall->sticky = true;
+        p->stop(); // the engine blocks in this state change
+        QTest::qWait(50);
+
+        QElapsedTimer t;
+        t.start();
+        p.reset(); // waits briefly for a clean shutdown, then abandons the stuck engine
+        QVERIFY2(t.elapsed() < 3000, qPrintable(QString::number(t.elapsed())));
+
+        stall->releaseAll();
+        QTest::qWait(500); // the abandoned engine shuts down and removes itself
+    }
+
+    void repeatedStallsGiveUp()
+    {
+        auto stall = std::make_shared<StallInjector>();
+        stall->sticky = true; // every engine stalls: something is badly broken
+        Player p(stall->options(stall));
+        QSignalSpy recovered(&p, &Player::engineRecovered);
+        QSignalSpy errors(&p, &Player::errorOccurred);
+        p.setSource(QUrl::fromLocalFile(m_flac));
+        p.play();
+        QTRY_VERIFY_WITH_TIMEOUT(errors.count() >= 1, 30000);
+        QVERIFY(recovered.count() >= 3);
+        QCOMPARE(p.playbackState(), State::Stopped);
+        const qsizetype recoveriesAtGiveUp = recovered.count();
+        QTest::qWait(4000);
+        QCOMPARE(recovered.count(), recoveriesAtGiveUp); // stopped trying: no loop
+        stall->releaseAll();
+        QTest::qWait(500);
     }
 
     void destroyWhilePlaying()

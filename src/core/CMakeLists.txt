@@ -10,6 +10,7 @@ add_library(mmm_core STATIC
     appinfo.h appinfo.cpp
     gstinit.h gstinit.cpp
     player.h player.cpp
+    playerengine.h playerengine.cpp
     tracktags.h
     tagreader.h tagreader.cpp
     database.h database.cpp

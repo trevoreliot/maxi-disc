@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QUrl>
 
+#include <functional>
 #include <memory>
 
 namespace mmm {
@@ -13,12 +14,19 @@ struct PlayerOptions
 {
     // gst-launch style description of the audio sink, e.g. "fakesink sync=true".
     // Empty = GStreamer's default (autoaudiosink → PipeWire/Pulse/ALSA).
-    QByteArray audioSink;
+    QByteArray audioSink{};
+
+    // Test hook: called on the engine thread just before every GStreamer state change, with
+    // the target GstState as an int. Tests block in it to simulate a GStreamer stall.
+    std::function<void(int gstState)> beforeStateChange{};
 };
 
-// Single-track audio player wrapping GStreamer playbin3.
-// Lives on (and must be used from) the thread that created it; GStreamer bus messages
-// are marshalled onto that thread. Times are in milliseconds.
+// Audio player wrapping GStreamer playbin3, with gapless continuation (setUpcomingSources).
+// Lives on (and must be used from) the thread that created it. No call ever blocks on
+// GStreamer: the pipeline lives on an internal engine thread, getters return cached state
+// that the engine keeps up to date, and commands are queued to it. If the engine stalls
+// (a GStreamer deadlock: docs/decisions/0001), it is abandoned and a fresh one resumes the
+// current track where it was; engineRecovered() is emitted. Times are in milliseconds.
 class Player : public QObject
 {
     Q_OBJECT
@@ -104,6 +112,8 @@ Q_SIGNALS:
     // The last source ended and there was no next source.
     void endOfStream();
     void errorOccurred(const QString &message);
+    // The engine stalled and was replaced; playback resumes where it was. For logging/tests.
+    void engineRecovered(const QString &reason);
 
 private:
     struct Private;

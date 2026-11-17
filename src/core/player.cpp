@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "player.h"
 
-#include "gstinit.h"
+#include "playerengine.h"
 
+#include <QCoreApplication>
+#include <QDeadlineTimer>
+#include <QElapsedTimer>
 #include <QLoggingCategory>
+#include <QMap>
 #include <QMetaObject>
 #include <QMutex>
+#include <QSet>
+#include <QThread>
 #include <QTimer>
 
-#include <gst/gst.h>
-
 #include <algorithm>
-#include <atomic>
-#include <memory>
 
 Q_LOGGING_CATEGORY(lcPlayer, "mmm.player")
 
@@ -20,267 +22,284 @@ namespace mmm {
 
 namespace {
 
-constexpr int kPositionIntervalMs = 100;
+// A command the engine hasn't acknowledged within this long means it's stuck in GStreamer.
+constexpr qint64 kCommandStallMs = 3000;
+// play() that hasn't reached PLAYING within this long (no error/EOS either) is stuck too.
+constexpr qint64 kStartStallMs = 6000;
+constexpr int kWatchdogTickMs = 250;
+// More recoveries than this within the window means something is badly broken (e.g. the
+// audio device): give up with an error instead of looping.
+constexpr int kMaxRecoveries = 3;
+constexpr qint64 kRecoveryWindowMs = 30000;
+// Normal shutdown waits this long for the engine thread before abandoning it.
+constexpr int kShutdownWaitMs = 2000;
 
-// playbin3 "flags": audio only, software volume. (GstPlayFlags lives in a plugin header.)
-constexpr guint kPlayFlagAudio = 1U << 1;
-constexpr guint kPlayFlagSoftVolume = 1U << 4;
-
-struct MessageUnref
+// Engines whose thread may still be running after their Player gave up on them. Never
+// destroyed while running (that would abort); they remove themselves when the thread ends.
+// Reachable from here, so LeakSanitizer doesn't report a stuck one as a leak.
+struct Graveyard
 {
-    void operator()(GstMessage *m) const { gst_message_unref(m); }
+    QMutex mutex;
+    QSet<QThread *> threads;
 };
-// shared_ptr so it can be captured in a copyable lambda for a queued invocation.
-using MessagePtr = std::shared_ptr<GstMessage>;
 
-constexpr qint64 nsToMs(gint64 ns) { return ns / GST_MSECOND; }
-constexpr gint64 msToNs(qint64 ms) { return ms * GST_MSECOND; }
+Graveyard &graveyard()
+{
+    static Graveyard g;
+    return g;
+}
+
+void bury(detail::PlayerEngine *engine, QThread *thread)
+{
+    {
+        QMutexLocker lock(&graveyard().mutex);
+        graveyard().threads.insert(thread);
+    }
+    // When (if) it finishes: delete it on the thread that owns the QThread object.
+    QObject *context = QCoreApplication::instance() ? static_cast<QObject *>(QCoreApplication::instance()) : nullptr;
+    QObject::connect(thread, &QThread::finished, engine, &QObject::deleteLater);
+    if (context) {
+        QObject::connect(thread, &QThread::finished, context, [thread] {
+            {
+                QMutexLocker lock(&graveyard().mutex);
+                graveyard().threads.remove(thread);
+            }
+            thread->deleteLater();
+        });
+    }
+    QMetaObject::invokeMethod(engine, &detail::PlayerEngine::shutdown, Qt::QueuedConnection);
+}
 
 } // namespace
 
 struct Player::Private
 {
-    explicit Private(Player *q_) : q(q_) {}
+    explicit Private(Player *q_, const PlayerOptions &o) : q(q_), options(o) {}
 
     Player *q;
-    GstElement *pipeline = nullptr;
-    QTimer positionTimer;
+    PlayerOptions options;
 
+    detail::PlayerEngine *engine = nullptr;
+    QThread *thread = nullptr;
+    std::shared_ptr<detail::GaplessState> gapless;
+
+    // Cached, authoritative-for-the-UI state.
     QUrl source;
     PlaybackState state = PlaybackState::Stopped;
-    PlaybackState target = PlaybackState::Stopped; // what the user last asked for
+    PlaybackState target = PlaybackState::Stopped;
     qint64 position = 0;
     qint64 duration = -1;
     bool seekable = false;
-    bool prerolled = false;   // pipeline reached PAUSED/PLAYING for the current source
-    qint64 pendingSeek = -1;
     double volume = 1.0;
-    // Bumped whenever the current stream ends or is replaced (setSource, stop, EOS, error).
-    // Each bus message is tagged with the generation it was posted in; messages from an
-    // older generation are stale (e.g. an EOS or duplicate ERROR from the previous track)
-    // and are ignored.
-    std::atomic<quint64> generation{0};
-
-    // Gapless: guarded by nextMutex (about-to-finish runs on a streaming thread).
-    mutable QMutex nextMutex;
-    QList<QUrl> upcoming;   // still to hand over, in order
-    QList<QUrl> committed;  // handed to playbin3, not started yet; FIFO, popped per STREAM_START
-    QUrl lastQueuedUri;     // the current source, or the last committed one
-    // Whether the current source's own STREAM_START has been handled (UI thread only).
-    // about-to-finish can commit the next URI before that first message is processed
-    // (short local files are read instantly), so only *later* stream starts are advances.
-    bool currentStreamStarted = false;
-
     ReplayGainMode rgMode = ReplayGainMode::Album;
-    bool rgFilterActive = false;    // whether the pipeline currently has the rgvolume filter
-    GstElement *rgVolume = nullptr; // owned ref while the filter is installed
+    quint64 epoch = 0; // current stream; events for older ones are ignored
 
-    static GstBusSyncReply busSyncHandler(GstBus *bus, GstMessage *msg, gpointer self);
-    static void onAboutToFinish(GstElement *playbin, gpointer self);
-    void applyAudioFilter(); // only while the pipeline is in NULL/READY
-    void handleMessage(GstMessage *msg);
+    // Watchdog.
+    quint64 nextSeq = 0;
+    QMap<quint64, qint64> pending; // seq → sent at (ms, `clock`)
+    qint64 startDeadline = -1;     // play() must reach Playing before this (ms, `clock`)
+    QElapsedTimer clock;
+    QTimer watchdog;
+    QList<qint64> recoveries; // times (ms, `clock`)
+
+    void createEngine();
+    void releaseEngine(bool waitForIt);
+    template<typename Method, typename... Args>
+    void send(Method method, Args... args);
+    void checkWatchdog();
+    void recover(const QString &reason);
 
     void setState(PlaybackState s);
     void setPosition(qint64 ms);
     void setDuration(qint64 ms);
     void setSeekable(bool s);
-    void updatePosition();
-    void queryDurationAndSeekable();
-    void resetStreamInfo();
-    void invalidatePendingMessages() { generation.fetch_add(1, std::memory_order_relaxed); }
-    bool changeState(GstState s);
+    bool isCurrent(const detail::PlayerEngine *e, quint64 ev) const { return e == engine && ev == epoch; }
 };
 
-// Runs on GStreamer streaming threads (or the caller's thread). Forwards every message
-// to the Player's thread. Returning GST_BUS_DROP transfers ownership of `msg` to us
-// (see GstBusSyncHandler docs), so adopt that ref; the queued functor releases it,
-// including when the event is discarded because the Player was destroyed.
-GstBusSyncReply Player::Private::busSyncHandler(GstBus *, GstMessage *msg, gpointer self)
+void Player::Private::createEngine()
 {
-    auto *d = static_cast<Private *>(self);
-    MessagePtr ref(msg, MessageUnref{});
-    const quint64 gen = d->generation.load(std::memory_order_relaxed);
-    QMetaObject::invokeMethod(
-        d->q,
-        [d, ref, gen] {
-            if (gen == d->generation.load(std::memory_order_relaxed))
-                d->handleMessage(ref.get());
-        },
-        Qt::QueuedConnection);
-    return GST_BUS_DROP;
-}
-
-// Streaming thread: the current URI has been fully read. Setting "uri" now makes playbin3
-// continue with it seamlessly.
-void Player::Private::onAboutToFinish(GstElement *playbin, gpointer self)
-{
-    auto *d = static_cast<Private *>(self);
-    QByteArray uri;
+    gapless = std::make_shared<detail::GaplessState>();
     {
-        QMutexLocker lock(&d->nextMutex);
-        if (d->upcoming.isEmpty() || d->upcoming.first() == d->lastQueuedUri)
-            return; // nothing next, or the same file again (no self-gapless): end normally
-        const QUrl next = d->upcoming.takeFirst();
-        d->committed.append(next);
-        d->lastQueuedUri = next;
-        uri = next.toEncoded();
+        QMutexLocker lock(&gapless->mutex);
+        gapless->epoch = epoch;
+        gapless->lastQueuedUri = source;
     }
-    g_object_set(playbin, "uri", uri.constData(), nullptr);
-}
+    thread = new QThread;
+    thread->setObjectName(QStringLiteral("mmm-player-engine"));
+    engine = new detail::PlayerEngine(options, gapless);
+    engine->moveToThread(thread);
+    thread->start();
 
-void Player::Private::applyAudioFilter()
-{
-    const bool want = rgMode != ReplayGainMode::Off;
-    if (want == rgFilterActive)
-        return;
-    if (rgVolume) {
-        gst_object_unref(rgVolume);
-        rgVolume = nullptr;
-    }
-    if (!want) {
-        g_object_set(pipeline, "audio-filter", nullptr, nullptr);
-        rgFilterActive = false;
-        return;
-    }
-    GError *err = nullptr;
-    GstElement *bin = gst_parse_bin_from_description("rgvolume name=rg ! rglimiter", TRUE, &err);
-    if (!bin) {
-        qCWarning(lcPlayer) << "ReplayGain unavailable (gst-plugins-good):" << (err ? err->message : "");
-        g_clear_error(&err);
-        return;
-    }
-    g_clear_error(&err);
-    rgVolume = gst_bin_get_by_name(GST_BIN(bin), "rg"); // our ref
-    g_object_set(rgVolume, "album-mode", rgMode == ReplayGainMode::Album, nullptr);
-    g_object_set(pipeline, "audio-filter", bin, nullptr); // playbin takes the floating ref
-    rgFilterActive = true;
-}
-
-void Player::Private::handleMessage(GstMessage *msg)
-{
-    const bool fromPipeline = GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline);
-
-    switch (GST_MESSAGE_TYPE(msg)) {
-    case GST_MESSAGE_EOS:
-        changeState(GST_STATE_READY);
-        invalidatePendingMessages();
-        currentStreamStarted = false;
+    using E = detail::PlayerEngine;
+    E *e = engine;
+    // Every handler checks it's still talking to the current engine and stream.
+    connect(e, &E::commandDone, q, [this, e](quint64 seq) {
+        if (e == engine)
+            pending.remove(seq);
+    });
+    connect(e, &E::stateChanged, q, [this, e](quint64 ev, PlaybackState s) {
+        if (!isCurrent(e, ev))
+            return;
+        if (s == PlaybackState::Playing)
+            startDeadline = -1;
+        setState(s);
+    });
+    connect(e, &E::positionChanged, q, [this, e](quint64 ev, qint64 ms) {
+        if (isCurrent(e, ev))
+            setPosition(ms);
+    });
+    connect(e, &E::durationChanged, q, [this, e](quint64 ev, qint64 ms) {
+        if (isCurrent(e, ev))
+            setDuration(ms);
+    });
+    connect(e, &E::seekableChanged, q, [this, e](quint64 ev, bool s) {
+        if (isCurrent(e, ev))
+            setSeekable(s);
+    });
+    connect(e, &E::seeked, q, [this, e](quint64 ev, qint64 ms) {
+        if (!isCurrent(e, ev))
+            return;
+        setPosition(ms);
+        Q_EMIT q->seeked(ms);
+    });
+    connect(e, &E::advanced, q, [this, e](quint64 ev, const QUrl &url) {
+        if (!isCurrent(e, ev))
+            return;
+        source = url;
+        setPosition(0);
+        setDuration(-1);
+        Q_EMIT q->sourceChanged(source);
+        Q_EMIT q->advancedToNext(source);
+    });
+    connect(e, &E::endOfStream, q, [this, e](quint64 ev) {
+        if (!isCurrent(e, ev))
+            return;
         target = PlaybackState::Stopped;
-        prerolled = false;
+        startDeadline = -1;
         setPosition(0);
         setState(PlaybackState::Stopped);
         Q_EMIT q->endOfStream();
-        break;
-
-    case GST_MESSAGE_ERROR: {
-        GError *err = nullptr;
-        gchar *debug = nullptr;
-        gst_message_parse_error(msg, &err, &debug);
-        const QString text = QString::fromUtf8(err ? err->message : "unknown error");
-        qCWarning(lcPlayer) << "GStreamer error:" << text << "|" << debug;
-        g_clear_error(&err);
-        g_free(debug);
-
-        changeState(GST_STATE_NULL);
-        invalidatePendingMessages(); // one errorOccurred per failure, not one per element
-        currentStreamStarted = false;
+    });
+    connect(e, &E::errorOccurred, q, [this, e](quint64 ev, const QString &message) {
+        if (!isCurrent(e, ev))
+            return;
         target = PlaybackState::Stopped;
-        prerolled = false;
-        pendingSeek = -1;
+        startDeadline = -1;
         setPosition(0);
         setState(PlaybackState::Stopped);
-        Q_EMIT q->errorOccurred(text);
-        break;
-    }
+        Q_EMIT q->errorOccurred(message);
+    });
 
-    case GST_MESSAGE_WARNING: {
-        GError *err = nullptr;
-        gchar *debug = nullptr;
-        gst_message_parse_warning(msg, &err, &debug);
-        qCWarning(lcPlayer) << "GStreamer warning:" << (err ? err->message : "") << "|" << debug;
-        g_clear_error(&err);
-        g_free(debug);
-        break;
-    }
-
-    case GST_MESSAGE_STATE_CHANGED: {
-        if (!fromPipeline)
-            break;
-        GstState oldState, newState, pending;
-        gst_message_parse_state_changed(msg, &oldState, &newState, &pending);
-        if (newState == GST_STATE_PLAYING)
-            setState(PlaybackState::Playing);
-        else if (newState == GST_STATE_PAUSED && target == PlaybackState::Paused)
-            setState(PlaybackState::Paused);
-        else if (newState <= GST_STATE_READY)
-            setState(PlaybackState::Stopped);
-        break;
-    }
-
-    case GST_MESSAGE_ASYNC_DONE:
-        if (!fromPipeline)
-            break;
-        prerolled = true;
-        queryDurationAndSeekable();
-        if (pendingSeek >= 0) {
-            const qint64 ms = pendingSeek;
-            pendingSeek = -1;
-            q->seek(ms);
-        } else {
-            updatePosition();
-        }
-        break;
-
-    case GST_MESSAGE_DURATION_CHANGED:
-        queryDurationAndSeekable();
-        break;
-
-    case GST_MESSAGE_STREAM_START: {
-        if (!fromPipeline)
-            break;
-        if (!currentStreamStarted) {
-            currentStreamStarted = true; // the current source itself starting, never an advance
-            break;
-        }
-        QUrl next;
-        {
-            QMutexLocker lock(&nextMutex);
-            if (!committed.isEmpty())
-                next = committed.takeFirst();
-        }
-        if (next.isEmpty())
-            break;
-        source = next;
-        setPosition(0);
-        setDuration(-1); // re-queried as soon as the new stream reports it
-        queryDurationAndSeekable();
-        Q_EMIT q->sourceChanged(source);
-        Q_EMIT q->advancedToNext(source);
-        break;
-    }
-
-    default:
-        break;
-    }
+    // Bring the new engine up to date (no-ops for a fresh Player).
+    send(&E::setVolume, volume);
+    send(&E::setReplayGainMode, rgMode);
 }
 
-bool Player::Private::changeState(GstState s)
+// Hands the engine over to shut down. With `waitForIt` (destruction), waits briefly for a
+// clean stop; an engine that doesn't stop in time (or isn't waited for) is buried: it shuts
+// down whenever it gets unstuck, without this Player.
+void Player::Private::releaseEngine(bool waitForIt)
 {
-    if (gst_element_set_state(pipeline, s) == GST_STATE_CHANGE_FAILURE) {
-        // The bus normally carries an ERROR message with details; that's what we report.
-        qCWarning(lcPlayer) << "state change failed:" << gst_element_state_get_name(s);
-        return false;
+    if (!engine)
+        return;
+    detail::PlayerEngine *e = engine;
+    QThread *t = thread;
+    engine = nullptr;
+    thread = nullptr;
+    pending.clear();
+    QObject::disconnect(e, nullptr, q, nullptr);
+    e->abandon();
+
+    if (waitForIt) {
+        QMetaObject::invokeMethod(e, &detail::PlayerEngine::shutdown, Qt::QueuedConnection);
+        if (t->wait(QDeadlineTimer(kShutdownWaitMs))) {
+            delete e; // its thread has finished; nothing else refers to it
+            delete t;
+            return;
+        }
+        qCWarning(lcPlayer) << "playback engine did not shut down in time; abandoning it";
     }
-    return true;
+    bury(e, t);
+}
+
+template<typename Method, typename... Args>
+void Player::Private::send(Method method, Args... args)
+{
+    if (!engine)
+        return;
+    const quint64 seq = ++nextSeq;
+    pending.insert(seq, clock.elapsed());
+    if (!watchdog.isActive())
+        watchdog.start();
+    QMetaObject::invokeMethod(engine, method, Qt::QueuedConnection, seq, args...);
+}
+
+void Player::Private::checkWatchdog()
+{
+    const qint64 now = clock.elapsed();
+    if (!pending.isEmpty() && now - pending.first() > kCommandStallMs) {
+        recover(QStringLiteral("a playback command did not complete within %1 ms").arg(kCommandStallMs));
+        return;
+    }
+    if (startDeadline >= 0 && now > startDeadline) {
+        recover(QStringLiteral("playback did not start within %1 ms").arg(kStartStallMs));
+        return;
+    }
+    if (pending.isEmpty() && startDeadline < 0)
+        watchdog.stop();
+}
+
+void Player::Private::recover(const QString &reason)
+{
+    const qint64 now = clock.elapsed();
+    recoveries.removeIf([now](qint64 t) { return now - t > kRecoveryWindowMs; });
+    recoveries << now;
+
+    // Collect what should follow the current track: anything the old engine had already
+    // handed to GStreamer but not started is still "upcoming" from the user's point of view.
+    QList<QUrl> upcoming;
+    {
+        QMutexLocker lock(&gapless->mutex);
+        upcoming = gapless->committed + gapless->upcoming;
+    }
+    const PlaybackState resumeAs = target;
+    const qint64 resumeAt = position;
+
+    qCWarning(lcPlayer).noquote() << QStringLiteral("playback engine stalled (%1); replacing it").arg(reason);
+    releaseEngine(false);
+    startDeadline = -1;
+    ++epoch;
+    createEngine();
+
+    if (recoveries.size() > kMaxRecoveries) {
+        target = PlaybackState::Stopped;
+        setState(PlaybackState::Stopped);
+        Q_EMIT q->errorOccurred(QStringLiteral("The audio system stopped responding repeatedly; playback was stopped."));
+        return;
+    }
+
+    if (!source.isEmpty()) {
+        {
+            QMutexLocker lock(&gapless->mutex);
+            gapless->upcoming = upcoming;
+        }
+        send(&detail::PlayerEngine::setSource, epoch, source, rgMode);
+        if (resumeAt > 0)
+            send(&detail::PlayerEngine::seek, resumeAt);
+        if (resumeAs == PlaybackState::Playing) {
+            target = PlaybackState::Playing;
+            send(&detail::PlayerEngine::play);
+            startDeadline = clock.elapsed() + kStartStallMs;
+        } else if (resumeAs == PlaybackState::Paused) {
+            target = PlaybackState::Paused;
+            send(&detail::PlayerEngine::pause);
+        }
+    }
+    Q_EMIT q->engineRecovered(reason);
 }
 
 void Player::Private::setState(PlaybackState s)
 {
-    if (s == PlaybackState::Playing)
-        positionTimer.start();
-    else
-        positionTimer.stop();
-
     if (state == s)
         return;
     state = s;
@@ -311,39 +330,6 @@ void Player::Private::setSeekable(bool s)
     Q_EMIT q->seekableChanged(s);
 }
 
-void Player::Private::updatePosition()
-{
-    if (duration < 0)
-        queryDurationAndSeekable(); // after a gapless switch the duration arrives a bit later
-    gint64 pos = 0;
-    if (gst_element_query_position(pipeline, GST_FORMAT_TIME, &pos) && pos >= 0)
-        setPosition(nsToMs(pos));
-}
-
-void Player::Private::queryDurationAndSeekable()
-{
-    gint64 dur = 0;
-    if (gst_element_query_duration(pipeline, GST_FORMAT_TIME, &dur) && dur >= 0)
-        setDuration(nsToMs(dur));
-
-    GstQuery *query = gst_query_new_seeking(GST_FORMAT_TIME);
-    if (gst_element_query(pipeline, query)) {
-        gboolean canSeek = FALSE;
-        gst_query_parse_seeking(query, nullptr, &canSeek, nullptr, nullptr);
-        setSeekable(canSeek != FALSE);
-    }
-    gst_query_unref(query);
-}
-
-void Player::Private::resetStreamInfo()
-{
-    prerolled = false;
-    pendingSeek = -1;
-    setPosition(0);
-    setDuration(-1);
-    setSeekable(false);
-}
-
 // ---------------------------------------------------------------------------
 
 Player::Player(QObject *parent)
@@ -353,101 +339,65 @@ Player::Player(QObject *parent)
 
 Player::Player(const PlayerOptions &options, QObject *parent)
     : QObject(parent)
-    , d(std::make_unique<Private>(this))
+    , d(std::make_unique<Private>(this, options))
 {
-    gst::ensureInitialized();
-
-    d->pipeline = gst_element_factory_make("playbin3", "mmm-player");
-    if (!d->pipeline)
-        qFatal("GStreamer element 'playbin3' is missing (install gst-plugins-base)");
-    gst_object_ref_sink(d->pipeline);
-
-    g_object_set(d->pipeline, "flags", kPlayFlagAudio | kPlayFlagSoftVolume, nullptr);
-    g_signal_connect(d->pipeline, "about-to-finish", G_CALLBACK(&Private::onAboutToFinish), d.get());
-    d->applyAudioFilter();
-
-    if (!options.audioSink.isEmpty()) {
-        GError *err = nullptr;
-        GstElement *sink = gst_parse_bin_from_description(options.audioSink.constData(), TRUE, &err);
-        if (sink) {
-            g_object_set(d->pipeline, "audio-sink", sink, nullptr); // playbin takes the floating ref
-        } else {
-            qCWarning(lcPlayer) << "invalid audio sink" << options.audioSink << ":"
-                                << (err ? err->message : "");
-        }
-        g_clear_error(&err);
-    }
-
-    GstBus *bus = gst_element_get_bus(d->pipeline);
-    gst_bus_set_sync_handler(bus, &Private::busSyncHandler, d.get(), nullptr);
-    gst_object_unref(bus);
-
-    d->positionTimer.setInterval(kPositionIntervalMs);
-    connect(&d->positionTimer, &QTimer::timeout, this, [this] { d->updatePosition(); });
+    d->clock.start();
+    d->watchdog.setInterval(kWatchdogTickMs);
+    connect(&d->watchdog, &QTimer::timeout, this, [this] { d->checkWatchdog(); });
+    d->createEngine();
 }
 
 Player::~Player()
 {
-    d->positionTimer.stop();
-    // NULL joins all streaming threads, so no bus callback can run after this.
-    gst_element_set_state(d->pipeline, GST_STATE_NULL);
-    GstBus *bus = gst_element_get_bus(d->pipeline);
-    gst_bus_set_sync_handler(bus, nullptr, nullptr, nullptr);
-    gst_object_unref(bus);
-    if (d->rgVolume)
-        gst_object_unref(d->rgVolume);
-    gst_object_unref(d->pipeline);
-    // Queued message functors still pending for `this` are discarded by ~QObject,
-    // which releases their message refs.
+    d->watchdog.stop();
+    d->releaseEngine(true);
 }
 
 QUrl Player::source() const { return d->source; }
 
 void Player::setSource(const QUrl &url)
 {
-    d->changeState(GST_STATE_READY); // streaming threads stopped: no about-to-finish now
-    d->invalidatePendingMessages();
+    ++d->epoch;
     {
-        QMutexLocker lock(&d->nextMutex);
-        d->upcoming.clear();
-        d->committed.clear();
-        d->lastQueuedUri = url;
+        QMutexLocker lock(&d->gapless->mutex);
+        d->gapless->epoch = d->epoch;
+        d->gapless->upcoming.clear();
+        d->gapless->committed.clear();
+        d->gapless->lastQueuedUri = url;
     }
-    d->currentStreamStarted = false;
-    d->applyAudioFilter();
     d->target = PlaybackState::Stopped;
+    d->startDeadline = -1;
     d->setState(PlaybackState::Stopped);
-    d->resetStreamInfo();
-
+    d->setPosition(0);
+    d->setDuration(-1);
+    d->setSeekable(false);
     const bool changed = d->source != url;
     d->source = url;
-    const QByteArray uri = url.toEncoded();
-    g_object_set(d->pipeline, "uri", uri.isEmpty() ? nullptr : uri.constData(), nullptr);
-
+    d->send(&detail::PlayerEngine::setSource, d->epoch, url, d->rgMode);
     if (changed)
         Q_EMIT sourceChanged(url);
 }
 
 void Player::setUpcomingSources(const QList<QUrl> &upcoming)
 {
-    QMutexLocker lock(&d->nextMutex);
+    QMutexLocker lock(&d->gapless->mutex);
     // Skip what's already been handed over (if the caller's list starts with it).
     qsizetype skip = 0;
-    while (skip < d->committed.size() && skip < upcoming.size() && upcoming[skip] == d->committed[skip])
+    while (skip < d->gapless->committed.size() && skip < upcoming.size() && upcoming[skip] == d->gapless->committed[skip])
         ++skip;
-    if (skip < d->committed.size()) {
+    if (skip < d->gapless->committed.size()) {
         // The caller's order disagrees with what GStreamer already has; nothing can be taken
         // back. Queue the caller's list after it; PlaybackController corrects the order when
         // the committed track starts.
         skip = 0;
     }
-    d->upcoming = upcoming.mid(skip);
+    d->gapless->upcoming = upcoming.mid(skip);
 }
 
 QUrl Player::nextSource() const
 {
-    QMutexLocker lock(&d->nextMutex);
-    return d->upcoming.value(0);
+    QMutexLocker lock(&d->gapless->mutex);
+    return d->gapless->upcoming.value(0);
 }
 
 Player::ReplayGainMode Player::replayGainMode() const { return d->rgMode; }
@@ -457,20 +407,13 @@ void Player::setReplayGainMode(ReplayGainMode mode)
     if (d->rgMode == mode)
         return;
     d->rgMode = mode;
-    if (d->rgVolume && mode != ReplayGainMode::Off)
-        g_object_set(d->rgVolume, "album-mode", mode == ReplayGainMode::Album, nullptr);
-    if (d->state == PlaybackState::Stopped)
-        d->applyAudioFilter(); // pipeline is at READY/NULL: safe to swap the filter
+    d->send(&detail::PlayerEngine::setReplayGainMode, mode);
     Q_EMIT replayGainModeChanged(mode);
 }
 
 double Player::replayGainDb() const
 {
-    if (!d->rgVolume || d->rgMode == ReplayGainMode::Off)
-        return 0.0;
-    gdouble gain = 0.0;
-    g_object_get(d->rgVolume, "result-gain", &gain, nullptr);
-    return gain;
+    return d->rgMode == ReplayGainMode::Off ? 0.0 : d->gapless->replayGainDb.load();
 }
 
 Player::PlaybackState Player::playbackState() const { return d->state; }
@@ -485,7 +428,7 @@ void Player::setVolume(double volume)
     if (qFuzzyCompare(1.0 + d->volume, 1.0 + volume))
         return;
     d->volume = volume;
-    g_object_set(d->pipeline, "volume", volume, nullptr);
+    d->send(&detail::PlayerEngine::setVolume, volume);
     Q_EMIT volumeChanged(volume);
 }
 
@@ -494,7 +437,12 @@ void Player::play()
     if (d->source.isEmpty())
         return;
     d->target = PlaybackState::Playing;
-    d->changeState(GST_STATE_PLAYING);
+    d->send(&detail::PlayerEngine::play);
+    if (d->state != PlaybackState::Playing) {
+        d->startDeadline = d->clock.elapsed() + kStartStallMs;
+        if (!d->watchdog.isActive())
+            d->watchdog.start();
+    }
 }
 
 void Player::pause()
@@ -502,35 +450,27 @@ void Player::pause()
     if (d->source.isEmpty())
         return;
     d->target = PlaybackState::Paused;
-    if (d->changeState(GST_STATE_PAUSED) && d->state == PlaybackState::Playing) {
-        // Already prerolled: no async transition, so report immediately.
-        d->updatePosition();
-    }
+    d->startDeadline = -1;
+    d->send(&detail::PlayerEngine::pause);
 }
 
 void Player::stop()
 {
-    d->target = PlaybackState::Stopped;
-    d->changeState(GST_STATE_READY);
-    d->invalidatePendingMessages();
+    ++d->epoch;
     {
         // Tracks already handed to playbin3 are cancelled by stopping; the upcoming list
         // stays (it's still what follows the current source when play() resumes it).
-        QMutexLocker lock(&d->nextMutex);
-        d->upcoming = d->committed + d->upcoming;
-        d->committed.clear();
-        d->lastQueuedUri = d->source;
+        QMutexLocker lock(&d->gapless->mutex);
+        d->gapless->epoch = d->epoch;
+        d->gapless->upcoming = d->gapless->committed + d->gapless->upcoming;
+        d->gapless->committed.clear();
+        d->gapless->lastQueuedUri = d->source;
     }
-    // Committing the next track overwrote playbin3's "uri"; point it back at the current
-    // source, or play() after stop() would start the next track instead.
-    const QByteArray uri = d->source.toEncoded();
-    g_object_set(d->pipeline, "uri", uri.isEmpty() ? nullptr : uri.constData(), nullptr);
-    d->currentStreamStarted = false;
-    d->applyAudioFilter();
-    d->prerolled = false;
-    d->pendingSeek = -1;
+    d->target = PlaybackState::Stopped;
+    d->startDeadline = -1;
     d->setPosition(0);
     d->setState(PlaybackState::Stopped);
+    d->send(&detail::PlayerEngine::stop, d->epoch, d->source, d->rgMode);
 }
 
 void Player::seek(qint64 positionMs)
@@ -538,17 +478,8 @@ void Player::seek(qint64 positionMs)
     positionMs = std::max<qint64>(positionMs, 0);
     if (d->duration >= 0)
         positionMs = std::min(positionMs, d->duration);
-
-    if (!d->prerolled) {
-        d->pendingSeek = positionMs; // applied (and seeked() emitted) once prerolled
-        return;
-    }
-    const auto flags = static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE);
-    if (gst_element_seek_simple(d->pipeline, GST_FORMAT_TIME, flags, msToNs(positionMs))) {
-        d->setPosition(positionMs);
-        Q_EMIT seeked(positionMs);
-    } else
-        qCWarning(lcPlayer) << "seek failed:" << positionMs << "ms";
+    d->setPosition(positionMs);
+    d->send(&detail::PlayerEngine::seek, positionMs);
 }
 
 } // namespace mmm

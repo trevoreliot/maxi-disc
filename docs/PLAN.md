@@ -33,6 +33,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | Artwork storage | Both: cover.jpg in album folder and embedded in files |
 | Library size | < 1 TB (~30k+ tracks). Design for 100k tracks: first scan < 10 min, browse/search < 100 ms |
 | Online services | Last.fm scrobbling, Discord Rich Presence. Requires a Last.fm API key + secret and a Discord application ID (supplied by user at runtime/config, never committed) |
+| GStreamer stalls | Recover (engine thread + abandon/replace a stalled pipeline) rather than fix GStreamer internals. See `docs/decisions/0001-gstreamer-stall-recovery.md` (evidence + how to pursue upstream) |
 | Licence | GPL-3.0-or-later (Qt LGPLv3 + linux-minidisc GPL). Verify linux-minidisc is GPL-2.0-or-later before M10 |
 
 ## Tech stack
@@ -200,7 +201,9 @@ and the user has run the "User test". Tick the box, commit, then stop.
     Residual risk: a *user* action (double-click, Stop) landing within the same instant as a
     track boundary could still hit it; consider reporting to GStreamer with a minimal repro, or
     deferring all state changes that happen right after an advance.
-  - **Open (next task, before M5b): rare hang on rapid play→stop.** ~1 in 100+ test runs
+  - **Resolved by recovery (docs/decisions/0001):** Player now runs GStreamer on an engine
+    thread and replaces a stalled engine, so the hangs below can't freeze the app. History:
+  - Was open: rare hang on rapid play→stop. ~1 in 100+ test runs
     (seen in tst_playbackcontroller repeatOneLoops, debug; likely also the earlier release hang).
     Main thread: Player::stop → set_state(READY) → gst_pad_stop_task waiting for a stream lock.
     Holder: a `typefindelement` streaming thread blocked in read() inside filesrc, which can't

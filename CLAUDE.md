@@ -56,6 +56,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - `tools/dev/catch-stall.sh BINARY [FUNCS]` — reruns a test 3-at-a-time and dumps all thread
   backtraces (gdb) if one stalls. Use it on any intermittent hang instead of guessing.
 - `docs/` — plan and design notes (udev rules, device notes, etc.).
+  `docs/decisions/NNNN-*.md`: decision records (context, evidence, decision, how to revisit).
+  Add one for any decision the user may want to revisit later.
 
 ## Conventions
 
@@ -78,6 +80,13 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - Playback: **every** playback/queue command goes through `PlaybackController` (UI, MPRIS, and
   later the Emacs D-Bus interface): no playback logic in QML. The queue wins over GStreamer:
   if the gapless track that started isn't the queue's next, the controller plays the queue's.
+- `Player` is a facade over `detail::PlayerEngine` (src/core/playerengine.*), which owns the
+  playbin3 pipeline on its own thread (docs/decisions/0001). **No GStreamer call may run on the
+  caller's thread.** Commands carry a sequence number and are acked; events carry the stream
+  epoch and are dropped if stale or from a replaced engine. A command unacked for 3 s (or a
+  start not reaching Playing in 6 s) replaces the engine and resumes; >3 recoveries in 30 s →
+  error. Abandoned engines are never joined/destroyed while running (graveyard). Test stalls
+  with `PlayerOptions::beforeStateChange` (see tst_player's StallInjector).
 - Gapless (`Player`): the next URI is set from `about-to-finish` on a streaming thread (mutex).
   Pitfalls already hit: (1) the *first* STREAM_START after a load is the current track even if
   the next was committed already: only later ones are advances; (2) committing overwrites
