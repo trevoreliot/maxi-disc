@@ -52,11 +52,18 @@ public:
     // Also discards any next source.
     void setSource(const QUrl &url);
 
-    // Gapless playback: the source to continue with when the current one ends. It is handed
-    // to GStreamer shortly before the end (playbin3 "about-to-finish") and starts with no
-    // gap; advancedToNext() is emitted at the actual boundary. Once handed over it can no
-    // longer be changed for this track; an empty URL means "stop at the end".
-    void setNextSource(const QUrl &url);
+    // Gapless playback: the sources that should follow the current one, in order. Each is
+    // handed to GStreamer when the previous one has been fully read (playbin3
+    // "about-to-finish", on a streaming thread) and starts with no gap; advancedToNext() is
+    // emitted at each actual boundary. The whole list is given up front because for short
+    // tracks GStreamer may need the one after next before the UI thread has even seen the
+    // next one start. Sources already handed over can't be taken back; if `upcoming` begins
+    // with them they're skipped, so callers can always pass "everything after the current
+    // track". A source equal to the one before it is not chained (self-gapless is unreliable
+    // in playbin3): playback ends there and the caller restarts it. Empty = stop at the end.
+    void setUpcomingSources(const QList<QUrl> &upcoming);
+    void setNextSource(const QUrl &url) { setUpcomingSources(url.isEmpty() ? QList<QUrl>{} : QList<QUrl>{url}); }
+    // First source still waiting to be handed over (empty if none).
     QUrl nextSource() const;
 
     PlaybackState playbackState() const;

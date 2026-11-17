@@ -82,8 +82,14 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   Pitfalls already hit: (1) the *first* STREAM_START after a load is the current track even if
   the next was committed already: only later ones are advances; (2) committing overwrites
   playbin3's `uri`, so `stop()` must restore it; (3) never pass the current URI as its own next
-  (self-gapless ends early), so loops restart at EOS. Always run the release tests too: debug
-  timing hid (1) and (2).
+  (self-gapless ends early), so loops restart at EOS; (4) short tracks are read instantly, so
+  give `Player::setUpcomingSources()` *all* following tracks, not one at a time; (5) **never
+  change pipeline state while handling a STREAM_START/advance**: playbin3 can deadlock (main
+  thread in set_state(READY) vs a streaming thread in a playbin3 pad probe). Corrections are
+  deferred (`PlaybackController::deferCorrection`). Always run the release tests too: debug
+  timing hid (1) and (2); the deadlock showed mostly in debug.
+- Gate commands: check ctest's **exit code** (`ctest --preset debug && …`), never grep its
+  output for "passed" ("Failed" matches too: an M5 commit slipped through that way).
 - MPRIS tests run under `dbus-run-session` (private bus); client calls must be async (the service
   is on the same thread). The app smoke test passes `--no-mpris`.
 - Database: one `mmm::Database` per thread (Qt SQL connections are thread-bound).

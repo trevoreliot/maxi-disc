@@ -60,7 +60,12 @@ private:
 
     Player m_player;
     PlayQueue m_queue;
+    void deferCorrection();
+
     int m_consecutiveErrors = 0;
+    // Bumped by every explicit playback action; a deferred correction only applies if
+    // nothing else happened since it was scheduled.
+    quint64 m_actionGeneration = 0;
     qint64 m_announcedTrackId = -1;
 };
 

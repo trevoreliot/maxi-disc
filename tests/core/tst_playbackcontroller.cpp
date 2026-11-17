@@ -30,6 +30,7 @@ class TestPlaybackController : public QObject
 private:
     QTemporaryDir m_dir;
     TrackRow m_a, m_b, m_c, m_long, m_missing;
+    QList<TrackRow> m_short;
 
     TrackRow make(qint64 id, const QString &file, const QString &encoder, int ms)
     {
@@ -60,6 +61,8 @@ private Q_SLOTS:
         m_c = make(3, QStringLiteral("c.wav"), QStringLiteral("wavenc"), 1000);
         m_long = make(4, QStringLiteral("long.flac"), QStringLiteral("flacenc"), 5000);
         m_missing = make(5, QStringLiteral("missing.flac"), QString(), 1000);
+        for (int i = 0; i < 4; ++i)
+            m_short << make(20 + i, QStringLiteral("short%1.flac").arg(i), QStringLiteral("flacenc"), 300);
         QVERIFY(QFileInfo::exists(m_a.path) && QFileInfo::exists(m_b.path) && QFileInfo::exists(m_c.path));
     }
 
@@ -78,6 +81,22 @@ private Q_SLOTS:
         QVERIFY(waitStopped(pc));
         QCOMPARE(states.count(), 1); // only the final Stopped: no restarts between tracks
         QCOMPARE(pc.queue()->currentIndex(), 2);
+    }
+
+    void shortTracksStayGapless()
+    {
+        // Short tracks are read instantly: GStreamer asks for the track after next before the
+        // UI thread has seen the next one start. The whole upcoming list must already be there.
+        PlaybackController pc(silent());
+        QSignalSpy changed(&pc, &PlaybackController::currentTrackChanged);
+        QSignalSpy states(pc.player(), &Player::playbackStateChanged);
+        pc.playTracks(m_short, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(pc.player()->playbackState(), State::Playing, kTimeoutMs);
+        states.clear();
+        QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 4, kTimeoutMs);
+        QVERIFY(waitStopped(pc));
+        QCOMPARE(states.count(), 1); // one Stopped at the very end: every boundary was gapless
+        QCOMPARE(pc.queue()->currentIndex(), 3);
     }
 
     void playMidQueueAndNextPrevious()

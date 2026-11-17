@@ -192,6 +192,19 @@ and the user has run the "User test". Tick the box, commit, then stop.
     while stopped); Track ↔ Album switches immediately.
   - Not yet: shuffle, saving the queue across restarts, drag-to-reorder in the queue panel
     (`PlayQueue::move` exists), MPRIS TrackList/OpenUri, "add to playlist" from track rows.
-  - Testing: one unexplained hang in tst_playbackcontroller in ~60 runs right after the gapless
-    fixes, not reproduced since (incl. 36 stress runs). If it recurs, catch it with
-    `tools/dev/catch-stall.sh -n 20 build/release/tests/tst_playbackcontroller`.
+  - Found after the M5 commit: (a) short tracks weren't gapless (the track after next was
+    needed before the UI thread saw the next start) → Player takes the whole upcoming list;
+    (b) a deadlock inside playbin3 when the pipeline state changes while a gapless switch is
+    being handled (main thread in set_state(READY) vs a streaming thread in a playbin3 pad
+    probe) → the controller defers its corrections ~300 ms. Verified with 74 stress runs.
+    Residual risk: a *user* action (double-click, Stop) landing within the same instant as a
+    track boundary could still hit it; consider reporting to GStreamer with a minimal repro, or
+    deferring all state changes that happen right after an advance.
+  - **Open (next task, before M5b): rare hang on rapid play→stop.** ~1 in 100+ test runs
+    (seen in tst_playbackcontroller repeatOneLoops, debug; likely also the earlier release hang).
+    Main thread: Player::stop → set_state(READY) → gst_pad_stop_task waiting for a stream lock.
+    Holder: a `typefindelement` streaming thread blocked in read() inside filesrc, which can't
+    block on a regular file, so the fd likely no longer refers to the audio file (double
+    close + reuse?). Not reproduced in 30 targeted runs. Next: catch it with GStreamer debug
+    symbols / GST_DEBUG, check the fd; independently consider running pipeline state changes
+    off the UI thread so any GStreamer stall can't freeze the app.

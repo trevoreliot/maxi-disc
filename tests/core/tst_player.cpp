@@ -301,29 +301,37 @@ private Q_SLOTS:
         QVERIFY2(elapsed > 5500 && elapsed < 9000, qPrintable(QString::number(elapsed)));
     }
 
-    void nextSourceClearedBySetSourceAndStop()
+    void setSourceClearsUpcomingStopKeepsIt()
     {
         Player p(testOptions());
         QSignalSpy advanced(&p, &Player::advancedToNext);
         QSignalSpy eos(&p, &Player::endOfStream);
         p.setSource(QUrl::fromLocalFile(m_flac));
         p.setNextSource(QUrl::fromLocalFile(m_wav));
-        p.setSource(QUrl::fromLocalFile(m_mp3)); // replacing the source discards the next one
+        p.setSource(QUrl::fromLocalFile(m_mp3)); // replacing the source discards what followed it
         QVERIFY(p.nextSource().isEmpty());
         p.play();
         QTRY_COMPARE_WITH_TIMEOUT(eos.count(), 1, kTimeoutMs);
         QCOMPARE(advanced.count(), 0);
 
-        // stop() after the next was committed (very early for short local files) cancels it.
+        // stop() after the next was committed (very early for short local files): play()
+        // must replay the *current* source (committing overwrote playbin3's uri), and the
+        // upcoming source still follows it.
         p.setSource(QUrl::fromLocalFile(m_flac));
         p.setNextSource(QUrl::fromLocalFile(m_wav));
         p.play();
         waitForState(p, State::Playing);
         QTest::qWait(300);
         p.stop();
-        p.play(); // replays the current source, not the cancelled next one
+        QCOMPARE(p.nextSource(), QUrl::fromLocalFile(m_wav)); // handed back, not lost
+        p.play();
+        waitForState(p, State::Playing);
+        QCOMPARE(p.source(), QUrl::fromLocalFile(m_flac));
+        QTest::qWait(500);
+        QCOMPARE(advanced.count(), 0); // still the current track, not jumped to the next
+        QTRY_COMPARE_WITH_TIMEOUT(advanced.count(), 1, kTimeoutMs);
+        QCOMPARE(advanced.at(0).at(0).toUrl(), QUrl::fromLocalFile(m_wav));
         QTRY_COMPARE_WITH_TIMEOUT(eos.count(), 2, kTimeoutMs);
-        QCOMPARE(advanced.count(), 0);
     }
 
     // --- ReplayGain (M5) ---

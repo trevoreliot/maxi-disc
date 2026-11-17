@@ -63,8 +63,9 @@ struct Player::Private
 
     // Gapless: guarded by nextMutex (about-to-finish runs on a streaming thread).
     mutable QMutex nextMutex;
-    QUrl nextSource;     // what to continue with
-    QUrl committedNext;  // handed to playbin3; becomes `source` at the next STREAM_START
+    QList<QUrl> upcoming;   // still to hand over, in order
+    QList<QUrl> committed;  // handed to playbin3, not started yet; FIFO, popped per STREAM_START
+    QUrl lastQueuedUri;     // the current source, or the last committed one
     // Whether the current source's own STREAM_START has been handled (UI thread only).
     // about-to-finish can commit the next URI before that first message is processed
     // (short local files are read instantly), so only *later* stream starts are advances.
@@ -117,11 +118,12 @@ void Player::Private::onAboutToFinish(GstElement *playbin, gpointer self)
     QByteArray uri;
     {
         QMutexLocker lock(&d->nextMutex);
-        if (d->nextSource.isEmpty())
-            return;
-        d->committedNext = d->nextSource;
-        d->nextSource.clear();
-        uri = d->committedNext.toEncoded();
+        if (d->upcoming.isEmpty() || d->upcoming.first() == d->lastQueuedUri)
+            return; // nothing next, or the same file again (no self-gapless): end normally
+        const QUrl next = d->upcoming.takeFirst();
+        d->committed.append(next);
+        d->lastQueuedUri = next;
+        uri = next.toEncoded();
     }
     g_object_set(playbin, "uri", uri.constData(), nullptr);
 }
@@ -243,8 +245,8 @@ void Player::Private::handleMessage(GstMessage *msg)
         QUrl next;
         {
             QMutexLocker lock(&nextMutex);
-            next = committedNext;
-            committedNext.clear();
+            if (!committed.isEmpty())
+                next = committed.takeFirst();
         }
         if (next.isEmpty())
             break;
@@ -407,8 +409,9 @@ void Player::setSource(const QUrl &url)
     d->invalidatePendingMessages();
     {
         QMutexLocker lock(&d->nextMutex);
-        d->nextSource.clear();
-        d->committedNext.clear();
+        d->upcoming.clear();
+        d->committed.clear();
+        d->lastQueuedUri = url;
     }
     d->currentStreamStarted = false;
     d->applyAudioFilter();
@@ -425,16 +428,26 @@ void Player::setSource(const QUrl &url)
         Q_EMIT sourceChanged(url);
 }
 
-void Player::setNextSource(const QUrl &url)
+void Player::setUpcomingSources(const QList<QUrl> &upcoming)
 {
     QMutexLocker lock(&d->nextMutex);
-    d->nextSource = url;
+    // Skip what's already been handed over (if the caller's list starts with it).
+    qsizetype skip = 0;
+    while (skip < d->committed.size() && skip < upcoming.size() && upcoming[skip] == d->committed[skip])
+        ++skip;
+    if (skip < d->committed.size()) {
+        // The caller's order disagrees with what GStreamer already has; nothing can be taken
+        // back. Queue the caller's list after it; PlaybackController corrects the order when
+        // the committed track starts.
+        skip = 0;
+    }
+    d->upcoming = upcoming.mid(skip);
 }
 
 QUrl Player::nextSource() const
 {
     QMutexLocker lock(&d->nextMutex);
-    return d->nextSource;
+    return d->upcoming.value(0);
 }
 
 Player::ReplayGainMode Player::replayGainMode() const { return d->rgMode; }
@@ -501,9 +514,12 @@ void Player::stop()
     d->changeState(GST_STATE_READY);
     d->invalidatePendingMessages();
     {
-        // A committed next was already handed to playbin3; stopping cancels it.
+        // Tracks already handed to playbin3 are cancelled by stopping; the upcoming list
+        // stays (it's still what follows the current source when play() resumes it).
         QMutexLocker lock(&d->nextMutex);
-        d->committedNext.clear();
+        d->upcoming = d->committed + d->upcoming;
+        d->committed.clear();
+        d->lastQueuedUri = d->source;
     }
     // Committing the next track overwrote playbin3's "uri"; point it back at the current
     // source, or play() after stop() would start the next track instead.
