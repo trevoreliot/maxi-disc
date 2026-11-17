@@ -14,6 +14,25 @@ private Q_SLOTS:
         QVERIFY(!mmm::AppInfo::displayName().isEmpty());
     }
 
+    void formatDuration_data()
+    {
+        QTest::addColumn<qint64>("ms");
+        QTest::addColumn<QString>("text");
+        QTest::newRow("zero") << qint64(0) << "0:00";
+        QTest::newRow("sub-second") << qint64(999) << "0:00";
+        QTest::newRow("song") << qint64(187000) << "3:07";
+        QTest::newRow("ten min") << qint64(600000) << "10:00";
+        QTest::newRow("hour") << qint64(3723000) << "1:02:03";
+        QTest::newRow("long") << qint64(36000000) << "10:00:00";
+        QTest::newRow("unknown") << qint64(-1) << "--:--";
+    }
+    void formatDuration()
+    {
+        QFETCH(qint64, ms);
+        QFETCH(QString, text);
+        QCOMPARE(mmm::formatDuration(ms), text);
+    }
+
     void versionIsSemver()
     {
         const auto parts = mmm::AppInfo::version().split(QLatin1Char('.'));

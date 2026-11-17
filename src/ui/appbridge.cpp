@@ -17,3 +17,8 @@ QString AppBridge::version() const
 {
     return mmm::AppInfo::version();
 }
+
+QString AppBridge::formatDuration(qint64 ms) const
+{
+    return mmm::formatDuration(ms);
+}

@@ -83,6 +83,10 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - USB sync and MiniDisc share one "job" abstraction (plan, run, progress, cancel);
   MiniDisc is just another sync target.
 - Last.fm and Discord listen to the Player's track-change signals; playback never waits on the network.
+- External control: everything the user can do to playback (and, later, the queue and library
+  search) must be reachable from outside the GUI over D-Bus: MPRIS for standard controls (M5)
+  plus an app-specific interface for the rest (M16). Keep these operations as core methods
+  the UI *and* D-Bus call, never logic living only in QML. This is what the Emacs client uses.
 
 ## Milestones
 
@@ -93,7 +97,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 
 ### Phase 2: Library
 - [x] **M3 Library scanner** — Done when: background scan of chosen folders into SQLite; incremental rescan; folder monitor. User test: scan the real library; note time and track count.
-- [ ] **M4 Library UI** — Done when: QML artist / album / track browser on C++ list models, album grid with art (async, cached thumbnails), search box (FTS5). User test: browse and search feel instant on the full library; profile with the QML Profiler.
+- [x] **M4 Library UI** — Done when: QML artist / album / track browser on C++ list models, album grid with art (async, cached thumbnails), search box (FTS5). User test: browse and search feel instant on the full library; profile with the QML Profiler.
 - [ ] **M5 Queue, gapless, playlists** — Done when: play queue, gapless transitions, ReplayGain, .m3u import/export, MPRIS. User test: a live or classical album plays with no gaps; media keys work.
 - [ ] **M6 Tag editor** — Done when: edit single and multiple tracks; writes to files and DB. User test: edit a test copy of an album, then verify in another app.
 
@@ -113,6 +117,14 @@ and the user has run the "User test". Tick the box, commit, then stop.
 ### Phase 6: Online services (depend only on M5; may be pulled earlier)
 - [ ] **M14 Last.fm scrobbling** — Done when: connect account in settings; now-playing updates; scrobbles follow Last.fm rules; queued scrobbles retry when back online; unit tests on scrobble timing. User test: play a few tracks, including some offline; all appear on Last.fm.
 - [ ] **M15 Discord status** — Done when: shows track, artist, album and progress while playing; clears on pause or quit; reconnects if Discord restarts; on/off toggle. User test: Discord profile shows what's playing and clears on stop.
+
+### Phase 7: Emacs integration (depends on M5)
+- [ ] **M16 Doom Emacs client** — Done when: an Emacs package (in `contrib/emacs/`, loadable from
+  Doom's `packages.el` via `:recipe` with a local path) uses `dbus.el` to show now playing
+  (title, artist, album, position) in a buffer and/or the modeline, and controls play/pause,
+  next/previous, seek and volume over MPRIS; an app-specific D-Bus interface
+  (`org.musicmdmanager.*`) adds queue listing and library search → enqueue/play. User test:
+  control playback and queue an album from Doom Emacs without touching the app window.
 
 ### Later
 - Animation and visual-polish pass (album-art transitions, animated now-playing view)
@@ -153,3 +165,13 @@ and the user has run the "User test". Tick the box, commit, then stop.
     directory watches report entries added/removed/renamed only). Taggers that write a temp
     file and rename are caught; in-place writers are only caught by the next scan. M6 updates
     the DB itself. If needed later: watch track files for IN_MODIFY, or rescan on app focus.
+- M4 notes / known gaps:
+  - Tracks with no ALBUM tag don't appear in the album browser (search finds them). Consider an
+    "Unknown album" bucket per artist.
+  - Artist view lists albums where the artist is the *album* artist; "appears on" (guest or
+    compilation tracks) isn't shown.
+  - Search shows tracks only; clicking a result does nothing yet. M5 adds double-click to play.
+    Matching artists/albums could be a later addition.
+  - No translations are loaded yet; strings are wrapped in qsTr for later.
+  - A scan that changes the library reloads every view; reloads that keep the same rows refresh
+    in place, but a changed album list resets the grid's scroll position.

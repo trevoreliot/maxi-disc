@@ -14,4 +14,10 @@ QString defaultDatabasePath()
     return QDir(base).filePath(AppInfo::name() + QStringLiteral("/library.db"));
 }
 
+QString coverCacheDir()
+{
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation);
+    return QDir(base).filePath(AppInfo::name() + QStringLiteral("/covers"));
+}
+
 } // namespace mmm::AppPaths

@@ -14,7 +14,8 @@ add_library(mmm_core STATIC
     tagreader.h tagreader.cpp
     database.h database.cpp
     apppaths.h apppaths.cpp
-    libraryscanner.h libraryscanner.cpp)
+    libraryscanner.h libraryscanner.cpp
+    libraryquery.h libraryquery.cpp)
 target_include_directories(mmm_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}")

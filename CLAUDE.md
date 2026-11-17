@@ -28,6 +28,14 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   like Sql/Network/DBus). No QML, no Gui.** Must be testable headless. Namespace `mmm`.
 - `src/ui/` — `mmm_ui` QML module (URI `MusicMdManager`). C++ models/bridges exposed
   with `QML_ELEMENT` / `QML_SINGLETON`; QML files under `src/ui/qml/`.
+  - `Library` (QML singleton): owns the `LibraryScanner` and a read-query thread pool.
+    **Construct it before the QML engine** (main.cpp, tst_qml's Setup); QML gets it via `create()`.
+  - `librarymodels.h`: list models load through `Library::runQuery()` on the pool (each pool
+    thread has its own `Database`), never on the UI thread. `LibraryListModel` drops stale
+    results (generation counter) and refreshes in place when row ids are unchanged.
+  - `CoverImageProvider` ("image://cover/…"): folder art, else embedded art; resized to
+    128/256/512/1024 buckets and cached as JPEG in `AppPaths::coverCacheDir()`.
+  - Read-side SQL lives in core `LibraryQuery` (tested headless, incl. a 100k-track timing test).
 - `src/app/` — `main.cpp` only: app setup and loads `MusicMdManager/Main`.
 - `tools/mmm-play/` — terminal player on `mmm::Player` (manual testing / debugging):
   `./build/debug/tools/mmm-play/mmm-play FILE...` (space, ←/→, +/-, n/p, q).
@@ -37,7 +45,12 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   `--watch`, `--list`, `--remove DIR`. Uses the app's DB (`AppPaths::defaultDatabasePath()`,
   `~/.local/share/music-md-manager/library.db`) unless `--db FILE`.
 - `tests/core/` — Qt Test, one `tst_*.cpp` per class, `QTEST_GUILESS_MAIN`.
-- `tests/qml/` — Qt Quick Test, `tst_*.qml` files, picked up by `tst_qml`.
+- `tests/ui/` — C++ tests that need the UI layer (models, cover provider), plus
+  `fixturelibrary.h`: a small DB with real folder + embedded art, shared with the QML tests.
+- `tests/qml/` — Qt Quick Test, `tst_*.qml` files, picked up by `tst_qml` (its Setup builds
+  the fixture library). `MMM_SCREENSHOT_DIR=/tmp/x ./build/debug/tests/tst_qml` saves a PNG
+  per view: use it to *look* at UI changes.
+- App dev flags: `--database FILE`, `--no-scan`, and hidden `--screenshot FILE [--screenshot-delay MS]`.
 - `docs/` — plan and design notes (udev rules, device notes, etc.).
 
 ## Conventions
@@ -78,4 +91,9 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   comment saying where they were seen. New executables: call `mmm_add_sanitizer_defaults()`.
 - ctest runs headless (`offscreen`), so GPU-driver issues only show up in a real run.
   Run the app on the real display as part of each milestone's user test.
+- QML: `TestCase` is invisible by default; set `visible: true` or mouse events go nowhere.
+  No translations are loaded, so don't use `qsTr("%n item(s)")` plural forms (prints "(s)").
+  Ids are `int` in QML (row ids stay < 2^31).
+- Tests must never touch the user's real library: ctest sets `XDG_DATA_HOME`/`XDG_CACHE_HOME`
+  to `build/*/test-home`, and the app smoke test uses `--database` + `--no-scan`.
 - SPDX header `GPL-3.0-or-later` on every source file.

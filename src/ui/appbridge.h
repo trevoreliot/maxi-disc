@@ -19,4 +19,6 @@ public:
 
     QString displayName() const;
     QString version() const;
+
+    Q_INVOKABLE QString formatDuration(qint64 ms) const;
 };

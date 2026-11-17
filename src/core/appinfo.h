@@ -14,4 +14,7 @@ struct AppInfo
     static QString version();
 };
 
+// "3:07", "1:02:03"; negative → "--:--". Shared by the UI, MPRIS and other clients.
+QString formatDuration(qint64 ms);
+
 } // namespace mmm

@@ -25,22 +25,38 @@ qt_add_executable(tst_libraryscanner core/tst_libraryscanner.cpp core/testmedia.
 target_link_libraries(tst_libraryscanner PRIVATE mmm_core PkgConfig::GST TagLib::tag Qt6::Test mmm_build_flags)
 add_test(NAME tst_libraryscanner COMMAND tst_libraryscanner)
 
+qt_add_executable(tst_libraryquery core/tst_libraryquery.cpp)
+target_link_libraries(tst_libraryquery PRIVATE mmm_core Qt6::Test mmm_build_flags)
+add_test(NAME tst_libraryquery COMMAND tst_libraryquery)
+
+# --- UI: C++ models, cover provider (needs a GUI app; runs offscreen) ---
+add_library(mmm_test_fixture STATIC ui/fixturelibrary.h ui/fixturelibrary.cpp core/testmedia.h core/testmedia.cpp)
+target_include_directories(mmm_test_fixture PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ui")
+target_link_libraries(mmm_test_fixture PUBLIC mmm_core Qt6::Gui PkgConfig::GST TagLib::tag PRIVATE mmm_build_flags)
+
+qt_add_executable(tst_uimodels ui/tst_uimodels.cpp)
+target_link_libraries(tst_uimodels PRIVATE mmm_ui mmm_test_fixture Qt6::Test mmm_build_flags)
+add_test(NAME tst_uimodels COMMAND tst_uimodels)
+
 # --- QML tests (Qt Quick Test) ---
 qt_add_executable(tst_qml qml/tst_qml.cpp)
-target_link_libraries(tst_qml PRIVATE mmm_ui mmm_uiplugin Qt6::QuickTest mmm_build_flags)
+target_link_libraries(tst_qml PRIVATE mmm_ui mmm_uiplugin mmm_test_fixture Qt6::QuickTest mmm_build_flags)
 target_compile_definitions(tst_qml PRIVATE
     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
 add_test(NAME tst_qml COMMAND tst_qml)
 
-foreach(t tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_qml)
+foreach(t tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_libraryquery tst_uimodels tst_qml)
     mmm_add_sanitizer_defaults(${t})
 endforeach()
 
 # --- App smoke test: window loads and exits cleanly ---
-add_test(NAME app_smoke COMMAND music-md-manager --quit-after-load)
+# Isolated database and cache: tests must never touch the user's real library.
+set(MMM_TEST_HOME "${CMAKE_BINARY_DIR}/test-home")
+add_test(NAME app_smoke COMMAND music-md-manager --quit-after-load --no-scan
+    --database "${MMM_TEST_HOME}/smoke.db")
 
-set_tests_properties(tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_qml app_smoke PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+set_tests_properties(tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_libraryquery tst_uimodels tst_qml app_smoke PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;XDG_DATA_HOME=${MMM_TEST_HOME}/data;XDG_CACHE_HOME=${MMM_TEST_HOME}/cache;XDG_CONFIG_HOME=${MMM_TEST_HOME}/config")
 
 # --- qmllint: any warning fails the test ---
 add_test(NAME qmllint
