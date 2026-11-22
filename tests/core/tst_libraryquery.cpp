@@ -4,6 +4,8 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <algorithm>
+
 #include "database.h"
 #include "libraryquery.h"
 
@@ -255,6 +257,86 @@ private Q_SLOTS:
         QVERIFY(abbey[1].artSourcePath().isEmpty());
     }
 
+    // --- Artwork finder (M7) ---
+
+    void albumsMissingArt()
+    {
+        const LibraryQuery q(m_db);
+        // Abbey Road has a track with embedded art, Homogenic has folder art.
+        const QStringList expected = {QStringLiteral("Selected Ambient Works 85-92"), QStringLiteral("Album 2"),
+                                      QStringLiteral("Album 10"), QStringLiteral("Revolver"),
+                                      QStringLiteral("The Wall"), QStringLiteral("Now 42")};
+        QList<mmm::ArtworkTarget> missing = q.albumsMissingArt();
+        QStringList got;
+        for (const auto &t : missing)
+            got << t.title;
+        QCOMPARE(got, expected); // sorted like the album grid: artist sort name, year, title
+        QCOMPARE(q.missingArtCounts(), (std::pair<int, int>{6, 0}));
+
+        const auto wall = std::find_if(missing.cbegin(), missing.cend(),
+                                       [](const auto &t) { return t.title == QLatin1String("The Wall"); });
+        QCOMPARE(wall->artist, QStringLiteral("Pink Floyd"));
+        QCOMPARE(wall->trackCount, 3);
+        QCOMPARE(wall->year, 1979);
+        QCOMPARE(wall->folder, QStringLiteral("/m/pf/wall"));
+        QVERIFY(!wall->hasArt);
+        QVERIFY(!wall->skipped);
+
+        // Skipping hides an album unless asked for; setting a cover clears the skip.
+        const qint64 revolver = albumId(QStringLiteral("Revolver"));
+        QVERIFY(m_db.setAlbumArtSkipped(revolver, true));
+        QCOMPARE(q.albumsMissingArt().size(), 5);
+        QCOMPARE(q.missingArtCounts(), (std::pair<int, int>{5, 1}));
+        const auto withSkipped = q.albumsMissingArt(true);
+        QCOMPARE(withSkipped.size(), 6);
+        QVERIFY(std::any_of(withSkipped.cbegin(), withSkipped.cend(),
+                            [&](const auto &t) { return t.albumId == revolver && t.skipped; }));
+
+        QVERIFY(m_db.setAlbumCover(revolver, QStringLiteral("/m/beatles/rv/cover.jpg")));
+        QCOMPARE(q.missingArtCounts(), (std::pair<int, int>{5, 0}));
+        const auto target = q.artworkTarget(revolver);
+        QVERIFY(target);
+        QVERIFY(target->hasArt);
+        QVERIFY(!target->skipped);
+        QCOMPARE(target->title, QStringLiteral("Revolver"));
+        QVERIFY(!q.artworkTarget(999999));
+        QVERIFY(!m_db.setAlbumCover(999999, QString()));
+
+        QVERIFY(m_db.setAlbumCover(revolver, QString())); // put it back
+        QCOMPARE(q.missingArtCounts(), (std::pair<int, int>{6, 0}));
+    }
+
+    void albumFolders()
+    {
+        const LibraryQuery q(m_db);
+        const auto wall = q.albumFolders(albumId(QStringLiteral("The Wall")));
+        QCOMPARE(wall.size(), 1);
+        QCOMPARE(wall[0].path, QStringLiteral("/m/pf/wall"));
+        QVERIFY(!wall[0].shared);
+
+        // A folder shared with another album, and an album spread over two folders.
+        QVERIFY(m_db.upsertTrack(QStringLiteral("/m/pf/wall/bonus.flac"), 1, 1,
+                                 tagsFor(T{"", "Bonus", "Pink Floyd", "Animals", "", "Rock", 1977, 1, 1, false})));
+        QVERIFY(m_db.upsertTrack(QStringLiteral("/m/pf/animals-d2/01.flac"), 1, 1,
+                                 tagsFor(T{"", "Dogs", "Pink Floyd", "Animals", "", "Rock", 1977, 2, 1, false})));
+        // Subfolders don't count as shared: /m/pf/wall/sub/x.flac isn't directly in /m/pf/wall.
+        QVERIFY(m_db.upsertTrack(QStringLiteral("/m/pf/wall/sub/x.flac"), 1, 1,
+                                 tagsFor(T{"", "X", "Someone", "Other", "", "", 0, 0, 0, false})));
+        const auto animals = q.albumFolders(albumId(QStringLiteral("Animals")));
+        QCOMPARE(animals.size(), 2);
+        QCOMPARE(animals[0].path, QStringLiteral("/m/pf/wall")); // disc 1 first
+        QVERIFY(animals[0].shared);
+        QCOMPARE(animals[1].path, QStringLiteral("/m/pf/animals-d2"));
+        QVERIFY(!animals[1].shared);
+        const auto other = q.albumFolders(albumId(QStringLiteral("Other")));
+        QCOMPARE(other.size(), 1);
+        QVERIFY(!other[0].shared);
+
+        for (const char *p : {"/m/pf/wall/bonus.flac", "/m/pf/animals-d2/01.flac", "/m/pf/wall/sub/x.flac"})
+            QVERIFY(m_db.removeTrack(QString::fromLatin1(p)));
+        m_db.pruneOrphans();
+    }
+
     void playlists()
     {
         const QString missing = QStringLiteral("/m/not-in-library.flac");
@@ -345,13 +427,27 @@ private Q_SLOTS:
         const qint64 prefixMs = timeIt([&] { n = q.search(QStringLiteral("ar"), 500).size(); });
         QCOMPARE(n, 500);
 
+        {
+            // Half the albums lose their art: the finder's list is then big.
+            QSqlQuery strip(db.connection());
+            QVERIFY(strip.exec(QStringLiteral("UPDATE tracks SET has_embedded_art = 0 WHERE album_id % 2 = 0")));
+        }
+        const qint64 missingArtMs = timeIt([&] { n = q.albumsMissingArt().size(); });
+        QCOMPARE(n, kAlbumCount / 2);
+        const qint64 missingCountMs = timeIt([&] { n = q.missingArtCounts().first; });
+        QCOMPARE(n, kAlbumCount / 2);
+
         qInfo("100k library (load %lld ms): artists %lld ms, all albums %lld ms, artist's albums %lld ms, "
-              "genre's albums %lld ms, album tracks %lld ms, search %lld ms, 2-letter prefix search %lld ms",
-              loadMs, artistsMs, albumsMs, artistAlbumsMs, genreAlbumsMs, tracksMs, searchMs, prefixMs);
+              "genre's albums %lld ms, album tracks %lld ms, search %lld ms, 2-letter prefix search %lld ms, "
+              "albums missing art %lld ms (count %lld ms)",
+              loadMs, artistsMs, albumsMs, artistAlbumsMs, genreAlbumsMs, tracksMs, searchMs, prefixMs,
+              missingArtMs, missingCountMs);
         // Loose bounds: this also runs under ASan in debug. Release timings are what the plan targets.
         QVERIFY(albumsMs < 2000);
         QVERIFY(searchMs < 500);
         QVERIFY(tracksMs < 100);
+        QVERIFY(missingArtMs < 2000);
+        QVERIFY(missingCountMs < 500);
     }
 };
 

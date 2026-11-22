@@ -51,6 +51,9 @@ Item {
     signal editTagsRequested(list<string> paths, string label)
     // The user clicked inside this screen (the window takes keyboard focus off the queue).
     signal interacted()
+    // Open the artwork finder (Main owns the dialog).
+    signal findArtRequested(int albumId)
+    signal findMissingArtRequested()
 
     function openAlbum(id: int, title: string, artist: string, year: int, coverUrl: string, fromGrid: bool) {
         albumId = id;
@@ -96,6 +99,27 @@ Item {
         if (content === LibraryView.Album && newAlbumId !== 0 && newAlbumId !== albumId
                 && editedCount === albumView.trackCount)
             albumId = newAlbumId;
+    }
+
+    // The album the cursor is on (`a` finds its cover): the open album, the grid's or browse
+    // list's current album, or the cursor track's album. 0 if none.
+    function currentAlbumId(): int {
+        if (content === LibraryView.Album)
+            return albumId;
+        if (focusedPane === LibraryView.Browse)
+            return browsePane.currentAlbumId();
+        if (content === LibraryView.Grid)
+            return albumGrid.currentAlbumId();
+        let model = null;
+        let cursor = -1;
+        if (content === LibraryView.Playlist) {
+            model = playlistView.tracksModel;
+            cursor = playlistView.currentIndex;
+        } else if (content === LibraryView.Search) {
+            model = searchView.tracksModel;
+            cursor = searchView.currentIndex;
+        }
+        return model && cursor >= 0 && cursor < model.count ? model.get(cursor).albumId : 0;
     }
 
     function closeAlbum() {
@@ -259,14 +283,30 @@ Item {
                 visible: root.content === LibraryView.Grid
                 spacing: 0
 
-                Label {
+                RowLayout {
                     Layout.fillWidth: true
                     Layout.margins: Theme.spaceMD
-                    text: root.filterLabel !== "" ? root.filterLabel
-                        : root.genreId === 0 && root.artistId === 0 ? qsTr("All albums") : ""
-                    font.pixelSize: Theme.fontTitle
-                    font.bold: true
-                    elide: Text.ElideRight
+                    spacing: Theme.spaceMD
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.filterLabel !== "" ? root.filterLabel
+                            : root.genreId === 0 && root.artistId === 0 ? qsTr("All albums") : ""
+                        font.pixelSize: Theme.fontTitle
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+                    Button {
+                        objectName: "findMissingArtButton"
+                        visible: Library.missingArtCount > 0
+                        text: qsTr("Find missing covers (%1)…").arg(Library.missingArtCount)
+                        flat: true
+                        focusPolicy: Qt.NoFocus
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 600
+                        ToolTip.text: qsTr("Look up covers for albums without art on MusicBrainz (A)")
+                        onClicked: root.findMissingArtRequested()
+                    }
                 }
 
                 AlbumGrid {
@@ -303,6 +343,7 @@ Item {
                 paneActive: contentArea.contentActive
                 onBack: root.closeAlbum()
                 onEditRequested: (paths, label) => root.editTagsRequested(paths, label)
+                onFindArtRequested: id => root.findArtRequested(id)
                 onInteracted: {
                     root.focusedPane = LibraryView.Content;
                     root.interacted();

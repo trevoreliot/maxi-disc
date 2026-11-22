@@ -298,6 +298,7 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
     case DurationMsRole: return r.durationMs;
     case DurationRole: return mmm::formatDuration(r.durationMs);
     case CodecRole: return r.codec;
+    case CoverUrlRole: return CoverLoader::url(r.albumId, r.coverPath, r.hasEmbeddedArt ? r.path : QString());
     default: return {};
     }
 }
@@ -311,7 +312,7 @@ QHash<int, QByteArray> TrackListModel::roleNames() const
         {AlbumArtistRole, "albumArtist"}, {TrackNumberRole, "trackNumber"},
         {DiscNumberRole, "discNumber"},   {YearRole, "year"},
         {DurationMsRole, "durationMs"},   {DurationRole, "duration"},
-        {CodecRole, "codec"},
+        {CodecRole, "codec"},             {CoverUrlRole, "coverUrl"},
     };
 }
 

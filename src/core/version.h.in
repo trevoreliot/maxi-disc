@@ -2,3 +2,6 @@
 #pragma once
 
 #define MMM_VERSION_STRING "@PROJECT_VERSION@"
+
+// Contact sent to MusicBrainz in the User-Agent (CMake cache variable MMM_CONTACT_URL).
+#define MMM_CONTACT_URL "@MMM_CONTACT_URL@"

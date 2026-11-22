@@ -9,7 +9,9 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QHash>
 #include <QLoggingCategory>
+#include <QMutex>
 #include <QPainter>
 #include <QRunnable>
 #include <QSaveFile>
@@ -132,13 +134,29 @@ int CoverLoader::bucketFor(const QSize &requested)
     return kBuckets[std::size(kBuckets) - 1];
 }
 
+namespace {
+QMutex s_revisionMutex;
+QHash<qint64, int> s_revisions;
+} // namespace
+
+void CoverLoader::bumpRevision(qint64 key)
+{
+    const QMutexLocker lock(&s_revisionMutex);
+    ++s_revisions[key];
+}
+
 QString CoverLoader::url(qint64 key, const QString &folderCover, const QString &artTrack)
 {
     if (folderCover.isEmpty() && artTrack.isEmpty())
         return {};
+    int revision = 0;
+    {
+        const QMutexLocker lock(&s_revisionMutex);
+        revision = s_revisions.value(key);
+    }
     const QByteArray payload = (folderCover + QLatin1Char('\n') + artTrack).toUtf8();
     return QStringLiteral("image://cover/%1/%2")
-        .arg(key)
+        .arg(revision > 0 ? QStringLiteral("%1.%2").arg(key).arg(revision) : QString::number(key))
         .arg(QString::fromLatin1(payload.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)));
 }
 

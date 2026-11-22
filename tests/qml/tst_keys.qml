@@ -48,8 +48,26 @@ TestCase {
         }
     }
 
+    // A popup that opts in to the app's bindings (like the artwork finder).
+    Popup {
+        id: routedPopup
+        focus: true
+        width: 200
+        height: 80
+        contentItem: Item {
+            property bool routeKeys: true
+            focus: true
+
+            TextField {
+                id: routedField
+                width: 150
+            }
+        }
+    }
+
     function init() {
         popup.close();
+        routedPopup.close();
         combo.popup.close();
         field.text = "";
         plain.forceActiveFocus();
@@ -88,6 +106,10 @@ TestCase {
             { tag: "e", key: "e", action: KeyRouter.EditTags },
             { tag: "E", key: "E", action: KeyRouter.EditAllTags },
             { tag: "v", key: "v", action: KeyRouter.ToggleMark },
+            { tag: "a", key: "a", action: KeyRouter.FindArt },
+            { tag: "A", key: "A", action: KeyRouter.FindMissingArt },
+            { tag: "s", key: "s", action: KeyRouter.Skip },
+            { tag: "r", key: "r", action: KeyRouter.Retry },
             { tag: "unbound x", key: "x", action: -1 },
             { tag: "ctrl+j", key: Qt.Key_J, mods: Qt.ControlModifier, action: -1 },
             { tag: "alt+h", key: Qt.Key_H, mods: Qt.AltModifier, action: -1 },
@@ -127,6 +149,23 @@ TestCase {
         tryCompare(popup, "visible", false);
         plain.forceActiveFocus();
         compare(actionOf("j"), KeyRouter.MoveDown);
+    }
+
+    function test_routedPopupGetsBindings() {
+        routedPopup.open();
+        tryCompare(routedPopup, "opened", true);
+        compare(actionOf("j"), KeyRouter.MoveDown);
+        compare(actionOf("s"), KeyRouter.Skip);
+        compare(actionOf(Qt.Key_Return), KeyRouter.Activate);
+        compare(actionOf(Qt.Key_Escape), KeyRouter.Back); // the popup doesn't close itself
+        verify(routedPopup.visible);
+        // A text field inside it still types normally.
+        routedField.forceActiveFocus();
+        compare(actionOf("j"), -1);
+        compare(routedField.text, "j");
+        routedField.text = "";
+        routedPopup.close();
+        tryCompare(routedPopup, "visible", false);
     }
 
     function test_openComboOwnsKeys() {

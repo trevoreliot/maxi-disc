@@ -6,6 +6,7 @@
 #include <QStringList>
 
 #include "libraryquery.h"
+#include "tracktags.h"
 
 #include <optional>
 
@@ -30,11 +31,14 @@ struct TagChanges
     std::optional<int> discNumber;
     std::optional<int> discTotal;
     std::optional<bool> compilation;
+    // Replaces the front cover (JPEG or PNG data). Other picture types are kept, except in
+    // MP4 files, which can't tell pictures apart: there it replaces all of them.
+    std::optional<EmbeddedPicture> frontCover;
 
     bool isEmpty() const
     {
         return !title && !artist && !album && !albumArtist && !genre && !composer && !comment && !year
-            && !trackNumber && !trackTotal && !discNumber && !discTotal && !compilation;
+            && !trackNumber && !trackTotal && !discNumber && !discTotal && !compilation && !frontCover;
     }
 };
 

@@ -30,6 +30,7 @@ qt_add_qml_module(mmm_ui
         qml/PlaylistPage.qml
         qml/TextPrompt.qml
         qml/TagEditorDialog.qml
+        qml/ArtworkFinderDialog.qml
     SOURCES
         appbridge.h appbridge.cpp
         library.h library.cpp
@@ -38,6 +39,7 @@ qt_add_qml_module(mmm_ui
         playback.h playback.cpp
         keyrouter.h keyrouter.cpp
         tageditor.h tageditor.cpp
+        artfinder.h artfinder.cpp
         theme.h theme.cpp)
 
 target_link_libraries(mmm_ui

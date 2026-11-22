@@ -4,6 +4,9 @@
 #include <QList>
 #include <QString>
 
+#include <optional>
+#include <utility>
+
 namespace mmm {
 
 class Database;
@@ -65,6 +68,28 @@ struct PlaylistRow
     int availableCount = 0; // entries whose file is in the library
 };
 
+// An album as the artwork finder needs it.
+struct ArtworkTarget
+{
+    qint64 albumId = 0;
+    QString title;
+    QString artist;      // album artist
+    int year = 0;
+    bool compilation = false;
+    int trackCount = 0;
+    QString mbAlbumId;   // MusicBrainz release id from the tags, if any
+    bool skipped = false; // the user skipped it in the artwork finder before
+    bool hasArt = false;  // folder art or a track with embedded art
+    QString folder;       // folder of its first track (for display)
+};
+
+// A folder holding tracks of an album. `shared`: tracks of other albums are in it too.
+struct AlbumFolder
+{
+    QString path;
+    bool shared = false;
+};
+
 struct LibraryCounts
 {
     int tracks = 0;
@@ -99,6 +124,16 @@ public:
 
     // Rows for these track ids, in the given order (missing ids are skipped).
     QList<TrackRow> tracksByIds(const QList<qint64> &ids) const;
+    // Albums with neither folder art nor a track with embedded art, sorted like albums().
+    // Albums skipped in the artwork finder are left out unless `includeSkipped`.
+    QList<ArtworkTarget> albumsMissingArt(bool includeSkipped = false) const;
+    // How many albumsMissingArt() would return: {not skipped, skipped}.
+    std::pair<int, int> missingArtCounts() const;
+    // One album, art or not; nullopt if there's no such album.
+    std::optional<ArtworkTarget> artworkTarget(qint64 albumId) const;
+    // The folders an album's tracks are directly in, in track order (disc, track).
+    QList<AlbumFolder> albumFolders(qint64 albumId) const;
+
     // Full-text search (see Database::search), best match first.
     QList<TrackRow> search(const QString &text, int limit = 500) const;
 

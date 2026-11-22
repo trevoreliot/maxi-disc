@@ -27,6 +27,10 @@ constexpr std::array kTextBindings{
     TextBinding{u'e', KeyRouter::EditTags},
     TextBinding{u'E', KeyRouter::EditAllTags},
     TextBinding{u'v', KeyRouter::ToggleMark},
+    TextBinding{u'a', KeyRouter::FindArt},
+    TextBinding{u'A', KeyRouter::FindMissingArt},
+    TextBinding{u's', KeyRouter::Skip},
+    TextBinding{u'r', KeyRouter::Retry},
 };
 
 // Keys matched on key code + exact modifiers, in a context: outside text fields, inside
@@ -115,7 +119,18 @@ bool KeyRouter::ownsKeysItself(const QQuickItem *item)
     }
     for (const QQuickItem *p = item; p; p = p->parentItem()) {
         if (p->inherits("QQuickPopupItem"))
+            return !wantsRoutedKeys(item);
+    }
+    return false;
+}
+
+bool KeyRouter::wantsRoutedKeys(const QQuickItem *item)
+{
+    for (const QQuickItem *p = item; p; p = p->parentItem()) {
+        if (p->property("routeKeys").toBool())
             return true;
+        if (p->inherits("QQuickPopupItem"))
+            return false;
     }
     return false;
 }

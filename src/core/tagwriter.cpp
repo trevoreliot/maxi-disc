@@ -15,6 +15,7 @@
 #include <taglib/flacfile.h>
 #include <taglib/id3v2header.h>
 #include <taglib/id3v2tag.h>
+#include <taglib/mp4file.h>
 #include <taglib/mpegfile.h>
 #include <taglib/oggfile.h>
 #include <taglib/tpropertymap.h>
@@ -163,6 +164,34 @@ bool save(TagLib::File *file)
     return file->save();
 }
 
+// Front cover first, then the pictures worth keeping.
+bool replaceFrontCover(TagLib::File *file, const EmbeddedPicture &cover)
+{
+    using namespace TagLib;
+    const QByteArray &data = cover.data;
+    VariantMap front;
+    front.insert("data", ByteVector(data.constData(), static_cast<unsigned int>(data.size())));
+    front.insert("mimeType", toTag(cover.mimeType));
+    front.insert("pictureType", String("Front Cover"));
+    front.insert("description", toTag(cover.description));
+    List<VariantMap> pictures;
+    pictures.append(front);
+    if (!dynamic_cast<MP4::File *>(file)) {
+        for (const VariantMap &p : file->complexProperties("PICTURE")) {
+            if (p.value("pictureType").toString() != String("Front Cover"))
+                pictures.append(p);
+        }
+    }
+    // MP3/WAV/AIFF: write the ID3v2 tag itself (the file's tag is a union with ID3v1/INFO).
+    if (auto *f = dynamic_cast<MPEG::File *>(file))
+        return f->ID3v2Tag(true)->setComplexProperties("PICTURE", pictures);
+    if (auto *f = dynamic_cast<RIFF::WAV::File *>(file))
+        return f->ID3v2Tag()->setComplexProperties("PICTURE", pictures);
+    if (auto *f = dynamic_cast<RIFF::AIFF::File *>(file))
+        return f->tag()->setComplexProperties("PICTURE", pictures);
+    return file->setComplexProperties("PICTURE", pictures);
+}
+
 bool applyChanges(const QString &path, const TagChanges &c, QString *error)
 {
     const QByteArray name = QFile::encodeName(path);
@@ -197,12 +226,17 @@ bool applyChanges(const QString &path, const TagChanges &c, QString *error)
     e.numberPair("DISCNUMBER", "DISCTOTAL", "TOTALDISCS", c.discNumber, c.discTotal);
     e.flag("COMPILATION", c.compilation);
 
-    const TagLib::PropertyMap rejected = file->setProperties(e.map());
+    // A cover-only change leaves the text tags exactly as they are.
+    const TagLib::PropertyMap rejected = e.touched().isEmpty() ? TagLib::PropertyMap() : file->setProperties(e.map());
     for (const char *key : e.touched()) {
         if (rejected.contains(key)) {
             *error = QStringLiteral("this file type can't store %1").arg(QLatin1StringView(key));
             return false;
         }
+    }
+    if (c.frontCover && !replaceFrontCover(file, *c.frontCover)) {
+        *error = QStringLiteral("this file type can't store cover art");
+        return false;
     }
     if (!save(file)) {
         *error = QStringLiteral("TagLib could not save the tags");

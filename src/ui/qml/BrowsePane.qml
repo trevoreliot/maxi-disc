@@ -43,6 +43,12 @@ Pane {
         commitTimer.restart();
     }
 
+    // The album under the cursor in Albums mode, else 0.
+    function currentAlbumId(): int {
+        const i = albumList.currentIndex;
+        return mode === BrowsePane.Albums && i >= 0 ? albumModel.get(i).albumId : 0;
+    }
+
     function commit() {
         commitTimer.stop();
         const i = currentList.currentIndex;

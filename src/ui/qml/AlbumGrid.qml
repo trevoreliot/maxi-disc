@@ -53,6 +53,10 @@ GridView {
         positionViewAtIndex(i, GridView.Contain);
     }
 
+    function currentAlbumId(): int {
+        return currentItem ? (currentItem as AlbumTile).albumId : 0;
+    }
+
     function activateCurrent() {
         if (currentItem)
             (currentItem as AlbumTile).open();

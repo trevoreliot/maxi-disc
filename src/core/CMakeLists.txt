@@ -4,6 +4,10 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.22)
 find_package(TagLib 2.0 REQUIRED)
 
+# MusicBrainz asks clients to identify themselves: "app/version ( contact )". The project's
+# public page identifies the app (not a person). Forks that ship their own builds: set your own.
+set(MMM_CONTACT_URL "https://github.com/trevoreliot/maxi-disc" CACHE STRING
+    "Project URL or contact address sent in the MusicBrainz User-Agent")
 configure_file(version.h.in "${CMAKE_CURRENT_BINARY_DIR}/mmm/version.h" @ONLY)
 
 add_library(mmm_core STATIC
@@ -22,12 +26,18 @@ add_library(mmm_core STATIC
     playbackcontroller.h playbackcontroller.cpp
     m3u.h m3u.cpp
     artcache.h artcache.cpp
+    artworksaver.h artworksaver.cpp
+    httpfetcher.h httpfetcher.cpp
+    musicbrainzclient.h musicbrainzclient.cpp
+    coverartarchiveclient.h coverartarchiveclient.cpp
+    artworkmatch.h artworkmatch.cpp
+    artworkfinder.h artworkfinder.cpp
     mprisservice.h mprisservice.cpp)
 target_include_directories(mmm_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(mmm_core
-    PUBLIC Qt6::Core Qt6::Sql Qt6::DBus
+    PUBLIC Qt6::Core Qt6::Sql Qt6::DBus Qt6::Network
     PRIVATE Qt6::Concurrent
     PRIVATE PkgConfig::GST TagLib::tag mmm_build_flags)
 

@@ -12,6 +12,8 @@ struct AppInfo
     static QString displayName();
     static QString organization();
     static QString version();
+    // HTTP User-Agent for web services: "music-md-manager/0.0.1 ( contact )".
+    static QString userAgent();
 };
 
 // "3:07", "1:02:03"; negative → "--:--". Shared by the UI, MPRIS and other clients.

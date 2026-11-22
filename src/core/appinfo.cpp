@@ -25,6 +25,13 @@ QString AppInfo::version()
     return QStringLiteral(MMM_VERSION_STRING);
 }
 
+QString AppInfo::userAgent()
+{
+    const QString contact = QStringLiteral(MMM_CONTACT_URL).trimmed();
+    const QString base = name() + QLatin1Char('/') + version();
+    return contact.isEmpty() ? base : base + QStringLiteral(" ( ") + contact + QStringLiteral(" )");
+}
+
 QString formatDuration(qint64 ms)
 {
     if (ms < 0)

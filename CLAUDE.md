@@ -53,6 +53,14 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     (keeps folder id, carries folder art to a renamed album, recomputes album year). UI: `Library::editTags`
     (one-thread write pool) → `tracksEdited` (Playback refreshes the queue) + `changed`; `TagEditor` (QML
     type) backs `TagEditorDialog` (Main owns it). Keys: `e` cursor/marked tracks, `E` all, `v` mark (album page).
+  - Artwork finder (M7): core `ArtworkFinder` (MusicBrainz search/lookup → Cover Art Archive
+    fronts; `HttpFetcher` queues/rate-limits/retries) + `ArtworkSaver` (cover.jpg in folders only
+    this album uses + embedded via `TagChanges::frontCover`; decisions/0003). UI: `ArtFinder` (QML
+    type, the dialog's model) → `Library::saveAlbumArt` (write pool) / `setAlbumArtSkipped`;
+    `ArtworkFinderDialog` (Main owns it). Keys: `A` all missing, `a` current album, in the dialog
+    `s` skip / `r` retry. The dialog gets routed keys because its content has `routeKeys: true`
+    (KeyRouter's popup opt-in); Main forwards actions to it first. `CoverLoader::bumpRevision()`
+    after art changes in place, so QML reloads it.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).
@@ -148,4 +156,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   use `.includes(x)`.
 - Tests must never touch the user's real library: ctest sets `XDG_DATA_HOME`/`XDG_CACHE_HOME`
   to `build/*/test-home`, and the app smoke test uses `--database` + `--no-scan`.
+- Tests must never reach the internet: network clients get a base URL (`setBaseUrl`) pointed at
+  `tests/core/testhttpserver.h` (loopback server). ctest also sets `MMM_MUSICBRAINZ_URL` /
+  `MMM_COVERARTARCHIVE_URL` to a closed local port, so anything that slips through fails offline.
+  moc can't parse raw strings containing `//` (URLs): write such JSON fixtures as plain literals.
 - SPDX header `GPL-3.0-or-later` on every source file.

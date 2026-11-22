@@ -88,6 +88,17 @@ QStringList leftovers(const QString &dir)
     return QDir(dir).entryList({QStringLiteral(".mmm-edit-*")}, QDir::Files | QDir::Hidden);
 }
 
+// Not a real image: tags store the bytes as they are, which is all these tests check.
+QByteArray fakeJpeg(char fill)
+{
+    return QByteArray("\xFF\xD8\xFF\xE0", 4) + QByteArray(2000, fill) + QByteArray("\xFF\xD9", 2);
+}
+
+mmm::EmbeddedPicture picture(const QByteArray &data, const char *type = "Front Cover")
+{
+    return mmm::EmbeddedPicture{data, QStringLiteral("image/jpeg"), QString::fromLatin1(type), QString()};
+}
+
 ino_t inodeOf(const QString &path)
 {
     struct stat st{};
@@ -289,6 +300,79 @@ private Q_SLOTS:
         QCOMPARE(f.ID3v2Tag()->header()->majorVersion(), 3u);
         QVERIFY(!f.hasID3v1Tag()); // doesn't add tag types the file didn't have
         QCOMPARE(QString::fromStdString(f.ID3v2Tag()->title().to8Bit(true)), QStringLiteral("v2.3 still"));
+    }
+
+    // --- Cover art (M7) ---
+
+    void frontCover_data() { addFormatRows(); }
+    void frontCover()
+    {
+        QFETCH(int, index);
+        const QString path = taggedCopy(kFormats[index].file);
+        QVERIFY(!path.isEmpty());
+        QVERIFY(!TagReader::read(path)->hasEmbeddedArt);
+
+        TagChanges c;
+        c.frontCover = picture(fakeJpeg('a'));
+        QString error;
+        QVERIFY2(TagWriter::write(path, c, &error), qPrintable(error));
+        auto cover = TagReader::readCover(path);
+        QVERIFY(cover);
+        QCOMPARE(cover->data, fakeJpeg('a'));
+        QCOMPARE(cover->mimeType, QStringLiteral("image/jpeg"));
+        const auto tags = TagReader::read(path);
+        QVERIFY(tags->hasEmbeddedArt);
+        QCOMPARE(tags->title, QStringLiteral("Old Title")); // the text tags are untouched
+        QCOMPARE(tags->trackNumber, 2);
+        QCOMPARE(raw(path, "REPLAYGAIN_TRACK_GAIN").isEmpty(), false);
+
+        // Saving again replaces the cover instead of adding a second one.
+        c.frontCover = picture(fakeJpeg('b'));
+        QVERIFY2(TagWriter::write(path, c, &error), qPrintable(error));
+        const auto pictures = TagReader::readPictures(path);
+        QCOMPARE(pictures.size(), 1);
+        QCOMPARE(pictures.front().data, fakeJpeg('b'));
+        QVERIFY(leftovers(QFileInfo(path).path()).isEmpty());
+    }
+
+    void frontCoverKeepsOtherPictures()
+    {
+        const QString path = taggedCopy("t.flac");
+        {
+            TagLib::FileRef ref(QFile::encodeName(path).constData());
+            TagLib::VariantMap back;
+            const QByteArray data = fakeJpeg('z');
+            back.insert("data", TagLib::ByteVector(data.constData(), static_cast<unsigned int>(data.size())));
+            back.insert("mimeType", TagLib::String("image/jpeg"));
+            back.insert("pictureType", TagLib::String("Back Cover"));
+            QVERIFY(ref.setComplexProperties("PICTURE", {back}));
+            QVERIFY(ref.save());
+        }
+        TagChanges c;
+        c.frontCover = picture(fakeJpeg('f'));
+        QVERIFY(TagWriter::write(path, c));
+        const auto pictures = TagReader::readPictures(path);
+        QCOMPARE(pictures.size(), 2);
+        QCOMPARE(pictures[0].pictureType, QStringLiteral("Front Cover"));
+        QCOMPARE(pictures[0].data, fakeJpeg('f'));
+        QCOMPARE(pictures[1].pictureType, QStringLiteral("Back Cover"));
+        QCOMPARE(TagReader::readCover(path)->data, fakeJpeg('f'));
+    }
+
+    void frontCoverKeepsId3v23()
+    {
+        const QString path = taggedCopy("t.mp3");
+        {
+            TagLib::MPEG::File f(QFile::encodeName(path).constData());
+            QVERIFY(f.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripOthers, TagLib::ID3v2::v3));
+        }
+        TagChanges c;
+        c.frontCover = picture(fakeJpeg('3'));
+        QVERIFY(TagWriter::write(path, c));
+        TagLib::MPEG::File f(QFile::encodeName(path).constData());
+        QCOMPARE(f.ID3v2Tag()->header()->majorVersion(), 3u);
+        QVERIFY(!f.hasID3v1Tag());
+        QCOMPARE(TagReader::readCover(path)->data, fakeJpeg('3'));
     }
 
     void id3v1IsUpdatedToo()

@@ -204,6 +204,114 @@ QList<AlbumRow> LibraryQuery::albums(qint64 artistId, qint64 genreId) const
     return rows;
 }
 
+namespace {
+
+// Albums with their art state; append WHERE/HAVING. Columns as read by targetFrom().
+const QString kTargetSelect = QStringLiteral(R"(
+    SELECT al.id, al.title, ar.name, al.year, al.compilation, count(t.id), al.mb_album_id,
+           al.art_skipped_at IS NOT NULL, al.cover_path IS NOT NULL OR max(t.has_embedded_art) = 1,
+           (SELECT f.path FROM tracks f WHERE f.album_id = al.id ORDER BY f.disc_no, f.track_no, f.path LIMIT 1)
+    FROM albums al
+    JOIN artists ar ON ar.id = al.artist_id
+    JOIN tracks t ON t.album_id = al.id)");
+
+ArtworkTarget targetFrom(const QSqlQuery &q)
+{
+    ArtworkTarget r;
+    r.albumId = q.value(0).toLongLong();
+    r.title = q.value(1).toString();
+    r.artist = q.value(2).toString();
+    r.year = q.value(3).toInt();
+    r.compilation = q.value(4).toInt() != 0;
+    r.trackCount = q.value(5).toInt();
+    r.mbAlbumId = q.value(6).toString();
+    r.skipped = q.value(7).toInt() != 0;
+    r.hasArt = q.value(8).toInt() != 0;
+    const QString first = q.value(9).toString();
+    r.folder = first.left(first.lastIndexOf(QLatin1Char('/')));
+    return r;
+}
+
+} // namespace
+
+QList<ArtworkTarget> LibraryQuery::albumsMissingArt(bool includeSkipped) const
+{
+    QList<ArtworkTarget> rows;
+    QSqlQuery q(m_db.connection());
+    q.setForwardOnly(true);
+    q.prepare(kTargetSelect
+              + (includeSkipped ? QStringLiteral(" WHERE al.cover_path IS NULL")
+                                : QStringLiteral(" WHERE al.cover_path IS NULL AND al.art_skipped_at IS NULL"))
+              + QStringLiteral(" GROUP BY al.id HAVING max(t.has_embedded_art) = 0"));
+    if (!run(q))
+        return rows;
+    while (q.next())
+        rows << targetFrom(q);
+    sortBy(rows,
+           [](const ArtworkTarget &r) {
+               return sortName(r.artist) + QChar(1) + QStringLiteral("%1").arg(r.year, 4, 10, QLatin1Char('0')) + r.title;
+           },
+           [](const ArtworkTarget &a, const ArtworkTarget &b) { return a.albumId < b.albumId; });
+    return rows;
+}
+
+std::pair<int, int> LibraryQuery::missingArtCounts() const
+{
+    QSqlQuery q(m_db.connection());
+    q.prepare(QStringLiteral(R"(
+        SELECT coalesce(sum(skipped = 0), 0), coalesce(sum(skipped = 1), 0) FROM (
+            SELECT al.art_skipped_at IS NOT NULL AS skipped
+            FROM albums al JOIN tracks t ON t.album_id = al.id
+            WHERE al.cover_path IS NULL
+            GROUP BY al.id HAVING max(t.has_embedded_art) = 0))"));
+    if (!run(q) || !q.next())
+        return {0, 0};
+    return {q.value(0).toInt(), q.value(1).toInt()};
+}
+
+std::optional<ArtworkTarget> LibraryQuery::artworkTarget(qint64 albumId) const
+{
+    QSqlQuery q(m_db.connection());
+    q.prepare(kTargetSelect + QStringLiteral(" WHERE al.id = ? GROUP BY al.id"));
+    q.addBindValue(albumId);
+    if (!run(q) || !q.next())
+        return std::nullopt;
+    return targetFrom(q);
+}
+
+QList<AlbumFolder> LibraryQuery::albumFolders(qint64 albumId) const
+{
+    QList<AlbumFolder> out;
+    QStringList dirs;
+    {
+        QSqlQuery q(m_db.connection());
+        q.setForwardOnly(true);
+        q.prepare(QStringLiteral("SELECT path FROM tracks WHERE album_id = ? ORDER BY disc_no, track_no, path"));
+        q.addBindValue(albumId);
+        if (!run(q))
+            return out;
+        while (q.next()) {
+            const QString path = q.value(0).toString();
+            const QString dir = path.left(path.lastIndexOf(QLatin1Char('/')));
+            if (!dir.isEmpty() && !dirs.contains(dir))
+                dirs << dir;
+        }
+    }
+    for (const QString &dir : std::as_const(dirs)) {
+        const auto [lo, hi] = Database::prefixRange(dir);
+        QSqlQuery q(m_db.connection());
+        // Another album's (or an album-less) track directly in `dir`.
+        q.prepare(QStringLiteral("SELECT 1 FROM tracks WHERE path >= :lo AND path < :hi "
+                                 "AND instr(substr(path, length(:lo) + 1), '/') = 0 "
+                                 "AND (album_id IS NULL OR album_id != :album) LIMIT 1"));
+        q.bindValue(QStringLiteral(":lo"), lo);
+        q.bindValue(QStringLiteral(":hi"), hi);
+        q.bindValue(QStringLiteral(":album"), albumId);
+        out << AlbumFolder{dir, run(q) && q.next()};
+    }
+    return out;
+}
+
 QList<TrackRow> LibraryQuery::albumTracks(qint64 albumId) const
 {
     QList<TrackRow> rows;

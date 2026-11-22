@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "library.h"
 
+#include "coverimageprovider.h"
 #include "database.h"
 #include "libraryscanner.h"
 #include "m3u.h"
 
 #include <QFileInfo>
+#include <QImage>
 
 #include <QJSEngine>
 #include <QLoggingCategory>
@@ -263,6 +265,53 @@ QFuture<mmm::TagEditResult> Library::editTags(const QStringList &paths, const mm
         });
 }
 
+QFuture<mmm::ArtworkSaveResult> Library::saveAlbumArt(qint64 albumId, const QByteArray &image)
+{
+    if (!m_ready) {
+        mmm::ArtworkSaveResult r;
+        r.error = QStringLiteral("the library database isn't open");
+        return QtFuture::makeReadyValueFuture(r);
+    }
+    return QtConcurrent::run(&m_writePool,
+                             [dbPath = m_databasePath, albumId, image] {
+                                 // The data must decode: a cut-off download still starts like a JPEG.
+                                 if (QImage::fromData(image).isNull()) {
+                                     mmm::ArtworkSaveResult bad;
+                                     bad.error = QStringLiteral("the downloaded image is damaged or incomplete");
+                                     return bad;
+                                 }
+                                 return mmm::ArtworkSaver::save(threadDatabase(dbPath), albumId, image);
+                             })
+        .then(this, [this, albumId](const mmm::ArtworkSaveResult &r) {
+            if (!r.ok) {
+                setError(QStringLiteral("Could not save the cover: %1").arg(r.error));
+                return r;
+            }
+            if (r.warnings.isEmpty())
+                setStatusMessage(QStringLiteral("Saved the cover (%1 tracks)").arg(r.edit.written.size()));
+            else
+                setStatusMessage(r.warnings.size() == 1
+                                     ? QStringLiteral("Saved the cover, with a problem: %1").arg(r.warnings.front())
+                                     : QStringLiteral("Saved the cover, with %1 problems. First: %2")
+                                           .arg(r.warnings.size()).arg(r.warnings.front()));
+            // Same file names, new pictures: make the views reload this album's art.
+            CoverLoader::bumpRevision(albumId);
+            refreshCounts();
+            if (!r.edit.tracks.isEmpty())
+                Q_EMIT tracksEdited(r.edit.tracks);
+            Q_EMIT changed();
+            return r;
+        });
+}
+
+bool Library::setAlbumArtSkipped(qint64 albumId, bool skipped)
+{
+    const bool ok = m_db && m_db->setAlbumArtSkipped(albumId, skipped);
+    if (ok)
+        refreshCounts();
+    return ok;
+}
+
 void Library::setError(const QString &message)
 {
     qCWarning(lcLibrary).noquote() << message;
@@ -272,13 +321,18 @@ void Library::setError(const QString &message)
 
 void Library::refreshCounts()
 {
-    runQuery([](const mmm::LibraryQuery &q) { return q.counts(); }).then(this, [this](mmm::LibraryCounts c) {
-        if (c.tracks == m_trackCount && c.albums == m_albumCount)
-            return;
-        m_trackCount = c.tracks;
-        m_albumCount = c.albums;
-        Q_EMIT countsChanged();
-    });
+    runQuery([](const mmm::LibraryQuery &q) { return std::pair{q.counts(), q.missingArtCounts()}; })
+        .then(this, [this](const std::pair<mmm::LibraryCounts, std::pair<int, int>> &r) {
+            const auto &[c, art] = r;
+            if (c.tracks == m_trackCount && c.albums == m_albumCount && art.first == m_missingArt
+                && art.second == m_skippedArt)
+                return;
+            m_trackCount = c.tracks;
+            m_albumCount = c.albums;
+            m_missingArt = art.first;
+            m_skippedArt = art.second;
+            Q_EMIT countsChanged();
+        });
 }
 
 void Library::onScanFinished(const mmm::ScanStats &stats)

@@ -29,6 +29,7 @@ ApplicationWindow {
     readonly property alias exportView: exportScreen
     readonly property alias queuePanel: queueDock
     readonly property alias tagEditorDialog: tagDialog
+    readonly property alias artworkFinderDialog: artDialog
     readonly property alias chrome: topChrome
 
     width: 1280
@@ -107,6 +108,14 @@ ApplicationWindow {
     }
 
     function handleAction(action: int) {
+        // The artwork finder takes the keys while it's open (it opts in with routeKeys);
+        // only play/pause and track skipping still reach the player.
+        if (artDialog.opened && artDialog.handleAction(action))
+            return;
+        if (artDialog.opened && action !== KeyRouter.PlayPause && action !== KeyRouter.NextTrack
+                && action !== KeyRouter.PreviousTrack)
+            return;
+
         switch (action) {
         case KeyRouter.FocusSearch:
             if (hasLibrary)
@@ -130,6 +139,17 @@ ApplicationWindow {
         case KeyRouter.Back:
             goBack();
             return;
+        case KeyRouter.FindMissingArt:
+            if (hasLibrary)
+                artDialog.openMissing();
+            return;
+        case KeyRouter.FindArt:
+            if (currentScreen === Main.LibraryScreen && !queueFocused && libraryScreen.currentAlbumId() > 0)
+                artDialog.openAlbum(libraryScreen.currentAlbumId());
+            return;
+        case KeyRouter.Skip:
+        case KeyRouter.Retry:
+            return; // artwork finder only
         }
 
         if (queueFocused) {
@@ -256,6 +276,10 @@ ApplicationWindow {
         onSaved: albumId => libraryScreen.tagsSaved(albumId, tagDialog.editor.trackCount)
     }
 
+    ArtworkFinderDialog {
+        id: artDialog
+    }
+
     FolderDialog {
         id: folderDialog
         title: qsTr("Choose your music folder")
@@ -289,6 +313,8 @@ ApplicationWindow {
                 onAddFolderRequested: folderDialog.open()
                 onInteracted: root.paneClicked(false)
                 onEditTagsRequested: (paths, label) => tagDialog.edit(paths, label)
+                onFindArtRequested: id => artDialog.openAlbum(id)
+                onFindMissingArtRequested: artDialog.openMissing()
             }
 
             ExportView {

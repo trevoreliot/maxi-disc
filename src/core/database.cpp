@@ -116,10 +116,19 @@ QStringList migrationV2()
     };
 }
 
+// v3 (M7): the artwork finder remembers albums the user skipped (no cover found / wanted).
+QStringList migrationV3()
+{
+    return {
+        QStringLiteral("ALTER TABLE albums ADD COLUMN art_skipped_at INTEGER"),
+    };
+}
+
 using Migration = QStringList (*)();
 constexpr Migration kMigrations[] = {
     &migrationV1,
     &migrationV2,
+    &migrationV3,
 };
 
 QVariant nullIfEmpty(const QString &s) { return s.isEmpty() ? QVariant() : QVariant(s); }
@@ -423,6 +432,32 @@ bool Database::setFolderCover(const QString &dir, const QString &coverPath)
     q.bindValue(QStringLiteral(":hi"), hi);
     if (!q.exec()) {
         qCWarning(lcDb) << "setFolderCover failed:" << describe(q);
+        return false;
+    }
+    return true;
+}
+
+bool Database::setAlbumCover(qint64 albumId, const QString &coverPath)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE albums SET cover_path = ?, art_skipped_at = NULL WHERE id = ?"));
+    q.addBindValue(nullIfEmpty(coverPath));
+    q.addBindValue(albumId);
+    if (!q.exec() || q.numRowsAffected() != 1) {
+        qCWarning(lcDb) << "setAlbumCover failed:" << describe(q);
+        return false;
+    }
+    return true;
+}
+
+bool Database::setAlbumArtSkipped(qint64 albumId, bool skipped)
+{
+    QSqlQuery q(m_db);
+    q.prepare(skipped ? QStringLiteral("UPDATE albums SET art_skipped_at = %1 WHERE id = ?").arg(QLatin1StringView(kNow))
+                      : QStringLiteral("UPDATE albums SET art_skipped_at = NULL WHERE id = ?"));
+    q.addBindValue(albumId);
+    if (!q.exec() || q.numRowsAffected() != 1) {
+        qCWarning(lcDb) << "setAlbumArtSkipped failed:" << describe(q);
         return false;
     }
     return true;

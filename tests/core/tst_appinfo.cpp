@@ -2,6 +2,7 @@
 #include <QTest>
 
 #include "appinfo.h"
+#include "mmm/version.h"
 
 class TestAppInfo : public QObject
 {
@@ -31,6 +32,18 @@ private Q_SLOTS:
         QFETCH(qint64, ms);
         QFETCH(QString, text);
         QCOMPARE(mmm::formatDuration(ms), text);
+    }
+
+    // MusicBrainz's format: "app/version ( contact )", the contact being the project page.
+    void userAgentIdentifiesTheApp()
+    {
+        const QString ua = mmm::AppInfo::userAgent();
+        QVERIFY2(ua.startsWith(mmm::AppInfo::name() + QLatin1Char('/') + mmm::AppInfo::version()), qPrintable(ua));
+        const QString contact = QStringLiteral(MMM_CONTACT_URL); // the CMake setting (forks set their own)
+        if (contact.isEmpty())
+            QCOMPARE(ua, mmm::AppInfo::name() + QLatin1Char('/') + mmm::AppInfo::version());
+        else
+            QVERIFY2(ua.endsWith(QStringLiteral(" ( ") + contact + QStringLiteral(" )")), qPrintable(ua));
     }
 
     void versionIsSemver()

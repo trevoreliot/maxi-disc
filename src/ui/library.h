@@ -12,6 +12,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "artworksaver.h"
 #include "libraryquery.h"
 #include "tagwriter.h"
 
@@ -42,6 +43,9 @@ class Library : public QObject
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged FINAL)
     Q_PROPERTY(int trackCount READ trackCount NOTIFY countsChanged FINAL)
     Q_PROPERTY(int albumCount READ albumCount NOTIFY countsChanged FINAL)
+    // Albums with no cover art at all (artwork finder), not counting skipped ones; and skipped.
+    Q_PROPERTY(int missingArtCount READ missingArtCount NOTIFY countsChanged FINAL)
+    Q_PROPERTY(int skippedArtCount READ skippedArtCount NOTIFY countsChanged FINAL)
     // Short informational message for the status area (e.g. "Imported 12 of 14 tracks").
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged FINAL)
 
@@ -69,6 +73,8 @@ public:
     int scanTotal() const;
     int trackCount() const;
     int albumCount() const;
+    int missingArtCount() const { return m_missingArt; }
+    int skippedArtCount() const { return m_skippedArt; }
     QString statusMessage() const { return m_statusMessage; }
 
     Q_INVOKABLE bool addFolder(const QUrl &folder);
@@ -90,6 +96,12 @@ public:
     // Writes tag changes to the files and updates the library (mmm::editTracks) on a
     // background thread. When done: status message or error, tracksEdited(), changed().
     QFuture<mmm::TagEditResult> editTags(const QStringList &paths, const mmm::TagChanges &changes);
+
+    // Saves album art (mmm::ArtworkSaver: cover file + embedded) on the write thread. When
+    // done: status message or error, tracksEdited(), changed().
+    QFuture<mmm::ArtworkSaveResult> saveAlbumArt(qint64 albumId, const QByteArray &image);
+    // The artwork finder's "skip" mark (UI thread; a small write).
+    bool setAlbumArtSkipped(qint64 albumId, bool skipped);
 
     // Runs fn(const mmm::LibraryQuery &) on the query pool with that thread's own
     // connection. Continue with .then(context, ...) to get the result on a QObject's thread.
@@ -127,6 +139,8 @@ private:
     int m_scanTotal = 0;
     int m_trackCount = 0;
     int m_albumCount = 0;
+    int m_missingArt = 0;
+    int m_skippedArt = 0;
     QString m_statusMessage;
     QThreadPool m_queryPool;
     QThreadPool m_writePool; // one thread: tag edits run one after another

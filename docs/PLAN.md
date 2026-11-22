@@ -33,6 +33,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | Artwork storage | Both: cover.jpg in album folder and embedded in files |
 | Library size | < 1 TB (~30k+ tracks). Design for 100k tracks: first scan < 10 min, browse/search < 100 ms |
 | Online services | Last.fm scrobbling, Discord Rich Presence. Requires a Last.fm API key + secret and a Discord application ID (supplied by user at runtime/config, never committed) |
+| Album art | Folder file beats embedded; the finder saves both, 1200 px CAA JPEG, no file in folders shared with other albums. See `docs/decisions/0003-album-art-precedence-and-storage.md` |
 | GStreamer stalls | Recover (engine thread + abandon/replace a stalled pipeline) rather than fix GStreamer internals. See `docs/decisions/0001-gstreamer-stall-recovery.md` (evidence + how to pursue upstream) |
 | Licence | GPL-3.0-or-later (Qt LGPLv3 + linux-minidisc GPL). Verify linux-minidisc is GPL-2.0-or-later before M10 |
 
@@ -113,7 +114,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - [x] **M6 Tag editor** — Done when: edit single and multiple tracks; writes to files and DB. User test: edit a test copy of an album, then verify in another app.
 
 ### Phase 3: Artwork
-- [ ] **M7 Artwork finder** — Done when: finds albums with no art; MusicBrainz lookup; Cover Art Archive download; saves cover.jpg and embeds; review dialog. User test: fix 20 albums missing art.
+- [x] **M7 Artwork finder** — Done when: finds albums with no art; MusicBrainz lookup; Cover Art Archive download; saves cover.jpg and embeds; review dialog. User test: fix 20 albums missing art.
 
 ### Phase 4: USB sync
 - [ ] **M8 Device detection + profiles** — Done when: detects USB mounts; per-device profile (folder layout, playable formats, transcode target); built-in profiles for USB flash drive and generic DAP. User test: plug in a thumb drive and create a profile.
@@ -229,6 +230,25 @@ and the user has run the "User test". Tick the box, commit, then stop.
   - Marking tracks (Ctrl/Shift+click, `v`) exists on the album page only; playlists and search
     results edit the cursor track (`e`) or all listed tracks (`E`). No tag editing from the grid
     or the queue yet.
+- M7 notes / follow-ups:
+  - MusicBrainz asks for a contact in the User-Agent: CMake cache variable `MMM_CONTACT_URL`,
+    default the project's GitHub page (no personal e-mail). Forks shipping their own builds
+    should set their own (`-DMMM_CONTACT_URL=...`). The repo must be public for it to help.
+  - Not done: pick a local image file as the cover; edit the search text in the dialog (for
+    badly tagged albums); other sources (Discogs, iTunes, fanart.tv) or AcoustID lookup of
+    untagged files; D-Bus access to the finder (M16: `ArtworkFinder` is core, no QML).
+  - Replacing art in a folder shared with other albums only embeds it; the album's existing
+    folder art (shared) still wins (decisions/0003).
+  - Candidates show the 500 px thumbnail straight from the Cover Art Archive (QML's own network
+    access, no User-Agent of ours). Fine for previews; route through HttpFetcher if CAA minds.
+  - `s` / `r` are global bindings that only the finder uses; `a` works in the library screen
+    (album page, grid, Albums browse list, playlist/search cursor track).
+  - No retry with backoff across app restarts: a failed search (offline) is just listed as
+    failed; `r` retries.
+- Packaging: the app sets its desktop file name (`music-md-manager`) but no .desktop file is
+  installed, so Qt logs "qt.qpa.services: Failed to register with host portal … App info not found"
+  at startup (harmless). Install `music-md-manager.desktop` (+ icon) with the AppImage/Flatpak work
+  (Later), or locally in ~/.local/share/applications.
 - M5b notes / follow-ups:
   - Theme should become user-configurable (user asked, 2026-11-21). `Theme` (src/ui/theme.h) is
     a constant C++ singleton today: give its properties NOTIFY signals, load values from QSettings

@@ -96,6 +96,11 @@ public:
     bool setFolderCover(const QString &dir, const QString &coverPath);
     // Clears folder art paths whose file no longer exists. Returns albums changed.
     int clearMissingCovers();
+    // Sets an album's folder art explicitly (artwork finder), replacing any; "" clears it.
+    // Also clears the album's "art skipped" mark. Fails if there's no such album.
+    bool setAlbumCover(qint64 albumId, const QString &coverPath);
+    // Marks an album as skipped by the artwork finder (it stops listing it), or unmarks it.
+    bool setAlbumArtSkipped(qint64 albumId, bool skipped);
 
     // --- Playlists (items are file paths, in order; duplicates allowed) ---
     std::optional<qint64> createPlaylist(const QString &name, const QStringList &paths = {},

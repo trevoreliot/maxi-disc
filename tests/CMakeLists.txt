@@ -45,6 +45,23 @@ qt_add_executable(tst_playbackcontroller core/tst_playbackcontroller.cpp core/te
 target_link_libraries(tst_playbackcontroller PRIVATE mmm_core PkgConfig::GST Qt6::Test mmm_build_flags)
 add_test(NAME tst_playbackcontroller COMMAND tst_playbackcontroller)
 
+# --- Artwork finder (M7). Network tests use a loopback server (testhttpserver.h), never the internet. ---
+qt_add_executable(tst_artworksaver core/tst_artworksaver.cpp core/testmedia.h core/testmedia.cpp)
+target_link_libraries(tst_artworksaver PRIVATE mmm_core PkgConfig::GST TagLib::tag Qt6::Test mmm_build_flags)
+add_test(NAME tst_artworksaver COMMAND tst_artworksaver)
+
+qt_add_executable(tst_artworkmatch core/tst_artworkmatch.cpp)
+target_link_libraries(tst_artworkmatch PRIVATE mmm_core Qt6::Test mmm_build_flags)
+add_test(NAME tst_artworkmatch COMMAND tst_artworkmatch)
+
+foreach(t tst_httpfetcher tst_musicbrainzclient tst_coverartarchiveclient tst_artworkfinder)
+    qt_add_executable(${t} core/${t}.cpp core/testhttpserver.h)
+    target_link_libraries(${t} PRIVATE mmm_core Qt6::Network Qt6::Test mmm_build_flags)
+    add_test(NAME ${t} COMMAND ${t})
+endforeach()
+
+set(MMM_ARTWORK_TESTS tst_artworksaver tst_artworkmatch tst_httpfetcher tst_musicbrainzclient tst_coverartarchiveclient tst_artworkfinder)
+
 # MPRIS needs a session bus: run it on a private one so tests never touch the desktop's.
 find_program(DBUS_RUN_SESSION dbus-run-session)
 qt_add_executable(tst_mpris core/tst_mpris.cpp core/testmedia.h core/testmedia.cpp)
@@ -73,7 +90,7 @@ target_compile_definitions(tst_qml PRIVATE
     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
 add_test(NAME tst_qml COMMAND tst_qml)
 
-foreach(t tst_appinfo tst_player tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml)
+foreach(t tst_appinfo tst_player tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml ${MMM_ARTWORK_TESTS})
     mmm_add_sanitizer_defaults(${t})
 endforeach()
 
@@ -83,8 +100,8 @@ set(MMM_TEST_HOME "${CMAKE_BINARY_DIR}/test-home")
 add_test(NAME app_smoke COMMAND music-md-manager --quit-after-load --no-scan --no-mpris
     --database "${MMM_TEST_HOME}/smoke.db")
 
-set_tests_properties(tst_appinfo tst_player tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml app_smoke PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;XDG_DATA_HOME=${MMM_TEST_HOME}/data;XDG_CACHE_HOME=${MMM_TEST_HOME}/cache;XDG_CONFIG_HOME=${MMM_TEST_HOME}/config")
+set_tests_properties(tst_appinfo tst_player tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml app_smoke ${MMM_ARTWORK_TESTS} PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;XDG_DATA_HOME=${MMM_TEST_HOME}/data;XDG_CACHE_HOME=${MMM_TEST_HOME}/cache;XDG_CONFIG_HOME=${MMM_TEST_HOME}/config;MMM_MUSICBRAINZ_URL=http://127.0.0.1:9;MMM_COVERARTARCHIVE_URL=http://127.0.0.1:9")
 
 # --- qmllint: any warning fails the test ---
 add_test(NAME qmllint

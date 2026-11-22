@@ -33,6 +33,8 @@ Pane {
     readonly property var firstTrack: tracks.count > 0 ? tracks.get(0) : null
     readonly property string shownTitle: firstTrack ? firstTrack.album : albumTitle
     readonly property string shownArtist: firstTrack ? firstTrack.albumArtist : albumArtist
+    // The tracks' art once loaded, so a newly saved cover shows up.
+    readonly property string shownCoverUrl: firstTrack && firstTrack.coverUrl !== "" ? firstTrack.coverUrl : coverUrl
     readonly property int shownYear: {
         let y = 0;
         for (let i = 0; i < tracks.count; ++i) {
@@ -46,6 +48,7 @@ Pane {
     signal back()
     signal interacted()
     signal editRequested(list<string> paths, string label)
+    signal findArtRequested(int albumId)
 
     function moveSelection(delta: int) {
         if (list.count === 0)
@@ -143,7 +146,7 @@ Pane {
             anchors.verticalCenter: parent.verticalCenter
             width: Math.max(parent.width * 0.68, parent.height)
             height: width
-            source: root.coverUrl
+            source: root.shownCoverUrl
             requestSize: 512
             showPlaceholder: false
             opacity: Theme.watermarkOpacity
@@ -247,6 +250,16 @@ Pane {
                         enabled: tracks.count > 0
                         onClicked: root.editTags(true)
                     }
+                    Button {
+                        objectName: "findArtButton"
+                        text: qsTr("Find cover…")
+                        focusPolicy: Qt.NoFocus
+                        enabled: root.albumId > 0
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 600
+                        ToolTip.text: qsTr("Look up cover art on MusicBrainz (a)")
+                        onClicked: root.findArtRequested(root.albumId)
+                    }
                 }
             }
 
@@ -254,7 +267,7 @@ Pane {
                 Layout.preferredWidth: 88
                 Layout.preferredHeight: 88
                 Layout.alignment: Qt.AlignTop
-                source: root.coverUrl
+                source: root.shownCoverUrl
                 requestSize: 256
             }
 

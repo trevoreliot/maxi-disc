@@ -187,6 +187,60 @@ TestCase {
         compare(win.currentScreen, Main.LibraryScreen);
     }
 
+    // Artwork finder (M7): A opens it for every album without art, a for the current album.
+    // Keys go to the dialog while it's open (real key presses: the popup opts in to routing).
+    // ctest points the finder at a closed local port, so searches fail fast and offline.
+    function test_artworkFinder() {
+        const win = createTemporaryObject(mainComp, tc);
+        win.requestActivate();
+        tryVerify(() => win.active, 5000, "app window never became active");
+        const dlg = win.artworkFinderDialog;
+        tryCompare(Library, "missingArtCount", 3); // Abbey Road, The Wall, Now 42
+
+        keyClick("A");
+        tryCompare(dlg, "opened", true);
+        verify(dlg.batch);
+        tryCompare(dlg.artFinder, "count", 3);
+        compare(dlg.artFinder.currentIndex, 0);
+        keyClick("j");
+        compare(dlg.artFinder.currentIndex, 1);
+        keyClick("k");
+        compare(dlg.artFinder.currentIndex, 0);
+        keyClick("q"); // not the queue: the dialog has the keys
+        verify(!win.queueOpen);
+        tryVerify(() => dlg.artFinder.current.status === ArtFinder.Failed, 10000, "search should fail offline");
+        if (screenshotDir !== "") {
+            wait(100);
+            const shot = grabImage(win.contentItem.parent);
+            shot.save(screenshotDir + "/artwork-finder-app.png");
+        }
+        keyClick(Qt.Key_Escape);
+        tryCompare(dlg, "visible", false);
+        compare(dlg.artFinder.count, 0);
+        compare(win.currentScreen, Main.MenuScreen); // Esc closed the dialog only
+        keyClick("q"); // the window has the keys again
+        verify(win.queueOpen);
+        keyClick(Qt.Key_Escape);
+
+        // `a` on an album page: that album only.
+        win.showScreen(Main.LibraryScreen);
+        const lib = win.libraryView;
+        tryCompare(lib, "content", LibraryView.Grid);
+        tryVerify(() => lib.grid.count > 0);
+        lib.grid.setCurrent(0); // Abbey Road (The Beatles sort under B)
+        lib.focusedPane = LibraryView.Content;
+        const albumId = lib.grid.currentAlbumId();
+        verify(albumId > 0);
+        keyClick("a");
+        tryCompare(dlg, "opened", true);
+        verify(!dlg.batch);
+        tryCompare(dlg.artFinder, "count", 1);
+        compare(dlg.artFinder.current.albumId, albumId);
+        keyClick(Qt.Key_Escape);
+        tryCompare(dlg, "visible", false);
+        compare(lib.content, LibraryView.Grid);
+    }
+
     // The same journey with real key presses, so KeyRouter → Main wiring is covered.
     function test_realKeys() {
         const win = createTemporaryObject(mainComp, tc);

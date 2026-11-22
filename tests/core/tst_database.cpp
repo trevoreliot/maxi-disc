@@ -355,15 +355,45 @@ private Q_SLOTS:
             QSqlQuery q(db.connection());
             QVERIFY(q.exec(QStringLiteral("DROP TABLE playlist_items")));
             QVERIFY(q.exec(QStringLiteral("DROP TABLE playlists")));
+            QVERIFY(q.exec(QStringLiteral("ALTER TABLE albums DROP COLUMN art_skipped_at")));
             QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 1")));
         }
         Database db;
         QString error;
         QVERIFY2(db.open(path, &error), qPrintable(error));
-        QCOMPARE(db.schemaVersion(), 2);
-        QCOMPARE(Database::latestSchemaVersion(), 2);
+        QCOMPARE(db.schemaVersion(), Database::latestSchemaVersion());
         QVERIFY(db.trackIdByPath(QStringLiteral("/m/keep.flac"))); // data kept
         QVERIFY(db.createPlaylist(QStringLiteral("Works")));       // new tables usable
+    }
+
+    void migratesV2DatabaseToV3()
+    {
+        const QString path = dbPath("v2.db");
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            QVERIFY(db.upsertTrack(QStringLiteral("/m/a/1.flac"), 1, 1,
+                                   makeTags(QStringLiteral("One"), QStringLiteral("A"), QStringLiteral("Album"))));
+            // As written by M5–M6: no art_skipped_at column.
+            QSqlQuery q(db.connection());
+            QVERIFY(q.exec(QStringLiteral("ALTER TABLE albums DROP COLUMN art_skipped_at")));
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 2")));
+        }
+        Database db;
+        QString error;
+        QVERIFY2(db.open(path, &error), qPrintable(error));
+        QCOMPARE(db.schemaVersion(), 3);
+        QCOMPARE(Database::latestSchemaVersion(), 3);
+        const qint64 album = scalar(db, QStringLiteral("SELECT id FROM albums")).toLongLong();
+        QVERIFY(scalar(db, QStringLiteral("SELECT art_skipped_at FROM albums")).isNull());
+        QVERIFY(db.setAlbumArtSkipped(album, true));
+        QVERIFY(scalar(db, QStringLiteral("SELECT art_skipped_at FROM albums")).toLongLong() > 0);
+        QVERIFY(db.setAlbumCover(album, QStringLiteral("/m/a/cover.jpg")));
+        QVERIFY(scalar(db, QStringLiteral("SELECT art_skipped_at FROM albums")).isNull()); // a cover clears it
+        QCOMPARE(scalar(db, QStringLiteral("SELECT cover_path FROM albums")).toString(), QStringLiteral("/m/a/cover.jpg"));
+        QVERIFY(db.setAlbumCover(album, QString()));
+        QVERIFY(scalar(db, QStringLiteral("SELECT cover_path FROM albums")).isNull());
+        QVERIFY(!db.setAlbumArtSkipped(album + 100, true)); // no such album
     }
 
     void playlists()

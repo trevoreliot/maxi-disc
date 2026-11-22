@@ -201,7 +201,8 @@ private:
 
 // Tracks: search results when searchText is set, otherwise a playlist's tracks
 // (playlistId), otherwise an album's tracks (albumId), otherwise empty. Roles: trackId, path, title, artist, album, albumId, albumArtist,
-// trackNumber, discNumber, year, durationMs, duration (formatted), codec.
+// trackNumber, discNumber, year, durationMs, duration (formatted), codec, coverUrl (album
+// folder art, else the track's embedded art).
 class TrackListModel : public LibraryListModel
 {
     Q_OBJECT
@@ -228,6 +229,7 @@ public:
         DurationMsRole,
         DurationRole,
         CodecRole,
+        CoverUrlRole,
     };
     using LibraryListModel::LibraryListModel;
 

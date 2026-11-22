@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QAbstractItemModelTester>
+#include <QBuffer>
+#include <QFile>
+#include <QImage>
 #include <QDir>
 #include <QDirIterator>
 #include <QElapsedTimer>
@@ -10,6 +13,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include "artfinder.h"
 #include "coverimageprovider.h"
 #include "fixturelibrary.h"
 #include "library.h"
@@ -401,6 +405,133 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 4, kTimeoutMs);
         QCOMPARE(mmm::TagReader::read(kidA)->title, QStringLiteral("Everything in Its Right Place"));
         QCOMPARE(albumIdOf(), albumId);
+    }
+
+    // --- Artwork finder (M7) ---
+
+    void trackCoverUrls()
+    {
+        auto kidA = loaded<TrackListModel>([&](TrackListModel &m) {
+            m.setAlbumId(idOf(*loaded<AlbumListModel>(), "albumId", "title", QStringLiteral("Kid A")));
+        });
+        const QStringList urls = column(*kidA, "coverUrl");
+        QCOMPARE(urls.size(), 2);
+        QVERIFY(urls[0].startsWith(QStringLiteral("image://cover/"))); // 01.flac has embedded art
+        QCOMPARE(urls[1], QString());                                  // 02.flac: none, no folder art
+
+        // An album whose art changed in place gets new URLs (QML reloads instead of caching).
+        const QString before = CoverLoader::url(42, QStringLiteral("/a/cover.jpg"), {});
+        CoverLoader::bumpRevision(42);
+        const QString after = CoverLoader::url(42, QStringLiteral("/a/cover.jpg"), {});
+        QVERIFY(before != after);
+        QCOMPARE(CoverLoader::decodeId(after.mid(QStringLiteral("image://cover/").size())).first, QStringLiteral("/a/cover.jpg"));
+    }
+
+    void artFinderListsMissingAlbumsOffline()
+    {
+        QTRY_COMPARE_WITH_TIMEOUT(m_library->missingArtCount(), 3, kTimeoutMs); // Abbey Road, The Wall, Now 42
+        ArtFinder finder;
+        QAbstractItemModelTester tester(&finder, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        // Never the real services: a closed local port (ctest sets this too).
+        finder.finder().musicBrainz().setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:9")));
+        finder.finder().musicBrainz().fetcher().setOptions({1, 0, 0, 5000, 10});
+        finder.finder().coverArt().setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:9")));
+        finder.openMissing();
+        QTRY_COMPARE_WITH_TIMEOUT(finder.count(), 3, kTimeoutMs);
+        QCOMPARE(column(finder, "title"), (QStringList{QStringLiteral("Abbey Road"), QStringLiteral("The Wall"),
+                                                       QStringLiteral("Now 42")}));
+        QCOMPARE(finder.currentIndex(), 0);
+        QTRY_COMPARE_WITH_TIMEOUT(finder.searchedCount(), 3, kTimeoutMs);
+        QCOMPARE(finder.current().value(QStringLiteral("status")).toInt(), int(ArtFinder::Failed));
+        QVERIFY(finder.current().value(QStringLiteral("error")).toString().contains(QStringLiteral("MusicBrainz")));
+        QVERIFY(finder.candidates().isEmpty());
+        QVERIFY(!finder.accept(0));
+
+        // Skip remembers (the library count drops); retry un-skips.
+        finder.skip();
+        QCOMPARE(finder.skippedCount(), 1);
+        QTRY_COMPARE_WITH_TIMEOUT(m_library->skippedArtCount(), 1, kTimeoutMs);
+        QCOMPARE(m_library->missingArtCount(), 2);
+        finder.retry();
+        QTRY_COMPARE_WITH_TIMEOUT(m_library->skippedArtCount(), 0, kTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(finder.searchedCount(), 3, kTimeoutMs);
+
+        finder.close();
+        QCOMPARE(finder.count(), 0);
+        QCOMPARE(finder.currentIndex(), -1);
+    }
+
+    // Accepting a cover: downloaded (file:// here), saved as cover.jpg + embedded, and the
+    // library and views follow. Kid A has embedded art, so this is "replace".
+    void artFinderSavesCover()
+    {
+        const QString kidADir = m_dir.filePath(QStringLiteral("Radiohead/Kid A"));
+        const QString image = m_dir.filePath(QStringLiteral("candidate.jpg"));
+        QByteArray jpeg;
+        {
+            QImage img(64, 64, QImage::Format_RGB32);
+            img.fill(QColor(10, 120, 200));
+            QBuffer buf(&jpeg);
+            buf.open(QIODevice::WriteOnly);
+            QVERIFY(img.save(&buf, "JPEG"));
+            QFile f(image);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(jpeg);
+        }
+        const int kidAId = idOf(*loaded<AlbumListModel>(), "albumId", "title", QStringLiteral("Kid A"));
+        ArtFinder finder;
+        finder.setTestData({QVariantMap{
+            {QStringLiteral("albumId"), kidAId},
+            {QStringLiteral("title"), QStringLiteral("Kid A")},
+            {QStringLiteral("candidates"),
+             QVariantList{QVariantMap{{QStringLiteral("title"), QStringLiteral("Kid A")},
+                                      {QStringLiteral("saveUrl"), QUrl::fromLocalFile(image)}}}}}});
+        QCOMPARE(finder.candidates().size(), 1);
+
+        QSignalSpy saved(&finder, &ArtFinder::saved);
+        QSignalSpy edited(m_library.get(), &Library::tracksEdited);
+        QSignalSpy changed(m_library.get(), &Library::changed);
+        const QVariantList data = {QVariantMap{
+            {QStringLiteral("albumId"), kidAId},
+            {QStringLiteral("title"), QStringLiteral("Kid A")},
+            {QStringLiteral("candidates"),
+             QVariantList{QVariantMap{{QStringLiteral("title"), QStringLiteral("Kid A")},
+                                      {QStringLiteral("saveUrl"), QUrl::fromLocalFile(image)}}}}}};
+        QVERIFY(finder.accept(0));
+        QCOMPARE(finder.current().value(QStringLiteral("status")).toInt(), int(ArtFinder::Saving));
+        QVERIFY(!finder.accept(0)); // already saving
+        // Closed and reopened while saving: still shown as saving, no second save.
+        finder.close();
+        finder.setTestData(data);
+        QCOMPARE(finder.current().value(QStringLiteral("status")).toInt(), int(ArtFinder::Saving));
+        QVERIFY(!finder.accept(0));
+        QTRY_COMPARE_WITH_TIMEOUT(saved.count(), 1, kTimeoutMs);
+        QVERIFY2(saved.front().at(1).toBool(), qPrintable(saved.front().at(2).toString()));
+
+        QFile cover(kidADir + QStringLiteral("/cover.jpg"));
+        QVERIFY(cover.open(QIODevice::ReadOnly));
+        QCOMPARE(cover.readAll(), jpeg);
+        QCOMPARE(mmm::TagReader::readCover(kidADir + QStringLiteral("/01.flac"))->data, jpeg);
+        QCOMPARE(finder.current().value(QStringLiteral("status")).toInt(), int(ArtFinder::Saved));
+        // 02.flac isn't on disk: a warning, not a failure.
+        QVERIFY(finder.current().value(QStringLiteral("error")).toString().contains(QStringLiteral("02.flac")));
+        QVERIFY(finder.current().value(QStringLiteral("coverUrl")).toString().startsWith(QStringLiteral("image://cover/")));
+        QCOMPARE(edited.count(), 1);
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(m_library->statusMessage().startsWith(QStringLiteral("Saved the cover")));
+        QVERIFY(coverUrlOf(QStringLiteral("Kid A")).contains(QStringLiteral("image://cover/%1.").arg(kidAId))); // revision bumped
+        QCOMPARE(CoverLoader::decodeId(coverUrlOf(QStringLiteral("Kid A")).mid(14)).first, cover.fileName());
+
+        // A download that fails leaves the album open with the reason.
+        finder.setTestData({QVariantMap{
+            {QStringLiteral("albumId"), kidAId},
+            {QStringLiteral("candidates"),
+             QVariantList{QVariantMap{{QStringLiteral("saveUrl"), QUrl::fromLocalFile(m_dir.filePath(QStringLiteral("gone.jpg")))}}}}}});
+        QVERIFY(finder.accept(0));
+        QTRY_COMPARE_WITH_TIMEOUT(saved.count(), 2, kTimeoutMs);
+        QVERIFY(!saved.back().at(1).toBool());
+        QCOMPARE(finder.current().value(QStringLiteral("status")).toInt(), int(ArtFinder::Found));
+        QVERIFY(finder.current().value(QStringLiteral("error")).toString().startsWith(QStringLiteral("Couldn't download")));
     }
 };
 

@@ -17,8 +17,11 @@ class QQuickItem;
 // - While focus is inside a popup (menu, dialog) or an open ComboBox, nothing is taken:
 //   Qt handles the popup's own keys (including Esc to close it). Popups must therefore
 //   take focus when they open (`focus: true`), or keys go to the views underneath.
+//   Exception: a popup whose focused content sits inside an item with `routeKeys: true`
+//   (e.g. the artwork finder) gets the normal bindings; Main forwards them to it.
 // - Otherwise: h/j/k/l and the arrow keys move, Enter activates, Esc backs out, `/` and
-//   Ctrl+F focus search, `q` toggles the queue, Space plays/pauses, Ctrl+←/→ skip tracks.
+//   Ctrl+F focus search, `q` toggles the queue, Space plays/pauses, Ctrl+←/→ skip tracks,
+//   `a` / `A` find cover art (current album / all missing), `s` / `r` skip / retry (finder).
 //
 // New bindings go in kTextBindings / kKeyBindings in keyrouter.cpp.
 class KeyRouter : public QObject
@@ -45,6 +48,10 @@ public:
         EditTags,    // tag editor for the marked tracks, else the cursor track
         EditAllTags, // ... for the marked tracks, else all listed tracks
         ToggleMark,  // mark/unmark the cursor track (album page)
+        FindArt,        // artwork finder for the current album
+        FindMissingArt, // artwork finder for every album without art
+        Skip,           // artwork finder: skip this album
+        Retry,          // artwork finder: search again
     };
     Q_ENUM(Action)
 
@@ -67,6 +74,7 @@ protected:
 private:
     static bool isEditableText(const QQuickItem *item);
     static bool ownsKeysItself(const QQuickItem *item);
+    static bool wantsRoutedKeys(const QQuickItem *item);
 
     QPointer<QQuickWindow> m_window;
 };
