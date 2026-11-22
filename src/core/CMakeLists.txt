@@ -32,6 +32,11 @@ add_library(mmm_core STATIC
     coverartarchiveclient.h coverartarchiveclient.cpp
     artworkmatch.h artworkmatch.cpp
     artworkfinder.h artworkfinder.cpp
+    device.h
+    deviceprofile.h deviceprofile.cpp
+    pathlayout.h pathlayout.cpp
+    udisksmonitor.h udisksmonitor.cpp
+    devicemanager.h devicemanager.cpp
     mprisservice.h mprisservice.cpp)
 target_include_directories(mmm_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"

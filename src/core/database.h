@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "deviceprofile.h"
 #include "tracktags.h"
 
 #include <QHash>
@@ -101,6 +102,15 @@ public:
     bool setAlbumCover(qint64 albumId, const QString &coverPath);
     // Marks an album as skipped by the artwork finder (it stops listing it), or unmarks it.
     bool setAlbumArtSkipped(qint64 albumId, bool skipped);
+
+    // --- Device profiles (M8): one per sync target, keyed by Device::id ---
+    QList<DeviceProfile> deviceProfiles() const; // by name
+    std::optional<DeviceProfile> deviceProfile(const QString &deviceId) const;
+    // Inserts or replaces the device's profile. Needs a device id and a name.
+    bool saveDeviceProfile(const DeviceProfile &profile, QString *error = nullptr);
+    bool deleteDeviceProfile(const QString &deviceId);
+    // Remembers the device's current name (for listing profiles of unplugged devices).
+    bool setDeviceLastSeenName(const QString &deviceId, const QString &name);
 
     // --- Playlists (items are file paths, in order; duplicates allowed) ---
     std::optional<qint64> createPlaylist(const QString &name, const QStringList &paths = {},

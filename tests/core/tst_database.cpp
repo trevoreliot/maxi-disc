@@ -356,6 +356,7 @@ private Q_SLOTS:
             QVERIFY(q.exec(QStringLiteral("DROP TABLE playlist_items")));
             QVERIFY(q.exec(QStringLiteral("DROP TABLE playlists")));
             QVERIFY(q.exec(QStringLiteral("ALTER TABLE albums DROP COLUMN art_skipped_at")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE device_profiles")));
             QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 1")));
         }
         Database db;
@@ -377,13 +378,14 @@ private Q_SLOTS:
             // As written by M5–M6: no art_skipped_at column.
             QSqlQuery q(db.connection());
             QVERIFY(q.exec(QStringLiteral("ALTER TABLE albums DROP COLUMN art_skipped_at")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE device_profiles")));
             QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 2")));
         }
         Database db;
         QString error;
         QVERIFY2(db.open(path, &error), qPrintable(error));
-        QCOMPARE(db.schemaVersion(), 3);
-        QCOMPARE(Database::latestSchemaVersion(), 3);
+        QCOMPARE(db.schemaVersion(), Database::latestSchemaVersion());
+        QCOMPARE(Database::latestSchemaVersion(), 4);
         const qint64 album = scalar(db, QStringLiteral("SELECT id FROM albums")).toLongLong();
         QVERIFY(scalar(db, QStringLiteral("SELECT art_skipped_at FROM albums")).isNull());
         QVERIFY(db.setAlbumArtSkipped(album, true));

@@ -10,6 +10,7 @@
 #include "appinfo.h"
 #include "apppaths.h"
 #include "coverimageprovider.h"
+#include "devices.h"
 #include "library.h"
 #include "playback.h"
 
@@ -37,6 +38,8 @@ int main(int argc, char *argv[])
         QStringLiteral("no-scan"), QStringLiteral("Don't scan or watch the library folders."));
     const QCommandLineOption noMprisOpt(
         QStringLiteral("no-mpris"), QStringLiteral("Don't register on D-Bus (no media keys / desktop controls)."));
+    const QCommandLineOption noDevicesOpt(
+        QStringLiteral("no-devices"), QStringLiteral("Don't look for USB drives / DAPs (no UDisks2)."));
     QCommandLineOption screenshotOpt(
         QStringLiteral("screenshot"), QStringLiteral("Save a PNG of the window after loading, then exit."),
         QStringLiteral("FILE"));
@@ -45,7 +48,7 @@ int main(int argc, char *argv[])
         QStringLiteral("screenshot-delay"), QStringLiteral("Milliseconds to wait before --screenshot."),
         QStringLiteral("MS"), QStringLiteral("1500"));
     screenshotDelayOpt.setFlags(QCommandLineOption::HiddenFromHelp);
-    parser.addOptions({quitAfterLoad, databaseOpt, noScanOpt, noMprisOpt, screenshotOpt, screenshotDelayOpt});
+    parser.addOptions({quitAfterLoad, databaseOpt, noScanOpt, noMprisOpt, noDevicesOpt, screenshotOpt, screenshotDelayOpt});
     parser.process(app);
 
     // Fusion looks the same everywhere; its colours come from Theme (Main.qml's palette).
@@ -59,6 +62,7 @@ int main(int argc, char *argv[])
     // Created before (and so destroyed after) the QML engine that uses it.
     Library library({.databasePath = databasePath, .scanOnStart = scan, .watch = scan});
     Playback playback({.player = {}, .mpris = !parser.isSet(noMprisOpt), .persistSettings = true});
+    Devices devices({.databasePath = databasePath, .monitor = !parser.isSet(noDevicesOpt)});
     QObject::connect(&playback, &Playback::quitRequested, &app, &QCoreApplication::quit);
 
     QQmlApplicationEngine engine;

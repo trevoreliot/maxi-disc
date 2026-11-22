@@ -30,6 +30,7 @@ ApplicationWindow {
     readonly property alias queuePanel: queueDock
     readonly property alias tagEditorDialog: tagDialog
     readonly property alias artworkFinderDialog: artDialog
+    readonly property alias profileEditorDialog: profileDialog
     readonly property alias chrome: topChrome
 
     width: 1280
@@ -280,6 +281,10 @@ ApplicationWindow {
         id: artDialog
     }
 
+    ProfileEditorDialog {
+        id: profileDialog
+    }
+
     FolderDialog {
         id: folderDialog
         title: qsTr("Choose your music folder")
@@ -321,6 +326,7 @@ ApplicationWindow {
                 id: exportScreen
                 active: screens.screenActive && root.currentScreen === Main.ExportScreen
                 onInteracted: root.paneClicked(false)
+                onEditProfileRequested: id => profileDialog.edit(id)
             }
         }
 

@@ -5,6 +5,7 @@
 #include <QtQuickTest/quicktest.h>
 
 #include "coverimageprovider.h"
+#include "devices.h"
 #include "fixturelibrary.h"
 #include "library.h"
 #include "playback.h"
@@ -24,6 +25,8 @@ public Q_SLOTS:
         m_library = std::make_unique<Library>(Library::Options{.databasePath = db, .scanOnStart = false, .watch = false});
         m_playback = std::make_unique<Playback>(Playback::Options{
             .player = {.audioSink = "fakesink sync=true"}, .mpris = false, .persistSettings = false});
+        // No device detection: tests set devices with Devices.setTestDevices().
+        m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
     }
 
     void qmlEngineAvailable(QQmlEngine *engine)
@@ -36,6 +39,7 @@ public Q_SLOTS:
 
     void cleanupTestCase()
     {
+        m_devices.reset();
         m_playback.reset();
         m_library.reset();
     }
@@ -44,6 +48,7 @@ private:
     QTemporaryDir m_dir;
     std::unique_ptr<Library> m_library;
     std::unique_ptr<Playback> m_playback;
+    std::unique_ptr<Devices> m_devices;
 };
 
 QUICK_TEST_MAIN_WITH_SETUP(mmm_qml, Setup)

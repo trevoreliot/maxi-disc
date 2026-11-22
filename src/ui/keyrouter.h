@@ -21,7 +21,8 @@ class QQuickItem;
 //   (e.g. the artwork finder) gets the normal bindings; Main forwards them to it.
 // - Otherwise: h/j/k/l and the arrow keys move, Enter activates, Esc backs out, `/` and
 //   Ctrl+F focus search, `q` toggles the queue, Space plays/pauses, Ctrl+←/→ skip tracks,
-//   `a` / `A` find cover art (current album / all missing), `s` / `r` skip / retry (finder).
+//   `a` / `A` find cover art (current album / all missing), `s` / `r` skip / retry (finder),
+//   `m` mounts / unmounts the selected device (Export).
 //
 // New bindings go in kTextBindings / kKeyBindings in keyrouter.cpp.
 class KeyRouter : public QObject
@@ -52,6 +53,7 @@ public:
         FindMissingArt, // artwork finder for every album without art
         Skip,           // artwork finder: skip this album
         Retry,          // artwork finder: search again
+        MountToggle,    // Export: mount / unmount the selected device
     };
     Q_ENUM(Action)
 

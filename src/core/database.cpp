@@ -124,11 +124,32 @@ QStringList migrationV3()
     };
 }
 
+// v4 (M8): sync targets' profiles, keyed by Device::id (docs/decisions/0004).
+QStringList migrationV4()
+{
+    const QString now = QString::fromLatin1(kNow);
+    return {
+        QStringLiteral(R"(CREATE TABLE device_profiles (
+            device_id         TEXT PRIMARY KEY,
+            name              TEXT NOT NULL,
+            preset_id         TEXT NOT NULL DEFAULT '',
+            music_dir         TEXT NOT NULL DEFAULT '',
+            path_layout       TEXT NOT NULL,
+            playable_codecs   TEXT NOT NULL DEFAULT '',
+            transcode_target  TEXT NOT NULL DEFAULT 'mp3_v0',
+            artwork_policy    TEXT NOT NULL DEFAULT 'keep',
+            last_seen_name    TEXT NOT NULL DEFAULT '',
+            created_at        INTEGER NOT NULL DEFAULT %1,
+            updated_at        INTEGER NOT NULL DEFAULT %1))").arg(now),
+    };
+}
+
 using Migration = QStringList (*)();
 constexpr Migration kMigrations[] = {
     &migrationV1,
     &migrationV2,
     &migrationV3,
+    &migrationV4,
 };
 
 QVariant nullIfEmpty(const QString &s) { return s.isEmpty() ? QVariant() : QVariant(s); }
@@ -461,6 +482,107 @@ bool Database::setAlbumArtSkipped(qint64 albumId, bool skipped)
         return false;
     }
     return true;
+}
+
+// --- Device profiles --------------------------------------------------------
+
+namespace {
+
+DeviceProfile profileFrom(const QSqlQuery &q)
+{
+    DeviceProfile p;
+    p.deviceId = q.value(0).toString();
+    p.name = q.value(1).toString();
+    p.presetId = q.value(2).toString();
+    p.musicDir = q.value(3).toString();
+    p.pathLayout = q.value(4).toString();
+    p.playableCodecs = q.value(5).toString().split(QLatin1Char(','), Qt::SkipEmptyParts);
+    p.transcodeTarget = DeviceProfiles::transcodeTargetFrom(q.value(6).toString()).value_or(TranscodeTarget::Mp3V0);
+    p.artworkPolicy = DeviceProfiles::artworkPolicyFrom(q.value(7).toString()).value_or(ArtworkPolicy::Keep);
+    p.lastSeenName = q.value(8).toString();
+    return p;
+}
+
+const QString kProfileColumns = QStringLiteral("device_id, name, preset_id, music_dir, path_layout, playable_codecs, "
+                                               "transcode_target, artwork_policy, last_seen_name");
+
+} // namespace
+
+QList<DeviceProfile> Database::deviceProfiles() const
+{
+    QList<DeviceProfile> out;
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral("SELECT %1 FROM device_profiles ORDER BY name COLLATE NOCASE").arg(kProfileColumns))) {
+        qCWarning(lcDb) << "deviceProfiles failed:" << describe(q);
+        return out;
+    }
+    while (q.next())
+        out << profileFrom(q);
+    return out;
+}
+
+std::optional<DeviceProfile> Database::deviceProfile(const QString &deviceId) const
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT %1 FROM device_profiles WHERE device_id = ?").arg(kProfileColumns));
+    q.addBindValue(deviceId);
+    if (!q.exec() || !q.next())
+        return std::nullopt;
+    return profileFrom(q);
+}
+
+bool Database::saveDeviceProfile(const DeviceProfile &p, QString *error)
+{
+    if (p.deviceId.isEmpty() || p.name.trimmed().isEmpty()) {
+        if (error)
+            *error = QStringLiteral("a profile needs a device and a name");
+        return false;
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(R"(
+        INSERT INTO device_profiles (device_id, name, preset_id, music_dir, path_layout, playable_codecs,
+                                     transcode_target, artwork_policy, last_seen_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(device_id) DO UPDATE SET
+            name = excluded.name, preset_id = excluded.preset_id, music_dir = excluded.music_dir,
+            path_layout = excluded.path_layout, playable_codecs = excluded.playable_codecs,
+            transcode_target = excluded.transcode_target, artwork_policy = excluded.artwork_policy,
+            last_seen_name = excluded.last_seen_name, updated_at = %1)").arg(QLatin1StringView(kNow)));
+    // A null QString binds as SQL NULL: these columns are NOT NULL, so bind "" instead.
+    auto text = [](const QString &v) { return v.isNull() ? QStringLiteral("") : v; };
+    q.addBindValue(p.deviceId);
+    q.addBindValue(p.name.trimmed());
+    q.addBindValue(text(p.presetId));
+    q.addBindValue(text(p.musicDir));
+    q.addBindValue(text(p.pathLayout));
+    q.addBindValue(text(p.playableCodecs.join(QLatin1Char(','))));
+    q.addBindValue(DeviceProfiles::toString(p.transcodeTarget));
+    q.addBindValue(DeviceProfiles::toString(p.artworkPolicy));
+    q.addBindValue(text(p.lastSeenName));
+    if (!q.exec()) {
+        if (error)
+            *error = describe(q);
+        return false;
+    }
+    return true;
+}
+
+bool Database::deleteDeviceProfile(const QString &deviceId)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM device_profiles WHERE device_id = ?"));
+    q.addBindValue(deviceId);
+    return q.exec() && q.numRowsAffected() == 1;
+}
+
+bool Database::setDeviceLastSeenName(const QString &deviceId, const QString &name)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE device_profiles SET last_seen_name = ? WHERE device_id = ? AND last_seen_name != ?"));
+    q.addBindValue(name);
+    q.addBindValue(deviceId);
+    q.addBindValue(name);
+    return q.exec();
 }
 
 int Database::clearMissingCovers()

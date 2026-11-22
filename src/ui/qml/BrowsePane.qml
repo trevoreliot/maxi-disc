@@ -22,6 +22,8 @@ Pane {
 
     readonly property ListView currentList: [artistList, genreList, albumList, playlistList][mode]
     readonly property bool hasAllRow: mode === BrowsePane.Artists || mode === BrowsePane.Genres
+    // The cursor is on the first row ("All", if there is one): "up" would leave the list.
+    readonly property bool atTop: currentList.count === 0 || currentList.currentIndex <= (hasAllRow ? -1 : 0)
 
     // `entry` is the row's roles (LibraryListModel.get), or null for the "All" row.
     signal selected(int mode, var entry)

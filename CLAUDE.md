@@ -61,6 +61,13 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     `s` skip / `r` retry. The dialog gets routed keys because its content has `routeKeys: true`
     (KeyRouter's popup opt-in); Main forwards actions to it first. `CoverLoader::bumpRevision()`
     after art changes in place, so QML reloads it.
+  - Devices (M8): core `UdisksMonitor` (UDisks2 on the system bus; filter rules in `parse()`) →
+    `DeviceManager` (joins devices with `device_profiles`, own Database; mount/save/delete by
+    device id) ; `DeviceProfile` + `DeviceProfiles::decide` (copy or MP3) + `PathLayout::render`
+    (FAT-safe paths) are what M9 syncs by (decisions/0004). UI: `Devices` QML singleton (the device
+    list model; construct before the engine; tests use `.monitor = false` + `setTestDevices`),
+    `ProfileEditor` + `ProfileEditorDialog` (Main owns it). Export keys: j/k devices ↔ browse, Enter
+    = set up/edit profile, `m` mount/unmount.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).
@@ -128,7 +135,13 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - Gate commands: check ctest's **exit code** (`ctest --preset debug && …`), never grep its
   output for "passed" ("Failed" matches too: an M5 commit slipped through that way).
 - MPRIS tests run under `dbus-run-session` (private bus); client calls must be async (the service
-  is on the same thread). The app smoke test passes `--no-mpris`.
+  is on the same thread). The app smoke test passes `--no-mpris` and `--no-devices`.
+- UDisks2 tests (`tst_udisksmonitor`, `tst_devicemanager`) also run under `dbus-run-session`
+  against `tests/core/fakeudisks.h` (a fake service on the private bus): never the real system
+  bus, never real devices. Build its volumes with `FakeUdisks::volume()` (GCC rejects partial
+  designated initializers).
+- QML tests that send real keys to a `Main` window: wait until it has keyboard focus
+  (`win.active && win.activeFocusItem !== null`, re-requesting activation), not just `active`.
 - Database: one `mmm::Database` per thread (Qt SQL connections are thread-bound).
   Schema (v2: + playlists, items stored by path) changes = **append** a migration step in `database.cpp` (`kMigrations`); never
   edit a released step. Write methods use SAVEPOINTs so callers can batch in one outer

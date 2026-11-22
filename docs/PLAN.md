@@ -34,6 +34,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | Library size | < 1 TB (~30k+ tracks). Design for 100k tracks: first scan < 10 min, browse/search < 100 ms |
 | Online services | Last.fm scrobbling, Discord Rich Presence. Requires a Last.fm API key + secret and a Discord application ID (supplied by user at runtime/config, never committed) |
 | Album art | Folder file beats embedded; the finder saves both, 1200 px CAA JPEG, no file in folders shared with other albums. See `docs/decisions/0003-album-art-precedence-and-storage.md` |
+| Devices / profiles | UDisks2 (USB or SD-card volumes with a filesystem, not system disks); profiles in the library DB keyed by filesystem UUID. See `docs/decisions/0004-device-detection-and-profiles.md` |
 | GStreamer stalls | Recover (engine thread + abandon/replace a stalled pipeline) rather than fix GStreamer internals. See `docs/decisions/0001-gstreamer-stall-recovery.md` (evidence + how to pursue upstream) |
 | Licence | GPL-3.0-or-later (Qt LGPLv3 + linux-minidisc GPL). Verify linux-minidisc is GPL-2.0-or-later before M10 |
 
@@ -117,8 +118,9 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - [x] **M7 Artwork finder** — Done when: finds albums with no art; MusicBrainz lookup; Cover Art Archive download; saves cover.jpg and embeds; review dialog. User test: fix 20 albums missing art.
 
 ### Phase 4: USB sync
-- [ ] **M8 Device detection + profiles** — Done when: detects USB mounts; per-device profile (folder layout, playable formats, transcode target); built-in profiles for USB flash drive and generic DAP. User test: plug in a thumb drive and create a profile.
+- [x] **M8 Device detection + profiles** — Done when: detects USB mounts; per-device profile (folder layout, playable formats, transcode target); built-in profiles for USB flash drive and generic DAP. User test: plug in a thumb drive and create a profile.
 - [ ] **M9 Sync engine** — Done when: sync plan (add / update / remove) shown before running; copy with progress; transcode cache; playlists written. User test: sync a playlist, change it, sync again; only the changes copy.
+- [ ] **M9b On-device browser** — Done when: the Export screen's right pane has a toggle between "Tracks to Export" and "On Device"; On Device lists the selected device's music (artist → album → tracks, sizes, free space) from M9's device scan, marks tracks not in the library, and offers Mount when unmounted; read-only. User test: plug in a thumb drive with music on it and browse what's there.
 
 ### Phase 5: MiniDisc
 - [ ] **M10 NetMD basics** — Done when: libnetmd linked; detect the MZ-NE410; read disc TOC and titles; rename disc and tracks; udev rule documented. User test: read and retitle a scratch disc.
@@ -245,6 +247,21 @@ and the user has run the "User test". Tick the box, commit, then stop.
     (album page, grid, Albums browse list, playlist/search cursor track).
   - No retry with backoff across app restarts: a failed search (offline) is just listed as
     failed; `r` retries.
+- M8 notes / follow-ups:
+  - M9 needs from the profile: `musicDir`, `pathLayout` (`PathLayout::render`, FAT-safe, length
+    capped), `DeviceProfiles::decide` (copy or MP3 + extension), `artworkPolicy`. Still to decide
+    in M9: playlist folder and path style on the device, file-name collisions (two tracks → one
+    path), and a "profile changed since the last sync" check (re-transcode/move files).
+  - Not done: "safely remove" (UDisks2 `Drive.PowerOff` after unmounting), unlocking encrypted
+    (LUKS) sticks, listing/removing profiles of unplugged devices, custom profile templates,
+    {genre} in layouts (TrackRow has no genre yet).
+  - Without udisksd the device list stays empty (logged once). `--no-devices` turns detection off.
+  - On-device browser (user asked, 2026-11-22; planned as M9b): reuse M9's device scan rather than a
+    second reader. Walk `mountPoint/musicDir` on the pool (whole device if the profile's folder is
+    missing), read tags with `TagReader`, cache per device in the DB keyed by relative path + size +
+    mtime (the same manifest M9 diffs against, so a re-open is instant and only changed files are
+    re-read). Show results as they arrive; a toggle in the pane header plus a KeyRouter binding
+    (no QML Shortcut). Later ideas: delete from device, "add to library", playlists on the device.
 - Packaging: the app sets its desktop file name (`music-md-manager`) but no .desktop file is
   installed, so Qt logs "qt.qpa.services: Failed to register with host portal … App info not found"
   at startup (harmless). Install `music-md-manager.desktop` (+ icon) with the AppImage/Flatpak work

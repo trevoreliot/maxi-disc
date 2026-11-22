@@ -110,6 +110,7 @@ TestCase {
             { tag: "A", key: "A", action: KeyRouter.FindMissingArt },
             { tag: "s", key: "s", action: KeyRouter.Skip },
             { tag: "r", key: "r", action: KeyRouter.Retry },
+            { tag: "m", key: "m", action: KeyRouter.MountToggle },
             { tag: "unbound x", key: "x", action: -1 },
             { tag: "ctrl+j", key: Qt.Key_J, mods: Qt.ControlModifier, action: -1 },
             { tag: "alt+h", key: Qt.Key_H, mods: Qt.AltModifier, action: -1 },

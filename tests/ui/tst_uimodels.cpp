@@ -15,6 +15,8 @@
 
 #include "artfinder.h"
 #include "coverimageprovider.h"
+#include "devices.h"
+#include "profileeditor.h"
 #include "fixturelibrary.h"
 #include "library.h"
 #include "librarymodels.h"
@@ -66,6 +68,7 @@ class TestUiModels : public QObject
 private:
     QTemporaryDir m_dir;
     std::unique_ptr<Library> m_library;
+    std::unique_ptr<Devices> m_devices;
     QString m_cacheDir;
 
     template<typename Model>
@@ -99,10 +102,15 @@ private Q_SLOTS:
         QVERIFY(!db.isEmpty());
         m_library = std::make_unique<Library>(Library::Options{.databasePath = db, .scanOnStart = false, .watch = false});
         QVERIFY(m_library->isReady());
+        m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
         m_cacheDir = m_dir.filePath(QStringLiteral("covers"));
     }
 
-    void cleanupTestCase() { m_library.reset(); }
+    void cleanupTestCase()
+    {
+        m_devices.reset();
+        m_library.reset();
+    }
 
     void libraryCounts()
     {
@@ -405,6 +413,121 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 4, kTimeoutMs);
         QCOMPARE(mmm::TagReader::read(kidA)->title, QStringLiteral("Everything in Its Right Place"));
         QCOMPARE(albumIdOf(), albumId);
+    }
+
+    // --- Devices + profiles (M8) ---
+
+    void devicesModel()
+    {
+        Devices &d = *m_devices;
+        QAbstractItemModelTester tester(&d, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        QCOMPARE(d.count(), 0);
+        QCOMPARE(d.currentIndex(), -1);
+        QVERIFY(d.current().isEmpty());
+
+        QSignalSpy current(&d, &Devices::currentChanged);
+        d.setTestDevices({
+            QVariantMap{{QStringLiteral("id"), QStringLiteral("uuid:B")}, {QStringLiteral("name"), QStringLiteral("STICK")},
+                        {QStringLiteral("totalBytes"), 32'000'000'000LL}},
+            QVariantMap{{QStringLiteral("id"), QStringLiteral("uuid:A")}, {QStringLiteral("name"), QStringLiteral("DAP")},
+                        {QStringLiteral("vendor"), QStringLiteral("FiiO")}, {QStringLiteral("model"), QStringLiteral("M3K")},
+                        {QStringLiteral("fsType"), QStringLiteral("exfat")},
+                        {QStringLiteral("mountPoint"), QStringLiteral("/run/media/me/DAP")},
+                        {QStringLiteral("totalBytes"), 64'000'000'000LL}, {QStringLiteral("freeBytes"), 14'200'000'000LL}},
+        });
+        QCOMPARE(d.count(), 2);
+        QCOMPARE(d.currentIndex(), 0); // the first is selected, ready to set up
+        QVERIFY(current.count() >= 1);
+        QCOMPARE(column(d, "name"), (QStringList{QStringLiteral("STICK"), QStringLiteral("DAP")}));
+        QCOMPARE(column(d, "spaceText"), (QStringList{QStringLiteral("32.0 GB · not mounted"),
+                                                      QStringLiteral("14.2 GB free of 64.0 GB")}));
+        QCOMPARE(column(d, "details")[1], QStringLiteral("FiiO M3K · exfat"));
+        QCOMPARE(d.current().value(QStringLiteral("hasProfile")).toBool(), false);
+        QVERIFY(d.currentProfile().isEmpty());
+
+        // A saved profile shows up in the row and the summary; the selection stays put.
+        d.setCurrentIndex(1);
+        mmm::DeviceProfile p = *mmm::DeviceProfiles::builtIn(QStringLiteral("generic-dap"));
+        p.deviceId = QStringLiteral("uuid:A");
+        p.name = QStringLiteral("Running DAP");
+        QVERIFY(d.manager()->saveProfile(p));
+        QCOMPARE(d.currentIndex(), 1);
+        QCOMPARE(column(d, "profileName"), (QStringList{QString(), QStringLiteral("Running DAP")}));
+        const QVariantMap summary = d.currentProfile();
+        QCOMPARE(summary.value(QStringLiteral("name")).toString(), QStringLiteral("Running DAP"));
+        QCOMPARE(summary.value(QStringLiteral("formats")).toString(), QStringLiteral("MP3"));
+        QCOMPARE(summary.value(QStringLiteral("example")).toString(),
+                 QStringLiteral("Music/AC_DC/Back in Black/2-04 Back in Black.mp3"));
+
+        // Unplugging the selected device moves the selection to what's left.
+        d.setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("uuid:B")}, {QStringLiteral("name"), QStringLiteral("STICK")}}});
+        QCOMPARE(d.count(), 1);
+        QCOMPARE(d.currentIndex(), 0);
+        d.toggleMountCurrent(); // no detection in tests: nothing happens, nothing breaks
+        QVERIFY(d.manager()->deleteProfile(QStringLiteral("uuid:A")));
+        d.setTestDevices({});
+        QCOMPARE(d.currentIndex(), -1);
+    }
+
+    void profileEditor()
+    {
+        m_devices->setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("uuid:E")},
+                                               {QStringLiteral("name"), QStringLiteral("THUMB")}}});
+        ProfileEditor e;
+        QSignalSpy changed(&e, &ProfileEditor::changed);
+        QVERIFY(e.load(QStringLiteral("uuid:E")));
+        QVERIFY(e.isNew());
+        QCOMPARE(e.deviceName(), QStringLiteral("THUMB"));
+        QCOMPARE(e.name(), QStringLiteral("THUMB")); // named after the device
+        QCOMPARE(e.presetId(), QStringLiteral("usb-flash"));
+        QCOMPARE(e.example(), QStringLiteral("Music/AC_DC/Back in Black/2-04 Back in Black.flac"));
+        QVERIFY(e.exampleNote().contains(QStringLiteral("copied")));
+        QVERIFY(e.canSave());
+
+        // Unticking FLAC: the example becomes an MP3.
+        e.setCodecEnabled(QStringLiteral("FLAC"), false);
+        QVERIFY(!e.playableCodecs().contains(QStringLiteral("FLAC")));
+        QCOMPARE(e.example(), QStringLiteral("Music/AC_DC/Back in Black/2-04 Back in Black.mp3"));
+        QVERIFY(e.exampleNote().contains(QStringLiteral("MP3 V0")));
+        e.setTranscodeTarget(QStringLiteral("mp3_cbr_320"));
+        QVERIFY(e.exampleNote().contains(QStringLiteral("320")));
+        e.setTranscodeTarget(QStringLiteral("bogus")); // ignored
+        QCOMPARE(e.transcodeTarget(), QStringLiteral("mp3_cbr_320"));
+
+        // A preset replaces the settings but keeps the name.
+        e.setName(QStringLiteral("Car"));
+        e.applyPreset(QStringLiteral("generic-dap"));
+        QCOMPARE(e.name(), QStringLiteral("Car"));
+        QCOMPARE(e.playableCodecs(), QStringList{QStringLiteral("MP3")});
+        QCOMPARE(e.artworkPolicy(), QStringLiteral("shrink_500"));
+        QCOMPARE(e.transcodeTarget(), QStringLiteral("mp3_v0"));
+
+        // A broken layout can't be saved.
+        e.setPathLayout(QStringLiteral("{albumartist}/{album"));
+        QVERIFY(!e.layoutError().isEmpty());
+        QVERIFY(!e.canSave());
+        QVERIFY(!e.save());
+        QVERIFY(!e.errorString().isEmpty());
+        e.setPathLayout(QStringLiteral("{albumartist} - {album}/{track:02} {title}"));
+        e.setMusicDir(QStringLiteral("/Car Music/"));
+        QCOMPARE(e.example(), QStringLiteral("Car Music/AC_DC - Back in Black/04 Back in Black.mp3"));
+        QVERIFY(changed.count() > 5);
+
+        QSignalSpy saved(&e, &ProfileEditor::saved);
+        QVERIFY(e.save());
+        QCOMPARE(saved.count(), 1);
+        QVERIFY(!e.isNew());
+        QCOMPARE(m_devices->current().value(QStringLiteral("profileName")).toString(), QStringLiteral("Car"));
+
+        // Reloading shows the saved profile; removing forgets it.
+        ProfileEditor again;
+        again.load(QStringLiteral("uuid:E"));
+        QVERIFY(!again.isNew());
+        QCOMPARE(again.name(), QStringLiteral("Car"));
+        QCOMPARE(again.musicDir(), QStringLiteral("Car Music"));
+        QVERIFY(again.remove());
+        QCOMPARE(m_devices->current().value(QStringLiteral("hasProfile")).toBool(), false);
+        m_devices->setTestDevices({});
     }
 
     // --- Artwork finder (M7) ---

@@ -31,6 +31,7 @@ constexpr std::array kTextBindings{
     TextBinding{u'A', KeyRouter::FindMissingArt},
     TextBinding{u's', KeyRouter::Skip},
     TextBinding{u'r', KeyRouter::Retry},
+    TextBinding{u'm', KeyRouter::MountToggle},
 };
 
 // Keys matched on key code + exact modifiers, in a context: outside text fields, inside
