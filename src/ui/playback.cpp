@@ -55,6 +55,9 @@ Playback::Playback(const Options &options, QObject *parent)
     connect(p, &mmm::Player::replayGainModeChanged, this, &Playback::replayGainModeChanged);
     connect(q, &mmm::PlayQueue::repeatModeChanged, this, &Playback::repeatModeChanged);
     connect(q, &mmm::PlayQueue::upcomingChanged, this, &Playback::navigationChanged);
+    // Edited tags show up in the queue and now-playing (and MPRIS) right away.
+    if (Library *lib = Library::instance())
+        connect(lib, &Library::tracksEdited, &m_controller, &mmm::PlaybackController::refreshTracks);
     connect(&m_controller, &mmm::PlaybackController::currentTrackChanged, this, [this] {
         Q_EMIT currentChanged();
         Q_EMIT navigationChanged();

@@ -47,6 +47,8 @@ Item {
     readonly property alias searchResults: searchView
 
     signal addFolderRequested()
+    // Open the tag editor for these files (Main owns the dialog).
+    signal editTagsRequested(list<string> paths, string label)
     // The user clicked inside this screen (the window takes keyboard focus off the queue).
     signal interacted()
 
@@ -57,6 +59,43 @@ Item {
         albumYear = year;
         albumCoverUrl = coverUrl;
         albumFromGrid = fromGrid;
+    }
+
+    // Tag editing (`e` / `E`): on a playlist or search results, the cursor track or all
+    // listed tracks; the album page also has marked tracks (see AlbumPage.editTags).
+    function editTags(all: bool) {
+        if (content === LibraryView.Album) {
+            albumView.editTags(all);
+            return;
+        }
+        let model = null;
+        let cursor = -1;
+        let label = "";
+        if (content === LibraryView.Playlist) {
+            model = playlistView.tracksModel;
+            cursor = playlistView.currentIndex;
+            label = playlistName;
+        } else if (content === LibraryView.Search) {
+            model = searchView.tracksModel;
+            cursor = searchView.currentIndex;
+            label = qsTr("Search: %1").arg(searchText);
+        } else {
+            return;
+        }
+        const paths = [];
+        for (let i = all ? 0 : cursor; i >= 0 && i < (all ? model.count : cursor + 1); ++i)
+            paths.push(model.get(i).path);
+        if (paths.length > 0)
+            editTagsRequested(paths, paths.length === 1 ? paths[0] : qsTr("%1 — %2 tracks").arg(label).arg(paths.length));
+    }
+
+    // After a save: if every track of the open album was edited into another album (e.g. it
+    // was renamed), follow it there.
+    function tagsSaved(newAlbumId: int, editedCount: int) {
+        albumView.clearMarks();
+        if (content === LibraryView.Album && newAlbumId !== 0 && newAlbumId !== albumId
+                && editedCount === albumView.trackCount)
+            albumId = newAlbumId;
     }
 
     function closeAlbum() {
@@ -134,6 +173,15 @@ Item {
                 searchView.moveSelection(delta);
             return true;
         }
+        case KeyRouter.EditTags:
+        case KeyRouter.EditAllTags:
+            if (!inBrowse)
+                editTags(action === KeyRouter.EditAllTags);
+            return true;
+        case KeyRouter.ToggleMark:
+            if (!inBrowse && content === LibraryView.Album)
+                albumView.toggleMarked();
+            return true;
         case KeyRouter.Activate:
             if (inBrowse) {
                 browsePane.commit();
@@ -155,6 +203,10 @@ Item {
     // Esc inside the screen: album opened from the grid → back to the grid (same position).
     // Returns false when there's nothing to back out of here.
     function back(): bool {
+        if (content === LibraryView.Album && albumView.markedRows.length > 0) {
+            albumView.clearMarks();
+            return true;
+        }
         if (content === LibraryView.Album && albumFromGrid) {
             closeAlbum();
             return true;
@@ -250,6 +302,7 @@ Item {
                 showBack: root.albumFromGrid
                 paneActive: contentArea.contentActive
                 onBack: root.closeAlbum()
+                onEditRequested: (paths, label) => root.editTagsRequested(paths, label)
                 onInteracted: {
                     root.focusedPane = LibraryView.Content;
                     root.interacted();

@@ -35,8 +35,10 @@ class Theme : public QObject
     Q_PROPERTY(QColor accentMuted MEMBER m_accentMuted CONSTANT FINAL)
     Q_PROPERTY(QColor focusRing MEMBER m_focusRing CONSTANT FINAL)
     Q_PROPERTY(QColor onAccent MEMBER m_onAccent CONSTANT FINAL)
-    // List rows: hover, keyboard cursor in an unfocused pane, cursor in the focused pane
+    // List rows: hover, keyboard cursor in an unfocused pane, cursor in the focused pane,
+    // rows picked for a multi-track action (tag editing)
     Q_PROPERTY(QColor rowHover MEMBER m_rowHover CONSTANT FINAL)
+    Q_PROPERTY(QColor rowMarked MEMBER m_rowMarked CONSTANT FINAL)
     Q_PROPERTY(QColor rowSelected MEMBER m_rowSelected CONSTANT FINAL)
     Q_PROPERTY(QColor rowActiveFocused MEMBER m_rowActiveFocused CONSTANT FINAL)
     // Banners
@@ -85,6 +87,7 @@ private:
     QColor m_focusRing{0xF2, 0xB8, 0x57};
     QColor m_onAccent{0x16, 0x18, 0x1D};
     QColor m_rowHover{0xFF, 0xFF, 0xFF, 0x1A};
+    QColor m_rowMarked{0xE0, 0x9F, 0x3E, 0x1C};
     QColor m_rowSelected{0xE0, 0x9F, 0x3E, 0x29};
     QColor m_rowActiveFocused{0xE0, 0x9F, 0x3E, 0x40};
     QColor m_errorBg{0x4A, 0x1F, 0x24};

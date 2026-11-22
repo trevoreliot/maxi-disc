@@ -4,6 +4,7 @@
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QQuickImageResponse>
+#include <QRegularExpression>
 #include <QQuickTextureFactory>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -13,6 +14,9 @@
 #include "fixturelibrary.h"
 #include "library.h"
 #include "librarymodels.h"
+#include "tageditor.h"
+#include "tagreader.h"
+#include "testmedia.h"
 
 namespace {
 
@@ -287,6 +291,116 @@ private Q_SLOTS:
             QCOMPARE(done.count(), 1); // cancel() still reports finished
         }
         QTest::qWait(200); // let the orphaned runnables finish and their results be dropped
+    }
+
+    void tagEditorChanges()
+    {
+        QString error;
+        const auto c = TagEditor::toChanges({{QStringLiteral("title"), QStringLiteral("T")},
+                                             {QStringLiteral("year"), QStringLiteral(" 1999 ")},
+                                             {QStringLiteral("trackTotal"), QString()},
+                                             {QStringLiteral("compilation"), true}},
+                                            &error);
+        QVERIFY2(c, qPrintable(error));
+        QCOMPARE(c->title, std::optional<QString>(QStringLiteral("T")));
+        QCOMPARE(c->year, std::optional<int>(1999));
+        QCOMPARE(c->trackTotal, std::optional<int>(0)); // "" clears
+        QCOMPARE(c->compilation, std::optional<bool>(true));
+        QVERIFY(!c->artist && !c->trackNumber);
+
+        QVERIFY(!TagEditor::toChanges({{QStringLiteral("year"), QStringLiteral("199x")}}, &error));
+        QCOMPARE(error, QStringLiteral("Year must be a number from 0 to 9999."));
+        QVERIFY(!TagEditor::toChanges({{QStringLiteral("discNumber"), QStringLiteral("1000")}}, &error));
+        QVERIFY(!TagEditor::toChanges({{QStringLiteral("bogus"), QStringLiteral("x")}}, &error));
+    }
+
+    // Values shared by all tracks, and which fields differ.
+    void tagEditorMixedValues()
+    {
+        const QString dir = m_dir.filePath(QStringLiteral("loose"));
+        QDir().mkpath(dir);
+        const QString a = dir + QStringLiteral("/a.flac");
+        const QString b = dir + QStringLiteral("/b.flac");
+        QCOMPARE(mmm::test::generateTone(a, QStringLiteral("flacenc"), 300,
+                                         QStringLiteral(R"(title="A",artist="X",album="Same")")), QString());
+        QCOMPARE(mmm::test::generateTone(b, QStringLiteral("flacenc"), 300,
+                                         QStringLiteral(R"(title="B",artist="Y",album="Same")")), QString());
+
+        TagEditor editor;
+        editor.setPaths({a, b, dir + QStringLiteral("/missing.flac")});
+        QTRY_VERIFY_WITH_TIMEOUT(!editor.isLoading(), kTimeoutMs);
+        QCOMPARE(editor.trackCount(), 3);
+        QCOMPARE(editor.values().value(QStringLiteral("album")).toString(), QStringLiteral("Same"));
+        QCOMPARE(editor.values().value(QStringLiteral("artist")).toString(), QString());
+        QVERIFY(editor.mixedFields().contains(QStringLiteral("artist")));
+        QVERIFY(editor.mixedFields().contains(QStringLiteral("title")));
+        QVERIFY(!editor.mixedFields().contains(QStringLiteral("album")));
+        QCOMPARE(editor.errorString(), QStringLiteral("1 of 3 files can't be read."));
+    }
+
+    // Saving through Library: file + library entry change, listeners hear about it.
+    // (Kid A/01.flac is the fixture's one real file; its title is restored at the end.)
+    void tagEditorSaves()
+    {
+        const QString kidA = m_dir.filePath(QStringLiteral("Radiohead/Kid A/01.flac"));
+        const auto albumIdOf = [] {
+            const QList<mmm::TrackRow> rows = Library::instance()
+                ->runQuery([](const mmm::LibraryQuery &q) { return q.search(QStringLiteral("everything")); })
+                .result();
+            return rows.isEmpty() ? qint64(0) : rows.front().albumId;
+        };
+        const qint64 albumId = albumIdOf();
+        QVERIFY(albumId > 0);
+
+        TagEditor editor;
+        editor.setPaths({kidA});
+        QTRY_VERIFY_WITH_TIMEOUT(!editor.isLoading(), kTimeoutMs);
+        QCOMPARE(editor.values().value(QStringLiteral("title")).toString(), QStringLiteral("Everything in Its Right Place"));
+        QCOMPARE(editor.values().value(QStringLiteral("album")).toString(), QStringLiteral("Kid A"));
+        QVERIFY(editor.mixedFields().isEmpty());
+
+        QSignalSpy finished(&editor, &TagEditor::finished);
+        QSignalSpy edited(m_library.get(), &Library::tracksEdited);
+        QSignalSpy changed(m_library.get(), &Library::changed);
+        QVERIFY(!editor.apply({{QStringLiteral("year"), QStringLiteral("abc")}}));
+        QVERIFY(!editor.errorString().isEmpty());
+        QVERIFY(editor.apply({{QStringLiteral("title"), QStringLiteral("Everything (edited)")},
+                              {QStringLiteral("composer"), QStringLiteral("Yorke")}}));
+        QVERIFY(editor.isSaving());
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, kTimeoutMs);
+        QVERIFY(finished.front().at(0).toBool());
+        QCOMPARE(finished.front().at(2).toInt(), int(albumId)); // still in Kid A
+        QVERIFY(!editor.isSaving());
+        QCOMPARE(edited.count(), 1);
+        const auto rows = edited.front().at(0).value<QList<mmm::TrackRow>>();
+        QCOMPARE(rows.size(), 1);
+        QCOMPARE(rows.front().title, QStringLiteral("Everything (edited)"));
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(m_library->statusMessage(), QStringLiteral("Saved tags"));
+        QCOMPARE(mmm::TagReader::read(kidA)->composer, QStringLiteral("Yorke"));
+
+        // Nothing changed: finishes at once, writes nothing.
+        QVERIFY(editor.apply({}));
+        QCOMPARE(finished.count(), 2);
+        QCOMPARE(edited.count(), 1);
+
+        // A file that's gone: reported, and the dialog's editor keeps the error.
+        editor.setPaths({kidA, m_dir.filePath(QStringLiteral("Radiohead/Kid A/02.flac"))});
+        QTRY_VERIFY_WITH_TIMEOUT(!editor.isLoading(), kTimeoutMs);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("^Could not save tags of 1 of 2")));
+        QVERIFY(editor.apply({{QStringLiteral("composer"), QString()}}));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 3, kTimeoutMs);
+        QVERIFY(!finished.back().at(0).toBool());
+        QVERIFY(editor.errorString().contains(QStringLiteral("02.flac: file not found")));
+        QVERIFY(m_library->errorString().startsWith(QStringLiteral("Could not save tags of 1 of 2 tracks.")));
+        m_library->clearError();
+
+        editor.setPaths({kidA});
+        QTRY_VERIFY_WITH_TIMEOUT(!editor.isLoading(), kTimeoutMs);
+        QVERIFY(editor.apply({{QStringLiteral("title"), QStringLiteral("Everything in Its Right Place")}}));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 4, kTimeoutMs);
+        QCOMPARE(mmm::TagReader::read(kidA)->title, QStringLiteral("Everything in Its Right Place"));
+        QCOMPARE(albumIdOf(), albumId);
     }
 };
 

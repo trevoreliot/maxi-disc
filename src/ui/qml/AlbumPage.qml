@@ -8,6 +8,8 @@ import QtQuick.Layouts
 // One album (docs/ui-draft/music-library.jpeg): title with small cover art beside it,
 // tracks below (grouped by disc when there's more than one), and a faded watermark of the
 // cover behind them. Keyboard: moveSelection() / activateCurrent() (plays from that track).
+// Tracks can be marked for tag editing: Ctrl+click toggles, Shift+click marks a range,
+// toggleMarked() marks the cursor row (key `v`). editRequested() asks Main for the editor.
 Pane {
     id: root
 
@@ -23,9 +25,27 @@ Pane {
     readonly property alias tracksModel: tracks
     readonly property alias currentIndex: list.currentIndex
     readonly property bool multiDisc: tracks.discCount > 1
+    // Rows marked for tag editing (indexes into tracksModel).
+    property list<int> markedRows: []
+    property int markAnchor: 0
+    // The header follows the tracks once loaded, so it shows edited tags; until then (and
+    // for an empty album) it uses what the opener passed.
+    readonly property var firstTrack: tracks.count > 0 ? tracks.get(0) : null
+    readonly property string shownTitle: firstTrack ? firstTrack.album : albumTitle
+    readonly property string shownArtist: firstTrack ? firstTrack.albumArtist : albumArtist
+    readonly property int shownYear: {
+        let y = 0;
+        for (let i = 0; i < tracks.count; ++i) {
+            const ty = tracks.get(i).year;
+            if (ty > 0 && (y === 0 || ty < y))
+                y = ty;
+        }
+        return tracks.count > 0 ? y : year;
+    }
 
     signal back()
     signal interacted()
+    signal editRequested(list<string> paths, string label)
 
     function moveSelection(delta: int) {
         if (list.count === 0)
@@ -39,6 +59,63 @@ Pane {
             Playback.playFromModel(tracks, list.currentIndex);
     }
 
+    function pathsOf(rows: list<int>): list<string> {
+        const out = [];
+        for (const r of rows) {
+            if (r >= 0 && r < tracks.count)
+                out.push(tracks.get(r).path);
+        }
+        return out;
+    }
+    function allRows(): list<int> {
+        const out = [];
+        for (let i = 0; i < tracks.count; ++i)
+            out.push(i);
+        return out;
+    }
+    function clearMarks() {
+        markedRows = [];
+    }
+    function toggleMarked() {
+        if (list.currentIndex < 0)
+            return;
+        const rows = Array.from(markedRows);
+        const at = rows.indexOf(list.currentIndex);
+        if (at >= 0)
+            rows.splice(at, 1);
+        else
+            rows.push(list.currentIndex);
+        markedRows = rows.sort((a, b) => a - b);
+        markAnchor = list.currentIndex;
+    }
+    // Plain click: cursor only. Ctrl: toggle the row's mark. Shift: mark anchor..row.
+    function clickRow(row: int, modifiers: int) {
+        list.currentIndex = row;
+        if (modifiers & Qt.ShiftModifier) {
+            const rows = [];
+            for (let i = Math.min(markAnchor, row); i <= Math.max(markAnchor, row); ++i)
+                rows.push(i);
+            markedRows = rows;
+        } else if (modifiers & Qt.ControlModifier) {
+            toggleMarked();
+        } else {
+            clearMarks();
+            markAnchor = row;
+        }
+        interacted();
+    }
+    // `e`: the marked tracks, else the cursor track. `E` / the button: marked, else all.
+    function editTags(all: bool) {
+        const rows = markedRows.length > 0 ? Array.from(markedRows)
+                   : all ? allRows() : (list.currentIndex >= 0 ? [list.currentIndex] : []);
+        if (rows.length === 0)
+            return;
+        const label = rows.length === 1 ? tracks.get(rows[0]).path
+                    : rows.length === tracks.count ? qsTr("%1 — all tracks").arg(shownTitle)
+                    : qsTr("%1 — %2 of %3 tracks").arg(shownTitle).arg(rows.length).arg(tracks.count);
+        editRequested(pathsOf(rows), label);
+    }
+
     padding: 0
     background: Rectangle {
         color: Theme.bg
@@ -48,8 +125,12 @@ Pane {
         id: tracks
         albumId: root.albumId
     }
-    // A new album starts with the cursor on its first track.
-    onAlbumIdChanged: list.currentIndex = 0
+    // A new album starts with the cursor on its first track and nothing marked.
+    onAlbumIdChanged: {
+        list.currentIndex = 0;
+        clearMarks();
+        markAnchor = 0;
+    }
 
     // Watermark: the cover, large and faint, on the right; fades out towards the left.
     Item {
@@ -109,14 +190,14 @@ Pane {
                 Label {
                     objectName: "albumTitle"
                     Layout.fillWidth: true
-                    text: root.albumTitle
+                    text: root.shownTitle
                     font.pixelSize: Theme.fontDisplay
                     font.bold: true
                     elide: Text.ElideRight
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: root.albumArtist
+                    text: root.shownArtist
                     font.pixelSize: Theme.fontHeading
                     color: Theme.textSecondary
                     elide: Text.ElideRight
@@ -124,8 +205,8 @@ Pane {
                 Label {
                     text: {
                         const parts = [];
-                        if (root.year > 0)
-                            parts.push(root.year);
+                        if (root.shownYear > 0)
+                            parts.push(root.shownYear);
                         parts.push(tracks.count === 1 ? qsTr("1 track") : qsTr("%1 tracks").arg(tracks.count));
                         if (tracks.count > 0)
                             parts.push(AppBridge.formatDuration(tracks.totalDurationMs));
@@ -157,6 +238,14 @@ Pane {
                         focusPolicy: Qt.NoFocus
                         enabled: tracks.count > 0
                         onClicked: Playback.enqueueFromModel(tracks, false)
+                    }
+                    Button {
+                        objectName: "editTagsButton"
+                        text: root.markedRows.length > 0 ? qsTr("Edit tags (%1)…").arg(root.markedRows.length)
+                                                         : qsTr("Edit tags…")
+                        focusPolicy: Qt.NoFocus
+                        enabled: tracks.count > 0
+                        onClicked: root.editTags(true)
                     }
                 }
             }
@@ -218,11 +307,14 @@ Pane {
                 height: 36
                 current: ListView.isCurrentItem
                 paneActive: root.paneActive
-                onClicked: {
-                    list.currentIndex = index;
-                    root.interacted();
-                }
+                marked: root.markedRows.includes(index)
                 onDoubleClicked: Playback.playFromModel(tracks, index)
+
+                // Clicks with their modifiers (ItemDelegate's clicked() has none).
+                TapHandler {
+                    acceptedModifiers: Qt.KeyboardModifierMask
+                    onTapped: root.clickRow(row.index, point.modifiers)
+                }
 
                 contentItem: RowLayout {
                     spacing: Theme.spaceMD
@@ -244,7 +336,7 @@ Pane {
                     Label {
                         // Only for compilations / guest artists: hide when it's the album artist.
                         Layout.maximumWidth: list.width * 0.3
-                        visible: row.artist !== "" && row.artist !== root.albumArtist
+                        visible: row.artist !== "" && row.artist !== root.shownArtist
                         text: row.artist
                         elide: Text.ElideRight
                         color: Theme.textSecondary

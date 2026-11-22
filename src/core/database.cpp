@@ -580,6 +580,93 @@ std::optional<qint64> Database::upsertTrack(const TrackFile &file, const TrackTa
     return trackId;
 }
 
+std::optional<qint64> Database::updateEditedTrack(const TrackFile &file, const TrackTags &tags, QString *error)
+{
+    QSqlQuery old(m_db);
+    old.prepare(QStringLiteral("SELECT folder_id, album_id FROM tracks WHERE path = ?"));
+    old.addBindValue(file.path);
+    if (!old.exec()) {
+        if (error)
+            *error = describe(old);
+        return std::nullopt;
+    }
+    if (!old.next()) {
+        if (error)
+            *error = QStringLiteral("not in the library");
+        return std::nullopt;
+    }
+    TrackFile f = file;
+    f.folderId = old.value(0).toLongLong();
+    const qint64 oldAlbumId = old.value(1).toLongLong();
+    old.finish();
+
+    if (!exec(QStringLiteral("SAVEPOINT edit_track"), error))
+        return std::nullopt;
+    auto fail = [&]() -> std::optional<qint64> {
+        exec(QStringLiteral("ROLLBACK TO edit_track"), nullptr);
+        exec(QStringLiteral("RELEASE edit_track"), nullptr);
+        return std::nullopt;
+    };
+    auto run = [&](QSqlQuery &q) {
+        if (q.exec())
+            return true;
+        if (error)
+            *error = describe(q);
+        return false;
+    };
+
+    const auto trackId = upsertTrack(f, tags, error);
+    if (!trackId)
+        return fail();
+
+    QSqlQuery cur(m_db);
+    cur.prepare(QStringLiteral("SELECT album_id FROM tracks WHERE id = ?"));
+    cur.addBindValue(*trackId);
+    if (!run(cur))
+        return fail();
+    const qint64 newAlbumId = cur.next() ? cur.value(0).toLongLong() : 0;
+    cur.finish();
+
+    if (newAlbumId != 0) {
+        if (oldAlbumId != 0 && oldAlbumId != newAlbumId) {
+            // Folder art lives next to the track: only carry it over if it's in the same folder.
+            const auto [lo, hi] = prefixRange(QFileInfo(file.path).path());
+            QSqlQuery art(m_db);
+            art.prepare(QStringLiteral(
+                "UPDATE albums SET cover_path = (SELECT cover_path FROM albums WHERE id = :old) "
+                "WHERE id = :new AND cover_path IS NULL AND EXISTS ("
+                "SELECT 1 FROM albums WHERE id = :old AND cover_path >= :lo AND cover_path < :hi "
+                "AND instr(substr(cover_path, length(:lo) + 1), '/') = 0)"));
+            art.bindValue(QStringLiteral(":old"), oldAlbumId);
+            art.bindValue(QStringLiteral(":new"), newAlbumId);
+            art.bindValue(QStringLiteral(":lo"), lo);
+            art.bindValue(QStringLiteral(":hi"), hi);
+            if (!run(art))
+                return fail();
+        }
+        QSqlQuery comp(m_db);
+        comp.prepare(QStringLiteral("UPDATE albums SET compilation = ? WHERE id = ?"));
+        comp.addBindValue(tags.compilation ? 1 : 0);
+        comp.addBindValue(newAlbumId);
+        if (!run(comp))
+            return fail();
+    }
+    for (const qint64 albumId : {oldAlbumId, newAlbumId}) {
+        if (albumId == 0)
+            continue;
+        QSqlQuery year(m_db);
+        year.prepare(QStringLiteral(
+            "UPDATE albums SET year = (SELECT MIN(year) FROM tracks WHERE album_id = :id) WHERE id = :id"));
+        year.bindValue(QStringLiteral(":id"), albumId);
+        if (!run(year))
+            return fail();
+    }
+
+    if (!exec(QStringLiteral("RELEASE edit_track"), error))
+        return fail();
+    return trackId;
+}
+
 bool Database::removeTrack(const QString &path)
 {
     const auto id = trackIdByPath(path);

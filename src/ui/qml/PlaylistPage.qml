@@ -17,6 +17,7 @@ Pane {
     property bool paneActive: false
     readonly property alias trackCount: tracks.count
     readonly property alias currentIndex: list.currentIndex
+    readonly property alias tracksModel: tracks
 
     signal closed()
     signal interacted()

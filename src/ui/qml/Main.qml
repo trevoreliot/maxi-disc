@@ -28,6 +28,7 @@ ApplicationWindow {
     readonly property alias mainMenu: menuScreen
     readonly property alias exportView: exportScreen
     readonly property alias queuePanel: queueDock
+    readonly property alias tagEditorDialog: tagDialog
     readonly property alias chrome: topChrome
 
     width: 1280
@@ -250,6 +251,11 @@ ApplicationWindow {
         onTriggered: libraryScreen.searchText = topChrome.searchText.trim()
     }
 
+    TagEditorDialog {
+        id: tagDialog
+        onSaved: albumId => libraryScreen.tagsSaved(albumId, tagDialog.editor.trackCount)
+    }
+
     FolderDialog {
         id: folderDialog
         title: qsTr("Choose your music folder")
@@ -282,6 +288,7 @@ ApplicationWindow {
                 active: screens.screenActive && root.currentScreen === Main.LibraryScreen
                 onAddFolderRequested: folderDialog.open()
                 onInteracted: root.paneClicked(false)
+                onEditTagsRequested: (paths, label) => tagDialog.edit(paths, label)
             }
 
             ExportView {

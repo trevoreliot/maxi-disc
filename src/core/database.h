@@ -75,6 +75,13 @@ public:
     {
         return upsertTrack(TrackFile{path, fileMtimeMs, fileSize, 0}, tags, error);
     }
+    // Stores a track again after its tags were edited (TagWriter): like upsertTrack, but keeps
+    // the track's library folder (file.folderId is ignored) and never adds a track that
+    // isn't in the library yet (fails with "not in the library"). If the edit moved it to another
+    // album, the new album gets the old one's folder art (when it is in the track's folder).
+    // Album year and compilation flag follow the edited tracks (a scan keeps the first seen).
+    // Doesn't prune orphans: call pruneOrphans() after a batch.
+    std::optional<qint64> updateEditedTrack(const TrackFile &file, const TrackTags &tags, QString *error = nullptr);
     bool removeTrack(const QString &path);
     std::optional<qint64> trackIdByPath(const QString &path) const;
 

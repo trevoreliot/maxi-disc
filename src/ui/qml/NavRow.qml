@@ -4,11 +4,13 @@ import QtQuick.Controls
 
 // A list row with the app's selection look. `current` marks the keyboard cursor; it's
 // stronger (with an amber edge) while the row's pane has keyboard focus (`paneActive`).
+// `marked`: picked for a multi-track action (a tint and a muted amber edge).
 ItemDelegate {
     id: control
 
     property bool current: false
     property bool paneActive: false
+    property bool marked: false
 
     leftPadding: Theme.spaceLG
     rightPadding: Theme.spaceLG
@@ -16,13 +18,14 @@ ItemDelegate {
 
     background: Rectangle {
         color: control.current ? (control.paneActive ? Theme.rowActiveFocused : Theme.rowSelected)
+             : control.marked ? Theme.rowMarked
              : control.hovered ? Theme.rowHover : "transparent"
 
         Rectangle {
-            visible: control.current && control.paneActive
-            width: 2
+            visible: control.marked || (control.current && control.paneActive)
+            width: control.marked && !(control.current && control.paneActive) ? 3 : 2
             height: parent.height
-            color: Theme.focusRing
+            color: control.current && control.paneActive ? Theme.focusRing : Theme.accentMuted
         }
     }
 }

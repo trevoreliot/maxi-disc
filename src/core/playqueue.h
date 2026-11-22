@@ -70,6 +70,9 @@ public:
     // Moves one item; the current track stays current.
     void move(int from, int to);
     void clear();
+    // Replaces the queued entries that have the same file path as one of `rows` (e.g. after
+    // a tag edit). Order and the current index stay. Returns true if the current entry changed.
+    bool updateTracks(const QList<TrackRow> &rows);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;

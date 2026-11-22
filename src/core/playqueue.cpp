@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "playqueue.h"
 
+#include <QHash>
+
 namespace mmm {
 
 PlayQueue::PlayQueue(QObject *parent)
@@ -70,6 +72,23 @@ qint64 PlayQueue::totalDurationMs() const
     for (const TrackRow &t : m_items)
         total += t.durationMs;
     return total;
+}
+
+bool PlayQueue::updateTracks(const QList<TrackRow> &rows)
+{
+    QHash<QString, const TrackRow *> byPath;
+    for (const TrackRow &r : rows)
+        byPath.insert(r.path, &r);
+    bool currentChanged = false;
+    for (int i = 0; i < count(); ++i) {
+        const TrackRow *r = byPath.value(m_items.at(i).path);
+        if (!r)
+            continue;
+        m_items[i] = *r;
+        Q_EMIT dataChanged(index(i), index(i));
+        currentChanged = currentChanged || i == m_current;
+    }
+    return currentChanged;
 }
 
 void PlayQueue::setItems(const QList<TrackRow> &items, int start)

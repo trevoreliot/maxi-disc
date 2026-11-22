@@ -13,6 +13,7 @@
 #include <type_traits>
 
 #include "libraryquery.h"
+#include "tagwriter.h"
 
 class QQmlEngine;
 class QJSEngine;
@@ -86,6 +87,10 @@ public:
     // Writes the playlist as extended M3U with absolute paths.
     Q_INVOKABLE bool exportPlaylist(int id, const QUrl &file);
 
+    // Writes tag changes to the files and updates the library (mmm::editTracks) on a
+    // background thread. When done: status message or error, tracksEdited(), changed().
+    QFuture<mmm::TagEditResult> editTags(const QStringList &paths, const mmm::TagChanges &changes);
+
     // Runs fn(const mmm::LibraryQuery &) on the query pool with that thread's own
     // connection. Continue with .then(context, ...) to get the result on a QObject's thread.
     template<typename Fn>
@@ -99,6 +104,8 @@ public:
 Q_SIGNALS:
     // Library contents changed (scan with changes, folder added/removed): reload views.
     void changed();
+    // Tracks whose tags were edited, as stored now (Playback refreshes the queue with them).
+    void tracksEdited(const QList<mmm::TrackRow> &tracks);
     void errorStringChanged();
     void foldersChanged();
     void scanningChanged();
@@ -107,7 +114,7 @@ Q_SIGNALS:
     void statusMessageChanged();
 
 private:
-    static const mmm::Database &threadDatabase(const QString &path);
+    static mmm::Database &threadDatabase(const QString &path);
     void setError(const QString &message);
     void setStatusMessage(const QString &message);
     void refreshCounts();
@@ -122,6 +129,7 @@ private:
     int m_albumCount = 0;
     QString m_statusMessage;
     QThreadPool m_queryPool;
+    QThreadPool m_writePool; // one thread: tag edits run one after another
     std::unique_ptr<mmm::LibraryScanner> m_scanner;
     std::unique_ptr<mmm::Database> m_db; // UI-thread connection for playlist edits
 };

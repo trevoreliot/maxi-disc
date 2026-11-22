@@ -45,6 +45,9 @@ public Q_SLOTS:
     void seek(qint64 positionMs);
     // Stops and empties the queue.
     void clearQueue();
+    // Updates queued entries' metadata after their tags changed (matched by path); announces
+    // the current track again if it was one of them. Playback isn't affected.
+    void refreshTracks(const QList<mmm::TrackRow> &rows);
 
 Q_SIGNALS:
     // The current track changed (new track started, or cleared → null). For now-playing UI,

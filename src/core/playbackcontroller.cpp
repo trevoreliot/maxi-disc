@@ -143,6 +143,12 @@ void PlaybackController::clearQueue()
     }
 }
 
+void PlaybackController::refreshTracks(const QList<TrackRow> &rows)
+{
+    if (m_queue.updateTracks(rows) && m_announcedTrackId != -1)
+        Q_EMIT currentTrackChanged();
+}
+
 void PlaybackController::startCurrent()
 {
     ++m_actionGeneration;

@@ -29,6 +29,7 @@ qt_add_qml_module(mmm_ui
         qml/QueuePanel.qml
         qml/PlaylistPage.qml
         qml/TextPrompt.qml
+        qml/TagEditorDialog.qml
     SOURCES
         appbridge.h appbridge.cpp
         library.h library.cpp
@@ -36,6 +37,7 @@ qt_add_qml_module(mmm_ui
         coverimageprovider.h coverimageprovider.cpp
         playback.h playback.cpp
         keyrouter.h keyrouter.cpp
+        tageditor.h tageditor.cpp
         theme.h theme.cpp)
 
 target_link_libraries(mmm_ui

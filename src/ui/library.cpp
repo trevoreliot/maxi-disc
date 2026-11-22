@@ -26,6 +26,7 @@ Library::Library(const Options &options, QObject *parent)
 
     // Two readers: one long query (e.g. a big search) doesn't stall the other views.
     m_queryPool.setMaxThreadCount(2);
+    m_writePool.setMaxThreadCount(1);
 
     QString error;
     m_ready = m_scanner->open(&error);
@@ -56,6 +57,7 @@ Library::Library(const Options &options, QObject *parent)
 Library::~Library()
 {
     m_scanner.reset();           // cancels and joins a running scan
+    m_writePool.waitForDone();   // finish a tag edit in progress
     m_queryPool.waitForDone();   // pool threads exit with the pool: thread_local DBs close there
     s_instance = nullptr;
 }
@@ -72,7 +74,7 @@ Library *Library::create(QQmlEngine *, QJSEngine *)
     return s_instance;
 }
 
-const mmm::Database &Library::threadDatabase(const QString &path)
+mmm::Database &Library::threadDatabase(const QString &path)
 {
     // One connection per pool thread, closed when the thread exits.
     thread_local std::unique_ptr<mmm::Database> db;
@@ -231,6 +233,34 @@ bool Library::exportPlaylist(int id, const QUrl &file)
     }
     setStatusMessage(QStringLiteral("Exported %1 tracks to %2").arg(entries.size()).arg(QFileInfo(out).fileName()));
     return true;
+}
+
+QFuture<mmm::TagEditResult> Library::editTags(const QStringList &paths, const mmm::TagChanges &changes)
+{
+    if (!m_ready) {
+        mmm::TagEditResult r;
+        for (const QString &p : paths)
+            r.failures << p + QStringLiteral(": the library database isn't open");
+        return QtFuture::makeReadyValueFuture(r);
+    }
+    return QtConcurrent::run(&m_writePool,
+                             [dbPath = m_databasePath, paths, changes] {
+                                 return mmm::editTracks(threadDatabase(dbPath), paths, changes);
+                             })
+        .then(this, [this, total = paths.size()](const mmm::TagEditResult &r) {
+            if (r.failures.isEmpty())
+                setStatusMessage(total == 1 ? QStringLiteral("Saved tags")
+                                            : QStringLiteral("Saved tags of %1 tracks").arg(total));
+            else
+                setError(QStringLiteral("Could not save tags of %1 of %2 tracks. %3")
+                             .arg(r.failures.size()).arg(total).arg(r.failures.front()));
+            if (!r.written.isEmpty()) {
+                refreshCounts();
+                Q_EMIT tracksEdited(r.tracks);
+                Q_EMIT changed();
+            }
+            return r;
+        });
 }
 
 void Library::setError(const QString &message)

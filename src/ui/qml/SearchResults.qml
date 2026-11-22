@@ -13,6 +13,7 @@ Pane {
     property alias searchText: results.searchText
     readonly property alias count: results.count
     readonly property alias currentIndex: list.currentIndex
+    readonly property alias tracksModel: results
     property bool paneActive: false
 
     signal interacted()

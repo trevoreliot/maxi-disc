@@ -172,6 +172,27 @@ private Q_SLOTS:
         QCOMPARE(q.count(), 0);
         QCOMPARE(q.currentIndex(), -1);
     }
+
+    // After a tag edit: entries with the same path get the new metadata, in place.
+    void updateTracks()
+    {
+        PlayQueue q;
+        q.setItems(tracks({"a", "b", "a"}), 1);
+        QSignalSpy changed(&q, &PlayQueue::dataChanged);
+        QSignalSpy upcoming(&q, &PlayQueue::upcomingChanged);
+        TrackRow edited = q.items().at(0);
+        edited.title = QStringLiteral("A!");
+        QVERIFY(!q.updateTracks({edited})); // not the current entry
+        // Both copies of a.flac.
+        QCOMPARE(titles(q), QStringList({QStringLiteral("A!"), QStringLiteral("b"), QStringLiteral("A!")}));
+        QCOMPARE(changed.count(), 2);
+        QCOMPARE(upcoming.count(), 0);
+        TrackRow current = q.items().at(1);
+        current.title = QStringLiteral("B!");
+        QVERIFY(q.updateTracks({current}));
+        QCOMPARE(q.current()->title, QStringLiteral("B!"));
+        QCOMPARE(q.currentIndex(), 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestPlayQueue)

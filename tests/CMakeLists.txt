@@ -17,6 +17,10 @@ qt_add_executable(tst_tagreader core/tst_tagreader.cpp core/testmedia.h core/tes
 target_link_libraries(tst_tagreader PRIVATE mmm_core PkgConfig::GST TagLib::tag Qt6::Test mmm_build_flags)
 add_test(NAME tst_tagreader COMMAND tst_tagreader)
 
+qt_add_executable(tst_tagwriter core/tst_tagwriter.cpp core/testmedia.h core/testmedia.cpp)
+target_link_libraries(tst_tagwriter PRIVATE mmm_core PkgConfig::GST TagLib::tag Qt6::Test mmm_build_flags)
+add_test(NAME tst_tagwriter COMMAND tst_tagwriter)
+
 qt_add_executable(tst_database core/tst_database.cpp)
 target_link_libraries(tst_database PRIVATE mmm_core Qt6::Test mmm_build_flags)
 add_test(NAME tst_database COMMAND tst_database)
@@ -55,7 +59,7 @@ endif()
 
 # --- UI: C++ models, cover provider (needs a GUI app; runs offscreen) ---
 add_library(mmm_test_fixture STATIC ui/fixturelibrary.h ui/fixturelibrary.cpp core/testmedia.h core/testmedia.cpp)
-target_include_directories(mmm_test_fixture PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ui")
+target_include_directories(mmm_test_fixture PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ui" "${CMAKE_CURRENT_SOURCE_DIR}/core")
 target_link_libraries(mmm_test_fixture PUBLIC mmm_core Qt6::Gui PkgConfig::GST TagLib::tag PRIVATE mmm_build_flags)
 
 qt_add_executable(tst_uimodels ui/tst_uimodels.cpp)
@@ -69,7 +73,7 @@ target_compile_definitions(tst_qml PRIVATE
     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
 add_test(NAME tst_qml COMMAND tst_qml)
 
-foreach(t tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml)
+foreach(t tst_appinfo tst_player tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml)
     mmm_add_sanitizer_defaults(${t})
 endforeach()
 
@@ -79,7 +83,7 @@ set(MMM_TEST_HOME "${CMAKE_BINARY_DIR}/test-home")
 add_test(NAME app_smoke COMMAND music-md-manager --quit-after-load --no-scan --no-mpris
     --database "${MMM_TEST_HOME}/smoke.db")
 
-set_tests_properties(tst_appinfo tst_player tst_tagreader tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml app_smoke PROPERTIES
+set_tests_properties(tst_appinfo tst_player tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml app_smoke PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;XDG_DATA_HOME=${MMM_TEST_HOME}/data;XDG_CACHE_HOME=${MMM_TEST_HOME}/cache;XDG_CONFIG_HOME=${MMM_TEST_HOME}/config")
 
 # --- qmllint: any warning fails the test ---

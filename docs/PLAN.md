@@ -110,7 +110,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
   `n`/`N` next/prev search hit, Space play/pause) without touching every view; qmllint clean and
   QML tests for the key handling. Visual polish/animation stays in "Later". User test: navigate
   browse → album → play → queue using only the keyboard; the UI matches the drawings.
-- [ ] **M6 Tag editor** — Done when: edit single and multiple tracks; writes to files and DB. User test: edit a test copy of an album, then verify in another app.
+- [x] **M6 Tag editor** — Done when: edit single and multiple tracks; writes to files and DB. User test: edit a test copy of an album, then verify in another app.
 
 ### Phase 3: Artwork
 - [ ] **M7 Artwork finder** — Done when: finds albums with no art; MusicBrainz lookup; Cover Art Archive download; saves cover.jpg and embeds; review dialog. User test: fix 20 albums missing art.
@@ -217,6 +217,18 @@ and the user has run the "User test". Tick the box, commit, then stop.
     least three distinct GStreamer-internal stalls, all triggered by rapid state changes.
     Proposed fix: Player runs GStreamer control calls on its own thread + recovers from a
     stalled state change by abandoning the pipeline and resuming on a fresh one.
+- M6 notes / follow-ups:
+  - Tag writes replace the file (copy + rename) so a playing track and a crash are safe; hard
+    links get split. See docs/decisions/0002 to switch to in-place saves.
+  - Multi-track edits set the same value on every track; title and track number are hidden for
+    them. Not done: per-track values in one dialog (renumber, case fixes), filename ↔ tags,
+    MusicBrainz lookup of tags.
+  - Editing a field that held several values (multiple artists / genres) writes one value
+    ("A, B" stays one string). Clearing the year leaves ORIGINALDATE, which the reader falls back to.
+  - Album compilation flag follows the last edited track (tracks don't store it).
+  - Marking tracks (Ctrl/Shift+click, `v`) exists on the album page only; playlists and search
+    results edit the cursor track (`e`) or all listed tracks (`E`). No tag editing from the grid
+    or the queue yet.
 - M5b notes / follow-ups:
   - Theme should become user-configurable (user asked, 2026-11-21). `Theme` (src/ui/theme.h) is
     a constant C++ singleton today: give its properties NOTIFY signals, load values from QSettings

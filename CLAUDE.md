@@ -48,6 +48,11 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     `moveSelection()` / `activateCurrent()` / `paneActive`; list rows use `NavRow`, panes `FocusBar`.
     Don't add QML `Shortcut`s or `Keys` handlers for navigation: add a binding + action instead.
     **Popups must take focus (`focus: true`)**, or the router keeps handling keys (incl. Esc) under them.
+  - Tag editing (M6): core `TagWriter` writes only the fields set in `TagChanges` (copy +
+    rename, see docs/decisions/0002); `editTracks()` = write + re-read + `Database::updateEditedTrack`
+    (keeps folder id, carries folder art to a renamed album, recomputes album year). UI: `Library::editTags`
+    (one-thread write pool) → `tracksEdited` (Playback refreshes the queue) + `changed`; `TagEditor` (QML
+    type) backs `TagEditorDialog` (Main owns it). Keys: `e` cursor/marked tracks, `E` all, `v` mark (album page).
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).
@@ -63,7 +68,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - `tests/ui/` — C++ tests that need the UI layer (models, cover provider), plus
   `fixturelibrary.h`: a small DB with real folder + embedded art, shared with the QML tests.
 - `tests/qml/` — Qt Quick Test, `tst_*.qml` files, picked up by `tst_qml` (its Setup builds
-  the fixture library). `tst_navigation.qml` drives the whole shell by keyboard (the M5b user
+  the fixture library). Only `Kid A/01.flac` exists on disk (real audio, tags = its DB row): tests that
+  edit its tags must put them back. `tst_navigation.qml` drives the whole shell by keyboard (the M5b user
   test path); `tst_keys.qml` covers the key → action table. `MMM_SCREENSHOT_DIR=/tmp/x ./build/debug/tests/tst_qml` saves a PNG
   per view: use it to *look* at UI changes.
 - App dev flags: `--database FILE`, `--no-scan`, and hidden `--screenshot FILE [--screenshot-delay MS]`.
@@ -138,6 +144,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - QML: `TestCase` is invisible by default; set `visible: true` or mouse events go nowhere.
   No translations are loaded, so don't use `qsTr("%n item(s)")` plural forms (prints "(s)").
   Ids are `int` in QML (row ids stay < 2^31).
+  `someQStringList.indexOf(x)` in QML compiles (qmlcachegen) to C++ that fails `-Wconversion`:
+  use `.includes(x)`.
 - Tests must never touch the user's real library: ctest sets `XDG_DATA_HOME`/`XDG_CACHE_HOME`
   to `build/*/test-home`, and the app smoke test uses `--database` + `--no-scan`.
 - SPDX header `GPL-3.0-or-later` on every source file.

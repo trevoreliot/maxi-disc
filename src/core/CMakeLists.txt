@@ -13,6 +13,7 @@ add_library(mmm_core STATIC
     playerengine.h playerengine.cpp
     tracktags.h
     tagreader.h tagreader.cpp
+    tagwriter.h tagwriter.cpp
     database.h database.cpp
     apppaths.h apppaths.cpp
     libraryscanner.h libraryscanner.cpp

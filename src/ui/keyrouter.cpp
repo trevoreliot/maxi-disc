@@ -24,6 +24,9 @@ constexpr std::array kTextBindings{
     TextBinding{u'/', KeyRouter::FocusSearch},
     TextBinding{u'q', KeyRouter::ToggleQueue},
     TextBinding{u' ', KeyRouter::PlayPause},
+    TextBinding{u'e', KeyRouter::EditTags},
+    TextBinding{u'E', KeyRouter::EditAllTags},
+    TextBinding{u'v', KeyRouter::ToggleMark},
 };
 
 // Keys matched on key code + exact modifiers, in a context: outside text fields, inside

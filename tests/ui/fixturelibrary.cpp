@@ -8,6 +8,7 @@
 #include <QSqlQuery>
 
 #include <taglib/fileref.h>
+#include <taglib/tpropertymap.h>
 
 #include "../core/testmedia.h"
 #include "database.h"
@@ -89,6 +90,17 @@ QString buildFixtureLibrary(const QString &dir)
         pic.insert("data", TagLib::ByteVector(bytes.constData(), static_cast<unsigned int>(bytes.size())));
         pic.insert("mimeType", TagLib::String("image/png"));
         pic.insert("pictureType", TagLib::String("Front Cover"));
+        // The same tags as its library entry below, so tag-editing tests can change one.
+        TagLib::PropertyMap props;
+        props.replace("TITLE", TagLib::String("Everything in Its Right Place"));
+        props.replace("ARTIST", TagLib::String("Radiohead"));
+        props.replace("ALBUM", TagLib::String("Kid A"));
+        props.replace("GENRE", TagLib::String("Rock"));
+        props.replace("DATE", TagLib::String("2000"));
+        props.replace("TRACKNUMBER", TagLib::String("1"));
+        props.replace("DISCNUMBER", TagLib::String("1"));
+        if (!ref.isNull())
+            ref.setProperties(props);
         if (ref.isNull() || !ref.setComplexProperties("PICTURE", {pic}) || !ref.save()) {
             qWarning("fixture: cannot embed art in %s", qPrintable(kidA));
             return {};

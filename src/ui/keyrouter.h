@@ -42,6 +42,9 @@ public:
         PlayPause,
         NextTrack,
         PreviousTrack,
+        EditTags,    // tag editor for the marked tracks, else the cursor track
+        EditAllTags, // ... for the marked tracks, else all listed tracks
+        ToggleMark,  // mark/unmark the cursor track (album page)
     };
     Q_ENUM(Action)
 
