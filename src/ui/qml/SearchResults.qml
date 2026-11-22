@@ -6,13 +6,38 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 // Tracks matching the search box, best match first.
+// Keyboard: moveSelection() / activateCurrent() (plays the results from that one).
 Pane {
     id: root
 
     property alias searchText: results.searchText
     readonly property alias count: results.count
+    readonly property alias currentIndex: list.currentIndex
+    property bool paneActive: false
+
+    signal interacted()
+
+    function moveSelection(delta: int) {
+        if (list.count === 0)
+            return;
+        list.currentIndex = Math.max(0, Math.min(list.count - 1, list.currentIndex + delta));
+        list.positionViewAtIndex(list.currentIndex, ListView.Contain);
+    }
+
+    function activateCurrent() {
+        if (list.currentIndex >= 0)
+            Playback.playFromModel(results, list.currentIndex);
+    }
 
     padding: 0
+    background: Rectangle {
+        color: Theme.bg
+    }
+    onSearchTextChanged: list.currentIndex = 0
+
+    FocusBar {
+        active: root.paneActive
+    }
 
     TrackListModel {
         id: results
@@ -30,11 +55,13 @@ Pane {
                 : results.count >= results.searchLimit ? qsTr("First %1 matches").arg(results.count)
                 : results.count === 1 ? qsTr("1 match")
                 : qsTr("%1 matches").arg(results.count)
-            opacity: 0.7
+            font.pixelSize: Theme.fontSmall
+            color: Theme.textMuted
         }
 
         ListView {
             id: list
+            objectName: "resultList"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -42,7 +69,7 @@ Pane {
             model: results
             ScrollBar.vertical: ScrollBar {}
 
-            delegate: ItemDelegate {
+            delegate: NavRow {
                 id: row
 
                 required property int index
@@ -55,8 +82,12 @@ Pane {
                 readonly property bool playingNow: trackId === Playback.currentTrackId
 
                 width: list.width
-                leftPadding: 16
-                rightPadding: 16
+                current: ListView.isCurrentItem
+                paneActive: root.paneActive
+                onClicked: {
+                    list.currentIndex = index;
+                    root.interacted();
+                }
                 // Plays the results from here, so "next" continues through them.
                 onDoubleClicked: Playback.playFromModel(results, index)
 
@@ -68,6 +99,7 @@ Pane {
                         Layout.preferredWidth: 4
                         text: (row.playingNow ? "▶ " : "") + row.title
                         font.bold: row.playingNow
+                        color: row.playingNow ? Theme.accent : Theme.textPrimary
                         elide: Text.ElideRight
                     }
                     Label {
@@ -75,19 +107,19 @@ Pane {
                         Layout.preferredWidth: 3
                         text: row.artist
                         elide: Text.ElideRight
-                        opacity: 0.8
+                        color: Theme.textSecondary
                     }
                     Label {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 3
                         text: row.album
                         elide: Text.ElideRight
-                        opacity: 0.6
+                        color: Theme.textMuted
                     }
                     Label {
                         text: row.duration
-                        opacity: 0.6
-                        font.features: { "tnum": 1 }
+                        font.family: Theme.fontMono
+                        color: Theme.textMuted
                     }
                 }
             }

@@ -36,8 +36,8 @@ TestCase {
         }
     }
     Component {
-        id: sidebarComp
-        Sidebar {
+        id: browseComp
+        BrowsePane {
             width: 260
             height: 600
         }
@@ -82,11 +82,12 @@ TestCase {
         shot(grid, "album-grid");
     }
 
-    function test_sidebarFiltersGrid() {
-        const sidebar = createTemporaryObject(sidebarComp, tc);
-        const artists = findChild(sidebar, "artistList");
+    function test_browsePaneFiltersGrid() {
+        const browse = createTemporaryObject(browseComp, tc);
+        const artists = findChild(browse, "artistList");
         verify(artists !== null);
         tryCompare(artists, "count", 4);
+        compare(artists.currentIndex, -1); // "All artists"
 
         let radiohead = null;
         for (let i = 0; i < artists.count; ++i) {
@@ -96,16 +97,42 @@ TestCase {
         }
         verify(radiohead !== null);
 
-        spy.target = sidebar;
-        spy.signalName = "artistSelected";
+        spy.target = browse;
+        spy.signalName = "selected";
         spy.clear();
         mouseClick(radiohead);
         compare(spy.count, 1);
-        compare(spy.signalArguments[0][1], "Radiohead");
+        compare(spy.signalArguments[0][0], BrowsePane.Artists);
+        const entry = spy.signalArguments[0][1];
+        compare(entry.name, "Radiohead");
+        shot(browse, "browse-pane");
+
+        // Keyboard: moving selects after a short pause; "All" sits above the first row.
+        spy.clear();
+        browse.moveSelection(-1);
+        compare(artists.currentIndex, 1);
+        tryCompare(spy, "count", 1);
+        compare(spy.signalArguments[0][1].name, "Pink Floyd");
+        browse.moveSelection(-5);
+        compare(artists.currentIndex, -1);
+        browse.commit();
+        compare(spy.signalArguments[spy.count - 1][1], null);
+
+        // Other modes: albums have no "All" row.
+        spy.clear();
+        browse.setMode(BrowsePane.Albums);
+        const albums = findChild(browse, "albumList");
+        tryCompare(albums, "count", 5);
+        browse.moveSelection(1);
+        browse.commit();
+        compare(spy.signalArguments[spy.count - 1][0], BrowsePane.Albums);
+        compare(spy.signalArguments[spy.count - 1][1].title, "Abbey Road");
+        browse.moveSelection(-1);
+        compare(albums.currentIndex, 0);
 
         const grid = createTemporaryObject(gridComp, tc);
         tryCompare(grid, "count", 5);
-        grid.artistId = spy.signalArguments[0][0];
+        grid.artistId = entry.artistId;
         tryCompare(grid, "count", 2);
         tryCompare(grid, "loading", false);
         compare(grid.itemAtIndex(0).title, "OK Computer"); // chronological within an artist
@@ -164,20 +191,36 @@ TestCase {
         verify(win !== null);
         verify(win.hasLibrary);
         tryCompare(Library, "trackCount", 12);
-        shot(win.contentItem, "main-grid");
+        compare(win.currentScreen, Main.MenuScreen);
+        shot(win.contentItem, "main-menu");
+
+        win.showScreen(Main.LibraryScreen);
+        tryCompare(win.libraryView.grid, "count", 5);
+        shot(win.contentItem, "library-grid");
 
         const search = findChild(win, "searchField"); // lives in the header, not contentItem
         verify(search !== null);
         search.text = "abbey";
         verify(win.searching);
-        wait(400);
-        shot(win.contentItem, "main-search");
+        tryCompare(win.libraryView.searchResults, "count", 2); // Abbey Road's two tracks
+        shot(win.contentItem, "library-search");
         search.text = "";
         verify(!win.searching);
 
-        win.openAlbum(1, "Some Album", "Someone", 2001, "");
-        compare(win.albumId, 1);
-        win.closeAlbum();
-        compare(win.albumId, 0);
+        const grid = win.libraryView.grid;
+        win.libraryView.openAlbum(albumIdOf(grid, "OK Computer"), "OK Computer", "Radiohead", 1997,
+                                  coverOf(grid, "OK Computer"), true);
+        compare(win.libraryView.content, LibraryView.Album);
+        tryCompare(win.libraryView.albumPage, "trackCount", 3);
+        shot(win.contentItem, "library-album");
+        verify(win.libraryView.back());
+        compare(win.libraryView.albumId, 0);
+
+        win.showScreen(Main.ExportScreen);
+        shot(win.contentItem, "export");
+
+        win.toggleQueue();
+        verify(win.queueOpen);
+        shot(win.contentItem, "export-queue");
     }
 }

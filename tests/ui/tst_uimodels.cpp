@@ -110,6 +110,13 @@ private Q_SLOTS:
                                                   QStringLiteral("Radiohead"), QStringLiteral("Various Artists")}));
         QCOMPARE(m->count(), 4);
         QCOMPARE(m->data(m->index(2, 0), m->roleNames().key("albumCount")).toInt(), 2);
+
+        const QVariantMap row = m->get(2);
+        QCOMPARE(row.value(QStringLiteral("name")).toString(), QStringLiteral("Radiohead"));
+        QCOMPARE(row.value(QStringLiteral("albumCount")).toInt(), 2);
+        QVERIFY(row.value(QStringLiteral("artistId")).toInt() > 0);
+        QVERIFY(m->get(-1).isEmpty());
+        QVERIFY(m->get(4).isEmpty());
     }
 
     void genres()

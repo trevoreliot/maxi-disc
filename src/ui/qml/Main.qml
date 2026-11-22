@@ -6,139 +6,179 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
+// App shell (docs/ui-draft): header, one of three screens (main menu, library, export),
+// the queue docked on the right, and the transport bar at the bottom.
+//
+// Keyboard: KeyRouter (C++) turns key presses into actions; handleAction() sends global
+// ones (search, queue, play/pause, Esc) here and movement to whichever pane has focus:
+// the queue if `queueFocused`, otherwise the current screen. Each screen tracks its own
+// panes and returns false from handleAction() when "move right" runs off its right edge.
 ApplicationWindow {
     id: root
 
-    width: 1280
-    height: 800
-    visible: true
-    title: Playback.hasTrack ? Playback.title + " — " + AppBridge.displayName : AppBridge.displayName
+    enum Screen { MenuScreen, LibraryScreen, ExportScreen }
 
-    // Browse state.
-    property int artistId: 0
-    property int genreId: 0
-    property string filterLabel: ""
-    // Open album (0 = none).
-    property int albumId: 0
-    property string albumTitle
-    property string albumArtist
-    property int albumYear: 0
-    property string albumCoverUrl
-    // Open playlist (0 = none).
-    property int playlistId: 0
-    property string playlistName
-    property int playlistItemCount: 0
+    property int currentScreen: Main.MenuScreen
+    property bool queueOpen: false
+    property bool queueFocused: false
 
     readonly property bool hasLibrary: Library.folders.length > 0
-    readonly property bool searching: searchField.text.trim() !== ""
+    readonly property bool searching: topChrome.searchText.trim() !== ""
+    readonly property alias libraryView: libraryScreen
+    readonly property alias mainMenu: menuScreen
+    readonly property alias exportView: exportScreen
+    readonly property alias queuePanel: queueDock
+    readonly property alias chrome: topChrome
 
-    function openAlbum(id: int, title: string, artist: string, year: int, coverUrl: string) {
-        playlistId = 0;
-        albumId = id;
-        albumTitle = title;
-        albumArtist = artist;
-        albumYear = year;
-        albumCoverUrl = coverUrl;
+    width: 1280
+    height: 800
+    minimumWidth: 900
+    minimumHeight: 600
+    visible: true
+    color: Theme.bg
+    // Fusion takes its colours from the window palette (not the application palette);
+    // every control and popup in the window inherits this.
+    palette {
+        window: Theme.bg
+        windowText: Theme.textPrimary
+        base: Theme.surfaceInset
+        alternateBase: Theme.surface
+        text: Theme.textPrimary
+        placeholderText: Theme.textMuted
+        button: Theme.surfaceElevated
+        buttonText: Theme.textPrimary
+        brightText: Theme.focusRing
+        highlight: Theme.accent
+        highlightedText: Theme.onAccent
+        link: Theme.accent
+        light: Theme.borderStrong
+        midlight: Theme.border
+        mid: Theme.border
+        dark: Theme.surfaceInset
+        shadow: "black"
+        toolTipBase: Theme.surfaceElevated
+        toolTipText: Theme.textPrimary
+        disabled.windowText: Theme.textMuted
+        disabled.text: Theme.textMuted
+        disabled.buttonText: Theme.textMuted
+        disabled.button: Theme.surface
+    }
+    title: Playback.hasTrack ? Playback.title + " — " + AppBridge.displayName : AppBridge.displayName
+
+    function showScreen(s: int) {
+        currentScreen = s;
+        queueFocused = false;
     }
 
-    function closeAlbum() {
-        albumId = 0;
+    function toggleQueue() {
+        queueOpen = !queueOpen;
+        queueFocused = queueOpen;
     }
 
-    function openPlaylist(id: int, name: string, itemCount: int) {
-        albumId = 0;
-        playlistId = id;
-        playlistName = name;
-        playlistItemCount = itemCount;
-        searchField.text = "";
+    // A click in a pane gives it the keyboard (and takes it from the search field).
+    function paneClicked(queue: bool) {
+        queueFocused = queue;
+        if (topChrome.searchHasFocus)
+            root.contentItem.forceActiveFocus();
     }
 
-    header: ToolBar {
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: 8
-            anchors.rightMargin: 8
-            spacing: 8
+    // Takes keyboard focus out of the search field (results stay up).
+    function leaveSearchField() {
+        root.contentItem.forceActiveFocus();
+        if (searching) {
+            showScreen(Main.LibraryScreen);
+            libraryScreen.focusedPane = LibraryView.Content;
+        }
+    }
 
-            ToolButton {
-                text: "☰"
-                onClicked: appMenu.open()
+    // Esc, innermost first. Never quits.
+    function goBack() {
+        if (queueOpen && queueFocused) {
+            queueOpen = false;
+            queueFocused = false;
+        } else if (currentScreen === Main.LibraryScreen && searching) {
+            topChrome.clearSearch();
+        } else if (currentScreen === Main.LibraryScreen && libraryScreen.back()) {
+            // handled inside the library
+        } else if (currentScreen !== Main.MenuScreen) {
+            showScreen(Main.MenuScreen);
+        }
+    }
 
-                Menu {
-                    id: appMenu
-                    y: parent.height
+    function handleAction(action: int) {
+        switch (action) {
+        case KeyRouter.FocusSearch:
+            if (hasLibrary)
+                topChrome.focusSearch();
+            return;
+        case KeyRouter.LeaveTextInput:
+            leaveSearchField();
+            return;
+        case KeyRouter.PlayPause:
+            Playback.playPause();
+            return;
+        case KeyRouter.NextTrack:
+            Playback.next();
+            return;
+        case KeyRouter.PreviousTrack:
+            Playback.previous();
+            return;
+        case KeyRouter.ToggleQueue:
+            toggleQueue();
+            return;
+        case KeyRouter.Back:
+            goBack();
+            return;
+        }
 
-                    MenuItem {
-                        text: qsTr("Add music folder…")
-                        onTriggered: folderDialog.open()
-                    }
-                    MenuItem {
-                        text: qsTr("Rescan library")
-                        enabled: root.hasLibrary
-                        onTriggered: Library.rescan()
-                    }
-                    MenuSeparator {}
-                    Menu {
-                        title: qsTr("ReplayGain")
+        if (queueFocused) {
+            if (action === KeyRouter.MoveLeft)
+                queueFocused = false;
+            else
+                queueDock.handleAction(action);
+            return;
+        }
+        let handled = false;
+        if (currentScreen === Main.MenuScreen)
+            handled = menuScreen.handleAction(action);
+        else if (currentScreen === Main.LibraryScreen)
+            handled = libraryScreen.handleAction(action);
+        else
+            handled = exportScreen.handleAction(action);
+        if (!handled && action === KeyRouter.MoveRight && queueOpen)
+            queueFocused = true;
+    }
 
-                        MenuItem {
-                            text: qsTr("Album (keeps an album's dynamics)")
-                            checkable: true
-                            checked: Playback.replayGainMode === 2
-                            onTriggered: Playback.replayGainMode = 2
-                        }
-                        MenuItem {
-                            text: qsTr("Track")
-                            checkable: true
-                            checked: Playback.replayGainMode === 1
-                            onTriggered: Playback.replayGainMode = 1
-                        }
-                        MenuItem {
-                            text: qsTr("Off")
-                            checkable: true
-                            checked: Playback.replayGainMode === 0
-                            onTriggered: Playback.replayGainMode = 0
-                        }
-                    }
-                }
+    KeyRouter {
+        id: keys
+        window: root
+        onTriggered: (action) => root.handleAction(action)
+    }
+
+    header: TopChrome {
+        id: topChrome
+        title: root.currentScreen === Main.MenuScreen ? qsTr("Main Menu")
+             : root.currentScreen === Main.LibraryScreen ? qsTr("1  Music Library") : qsTr("2  Export")
+        showBack: root.currentScreen !== Main.MenuScreen
+        queueOpen: root.queueOpen
+        searchEnabled: root.hasLibrary
+        onBackRequested: root.showScreen(Main.MenuScreen)
+        onQueueToggled: root.toggleQueue()
+        onAddFolderRequested: folderDialog.open()
+        onSearchAccepted: {
+            root.leaveSearchField();
+            libraryScreen.searchResults.moveSelection(0);
+        }
+        // Typing a search from another screen shows the library (where results appear).
+        onSearchTextChanged: {
+            if (searchText.trim() === "") {
+                searchDebounce.stop();
+                libraryScreen.searchText = ""; // clearing is instant
+            } else {
+                searchDebounce.restart();
             }
-
-            TextField {
-                id: searchField
-                objectName: "searchField"
-                Layout.preferredWidth: 360
-                placeholderText: qsTr("Search title, artist, album, genre…  (Ctrl+F)")
-                enabled: root.hasLibrary
-                selectByMouse: true
-                Keys.onEscapePressed: text = ""
-                onTextChanged: searchDebounce.restart()
-            }
-
-            Label {
-                visible: root.filterLabel !== "" && !root.searching && root.playlistId === 0
-                text: root.filterLabel
-                font.bold: true
-                elide: Text.ElideRight
-                Layout.maximumWidth: 300
-            }
-
-            Item {
-                Layout.fillWidth: true
-            }
-
-            BusyIndicator {
-                Layout.preferredWidth: 24
-                Layout.preferredHeight: 24
-                running: Library.scanning
-                visible: running
-            }
-            Label {
-                opacity: 0.7
-                text: Library.scanning
-                    ? (Library.scanTotal > 0 ? qsTr("Scanning %1 / %2").arg(Library.scanProcessed).arg(Library.scanTotal)
-                                             : qsTr("Checking for changes…"))
-                    : qsTr("%1 tracks · %2 albums").arg(Library.trackCount).arg(Library.albumCount)
-            }
+            if (searchText.trim() !== "" && root.currentScreen !== Main.LibraryScreen)
+                root.showScreen(Main.LibraryScreen);
         }
     }
 
@@ -149,6 +189,9 @@ ApplicationWindow {
             Layout.fillWidth: true
             visible: Library.errorString !== ""
             padding: 6
+            background: Rectangle {
+                color: Theme.errorBg
+            }
 
             RowLayout {
                 anchors.fill: parent
@@ -157,10 +200,11 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: Library.errorString
                     elide: Text.ElideRight
-                    color: "#d9534f"
+                    color: Theme.errorText
                 }
                 ToolButton {
                     text: "✕"
+                    focusPolicy: Qt.NoFocus
                     onClicked: Library.clearError()
                 }
             }
@@ -171,10 +215,14 @@ ApplicationWindow {
             Layout.fillWidth: true
             visible: false
             padding: 6
+            background: Rectangle {
+                color: Theme.infoBg
+            }
 
             Label {
                 text: Library.statusMessage
                 elide: Text.ElideRight
+                color: Theme.infoText
             }
 
             Connections {
@@ -191,8 +239,7 @@ ApplicationWindow {
             }
         }
 
-        NowPlayingBar {
-            id: nowPlaying
+        TransportBar {
             Layout.fillWidth: true
         }
     }
@@ -200,7 +247,7 @@ ApplicationWindow {
     Timer {
         id: searchDebounce
         interval: 150
-        onTriggered: searchResults.searchText = searchField.text.trim()
+        onTriggered: libraryScreen.searchText = topChrome.searchText.trim()
     }
 
     FolderDialog {
@@ -209,114 +256,48 @@ ApplicationWindow {
         onAccepted: Library.addFolder(selectedFolder)
     }
 
-    Shortcut {
-        sequences: [StandardKey.Find]
-        onActivated: searchField.forceActiveFocus()
-    }
-    Shortcut {
-        sequence: "Escape"
-        enabled: !root.searching && (root.albumId !== 0 || root.playlistId !== 0)
-        onActivated: {
-            root.albumId = 0;
-            root.playlistId = 0;
-        }
-    }
-    // Playback keys, disabled while typing so they don't eat spaces/arrows.
-    Shortcut {
-        sequence: "Space"
-        enabled: !searchField.activeFocus
-        onActivated: Playback.playPause()
-    }
-    Shortcut {
-        sequence: "Ctrl+Right"
-        enabled: !searchField.activeFocus
-        onActivated: Playback.next()
-    }
-    Shortcut {
-        sequence: "Ctrl+Left"
-        enabled: !searchField.activeFocus
-        onActivated: Playback.previous()
-    }
-
-    EmptyLibrary {
+    RowLayout {
         anchors.fill: parent
-        visible: !root.hasLibrary
-        onAddFolderRequested: folderDialog.open()
-    }
+        spacing: 0
 
-    SplitView {
-        anchors.fill: parent
-        visible: root.hasLibrary
+        StackLayout {
+            id: screens
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            currentIndex: root.currentScreen
 
-        Sidebar {
-            SplitView.preferredWidth: 260
-            SplitView.minimumWidth: 160
-            artistId: root.artistId
-            genreId: root.genreId
-            playlistId: root.playlistId
+            readonly property bool screenActive: !root.queueFocused && !topChrome.searchHasFocus
 
-            onArtistSelected: (id, name) => {
-                root.artistId = id;
-                root.genreId = 0;
-                root.filterLabel = name;
-                root.albumId = 0;
-                root.playlistId = 0;
-                searchField.text = "";
-            }
-            onGenreSelected: (id, name) => {
-                root.genreId = id;
-                root.artistId = 0;
-                root.filterLabel = name;
-                root.albumId = 0;
-                root.playlistId = 0;
-                searchField.text = "";
-            }
-            onPlaylistSelected: (id, name, itemCount) => root.openPlaylist(id, name, itemCount)
-        }
-
-        Item {
-            SplitView.fillWidth: true
-
-            AlbumGrid {
-                anchors.fill: parent
-                anchors.margins: 8
-                visible: !root.searching && root.albumId === 0 && root.playlistId === 0
-                artistId: root.artistId
-                genreId: root.genreId
-                onAlbumActivated: (id, title, artist, year, coverUrl) => root.openAlbum(id, title, artist, year, coverUrl)
+            MainMenuView {
+                id: menuScreen
+                active: screens.screenActive && root.currentScreen === Main.MenuScreen
+                onTileActivated: (index) => {
+                    root.paneClicked(false);
+                    root.showScreen(index === 0 ? Main.LibraryScreen : Main.ExportScreen);
+                }
             }
 
-            AlbumPage {
-                anchors.fill: parent
-                visible: !root.searching && root.albumId !== 0
-                albumId: root.albumId
-                albumTitle: root.albumTitle
-                albumArtist: root.albumArtist
-                year: root.albumYear
-                coverUrl: root.albumCoverUrl
-                onBack: root.closeAlbum()
+            LibraryView {
+                id: libraryScreen
+                active: screens.screenActive && root.currentScreen === Main.LibraryScreen
+                onAddFolderRequested: folderDialog.open()
+                onInteracted: root.paneClicked(false)
             }
 
-            PlaylistPage {
-                anchors.fill: parent
-                visible: !root.searching && root.playlistId !== 0
-                playlistId: root.playlistId
-                playlistName: root.playlistName
-                itemCount: root.playlistItemCount
-                onClosed: root.playlistId = 0
-            }
-
-            SearchResults {
-                id: searchResults
-                anchors.fill: parent
-                visible: root.searching
+            ExportView {
+                id: exportScreen
+                active: screens.screenActive && root.currentScreen === Main.ExportScreen
+                onInteracted: root.paneClicked(false)
             }
         }
 
         QueuePanel {
-            visible: nowPlaying.queueVisible
-            SplitView.preferredWidth: 340
-            SplitView.minimumWidth: 220
+            id: queueDock
+            Layout.preferredWidth: 320
+            Layout.fillHeight: true
+            visible: root.queueOpen
+            paneActive: root.queueFocused
+            onInteracted: root.paneClicked(true)
         }
     }
 }

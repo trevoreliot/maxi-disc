@@ -7,18 +7,41 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 
 // One playlist: play, export, rename, delete; its tracks (entries not in the library
-// are skipped and counted).
+// are skipped and counted). Keyboard: moveSelection() / activateCurrent().
 Pane {
     id: root
 
     property int playlistId: 0
     property string playlistName
     property int itemCount: 0
+    property bool paneActive: false
     readonly property alias trackCount: tracks.count
+    readonly property alias currentIndex: list.currentIndex
 
     signal closed()
+    signal interacted()
+
+    function moveSelection(delta: int) {
+        if (list.count === 0)
+            return;
+        list.currentIndex = Math.max(0, Math.min(list.count - 1, list.currentIndex + delta));
+        list.positionViewAtIndex(list.currentIndex, ListView.Contain);
+    }
+
+    function activateCurrent() {
+        if (list.currentIndex >= 0)
+            Playback.playFromModel(tracks, list.currentIndex);
+    }
 
     padding: 0
+    background: Rectangle {
+        color: Theme.bg
+    }
+    onPlaylistIdChanged: list.currentIndex = 0
+
+    FocusBar {
+        active: root.paneActive
+    }
 
     TrackListModel {
         id: tracks
@@ -47,6 +70,7 @@ Pane {
         id: confirmDelete
         title: qsTr("Delete “%1”?").arg(root.playlistName)
         modal: true
+        focus: true // keys go to the dialog, not the KeyRouter
         anchors.centerIn: Overlay.overlay
         standardButtons: Dialog.Yes | Dialog.No
         Label {
@@ -70,7 +94,7 @@ Pane {
             Label {
                 Layout.fillWidth: true
                 text: root.playlistName
-                font.pixelSize: 26
+                font.pixelSize: Theme.fontDisplay
                 font.bold: true
                 elide: Text.ElideRight
             }
@@ -83,27 +107,32 @@ Pane {
                         parts.push(qsTr("%1 not in library").arg(missing));
                     return parts.join(" · ");
                 }
-                opacity: 0.7
+                font.pixelSize: Theme.fontSmall
+                color: Theme.textMuted
             }
             RowLayout {
                 spacing: 8
 
                 Button {
+                    focusPolicy: Qt.NoFocus
                     text: qsTr("▶ Play")
                     highlighted: true
                     enabled: tracks.count > 0
                     onClicked: Playback.playFromModel(tracks, 0)
                 }
                 Button {
+                    focusPolicy: Qt.NoFocus
                     text: qsTr("Add to queue")
                     enabled: tracks.count > 0
                     onClicked: Playback.enqueueFromModel(tracks, false)
                 }
                 Button {
+                    focusPolicy: Qt.NoFocus
                     text: qsTr("Export…")
                     onClicked: exportDialog.open()
                 }
                 Button {
+                    focusPolicy: Qt.NoFocus
                     text: qsTr("Rename…")
                     onClicked: {
                         renamePrompt.text = root.playlistName;
@@ -111,14 +140,22 @@ Pane {
                     }
                 }
                 Button {
+                    focusPolicy: Qt.NoFocus
                     text: qsTr("Delete")
                     onClicked: confirmDelete.open()
                 }
             }
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: Theme.borderSubtle
+        }
+
         ListView {
             id: list
+            objectName: "trackList"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -126,7 +163,7 @@ Pane {
             model: tracks
             ScrollBar.vertical: ScrollBar {}
 
-            delegate: ItemDelegate {
+            delegate: NavRow {
                 id: row
 
                 required property int index
@@ -139,8 +176,12 @@ Pane {
                 readonly property bool playingNow: trackId === Playback.currentTrackId
 
                 width: list.width
-                leftPadding: 16
-                rightPadding: 16
+                current: ListView.isCurrentItem
+                paneActive: root.paneActive
+                onClicked: {
+                    list.currentIndex = index;
+                    root.interacted();
+                }
                 onDoubleClicked: Playback.playFromModel(tracks, index)
 
                 contentItem: RowLayout {
@@ -150,13 +191,15 @@ Pane {
                         Layout.preferredWidth: 28
                         horizontalAlignment: Text.AlignRight
                         text: row.playingNow ? "▶" : row.index + 1
-                        opacity: 0.6
+                        font.family: Theme.fontMono
+                        color: row.playingNow ? Theme.accent : Theme.textMuted
                     }
                     Label {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 4
                         text: row.title
                         font.bold: row.playingNow
+                        color: row.playingNow ? Theme.accent : Theme.textPrimary
                         elide: Text.ElideRight
                     }
                     Label {
@@ -164,19 +207,19 @@ Pane {
                         Layout.preferredWidth: 3
                         text: row.artist
                         elide: Text.ElideRight
-                        opacity: 0.8
+                        color: Theme.textSecondary
                     }
                     Label {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 3
                         text: row.album
                         elide: Text.ElideRight
-                        opacity: 0.6
+                        color: Theme.textMuted
                     }
                     Label {
                         text: row.duration
-                        opacity: 0.6
-                        font.features: { "tnum": 1 }
+                        font.family: Theme.fontMono
+                        color: Theme.textMuted
                     }
                 }
             }

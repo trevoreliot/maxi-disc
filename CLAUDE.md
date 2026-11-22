@@ -38,6 +38,19 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   - Read-side SQL lives in core `LibraryQuery` (tested headless, incl. a 100k-track timing test).
   - `Playback` (QML singleton): wraps core `PlaybackController` + owns `MprisService`; persists
     volume/repeat/ReplayGain in QSettings. Construct before the engine, like `Library`.
+  - Shell (M5b, after the drawings in `docs/ui-draft/`, local only): `Main.qml` = `TopChrome` header, a `StackLayout` of
+    screens (`MainMenuView`, `LibraryView`, `ExportView`), `QueuePanel` docked right, `TransportBar`
+    footer. Screens stay alive, so their state (browse selection, open album) survives switching.
+  - Keyboard: `KeyRouter` (C++, keyrouter.cpp) is the **one** place keys are bound; it filters the
+    window's key events into actions. `Main.handleAction()` handles global ones and forwards
+    movement to the queue (if `queueFocused`) or the current screen's `handleAction()`, which tracks
+    its own panes and returns false when "move right" runs off its edge. Views expose
+    `moveSelection()` / `activateCurrent()` / `paneActive`; list rows use `NavRow`, panes `FocusBar`.
+    Don't add QML `Shortcut`s or `Keys` handlers for navigation: add a binding + action instead.
+    **Popups must take focus (`focus: true`)**, or the router keeps handling keys (incl. Esc) under them.
+  - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
+    Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
+    standalone components in tests render with default colours (only `Main` screenshots are themed).
 - `src/app/` — `main.cpp` only: app setup and loads `MusicMdManager/Main`.
 - `tools/mmm-play/` — terminal player on `mmm::Player` (manual testing / debugging):
   `./build/debug/tools/mmm-play/mmm-play FILE...` (space, ←/→, +/-, n/p, q).
@@ -50,7 +63,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - `tests/ui/` — C++ tests that need the UI layer (models, cover provider), plus
   `fixturelibrary.h`: a small DB with real folder + embedded art, shared with the QML tests.
 - `tests/qml/` — Qt Quick Test, `tst_*.qml` files, picked up by `tst_qml` (its Setup builds
-  the fixture library). `MMM_SCREENSHOT_DIR=/tmp/x ./build/debug/tests/tst_qml` saves a PNG
+  the fixture library). `tst_navigation.qml` drives the whole shell by keyboard (the M5b user
+  test path); `tst_keys.qml` covers the key → action table. `MMM_SCREENSHOT_DIR=/tmp/x ./build/debug/tests/tst_qml` saves a PNG
   per view: use it to *look* at UI changes.
 - App dev flags: `--database FILE`, `--no-scan`, and hidden `--screenshot FILE [--screenshot-delay MS]`.
 - `tools/dev/catch-stall.sh BINARY [FUNCS]` — reruns a test 3-at-a-time and dumps all thread

@@ -5,7 +5,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// One album: cover, details and its tracks (grouped by disc when there's more than one).
+// One album (docs/ui-draft/music-library.jpeg): title with small cover art beside it,
+// tracks below (grouped by disc when there's more than one), and a faded watermark of the
+// cover behind them. Keyboard: moveSelection() / activateCurrent() (plays from that track).
 Pane {
     id: root
 
@@ -14,20 +16,74 @@ Pane {
     property string albumArtist
     property int year: 0
     property string coverUrl
+    property bool showBack: false // "‹ Albums" (opened from the album grid)
+    property bool paneActive: false
 
     readonly property alias trackCount: tracks.count
     readonly property alias tracksModel: tracks
+    readonly property alias currentIndex: list.currentIndex
+    readonly property bool multiDisc: tracks.discCount > 1
 
     signal back()
+    signal interacted()
+
+    function moveSelection(delta: int) {
+        if (list.count === 0)
+            return;
+        list.currentIndex = Math.max(0, Math.min(list.count - 1, list.currentIndex + delta));
+        list.positionViewAtIndex(list.currentIndex, ListView.Contain);
+    }
+
+    function activateCurrent() {
+        if (list.currentIndex >= 0)
+            Playback.playFromModel(tracks, list.currentIndex);
+    }
 
     padding: 0
+    background: Rectangle {
+        color: Theme.bg
+    }
 
     TrackListModel {
         id: tracks
         albumId: root.albumId
     }
+    // A new album starts with the cursor on its first track.
+    onAlbumIdChanged: list.currentIndex = 0
 
-    readonly property bool multiDisc: tracks.discCount > 1
+    // Watermark: the cover, large and faint, on the right; fades out towards the left.
+    Item {
+        anchors.fill: parent
+        clip: true
+
+        CoverArt {
+            id: watermark
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.max(parent.width * 0.68, parent.height)
+            height: width
+            source: root.coverUrl
+            requestSize: 512
+            showPlaceholder: false
+            opacity: Theme.watermarkOpacity
+        }
+        Rectangle {
+            anchors.left: watermark.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: watermark.width * 0.45
+            visible: watermark.ready
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: Theme.bg }
+                GradientStop { position: 1.0; color: "transparent" }
+            }
+        }
+    }
+
+    FocusBar {
+        active: root.paneActive
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -35,37 +91,34 @@ Pane {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.margins: 16
-            spacing: 20
-
-            CoverArt {
-                Layout.preferredWidth: 200
-                Layout.preferredHeight: 200
-                Layout.alignment: Qt.AlignTop
-                source: root.coverUrl
-            }
+            Layout.margins: Theme.spaceLG
+            spacing: Theme.spaceLG
 
             ColumnLayout {
-                Layout.fillWidth: true
                 Layout.alignment: Qt.AlignTop
-                spacing: 6
+                Layout.maximumWidth: root.width - 88 - 3 * Theme.spaceLG
+                spacing: Theme.spaceXS
 
                 Button {
+                    visible: root.showBack
                     text: qsTr("‹ Albums")
                     flat: true
+                    focusPolicy: Qt.NoFocus
                     onClicked: root.back()
                 }
                 Label {
+                    objectName: "albumTitle"
                     Layout.fillWidth: true
                     text: root.albumTitle
-                    font.pixelSize: 26
+                    font.pixelSize: Theme.fontDisplay
                     font.bold: true
-                    wrapMode: Text.Wrap
+                    elide: Text.ElideRight
                 }
                 Label {
                     Layout.fillWidth: true
                     text: root.albumArtist
-                    font.pixelSize: 18
+                    font.pixelSize: Theme.fontHeading
+                    color: Theme.textSecondary
                     elide: Text.ElideRight
                 }
                 Label {
@@ -78,34 +131,58 @@ Pane {
                             parts.push(AppBridge.formatDuration(tracks.totalDurationMs));
                         return parts.join(" · ");
                     }
-                    opacity: 0.7
+                    font.pixelSize: Theme.fontSmall
+                    color: Theme.textMuted
                 }
                 RowLayout {
-                    spacing: 8
+                    Layout.topMargin: Theme.spaceXS
+                    spacing: Theme.spaceSM
 
                     Button {
                         objectName: "playAlbumButton"
                         text: qsTr("▶ Play")
                         highlighted: true
+                        focusPolicy: Qt.NoFocus
                         enabled: tracks.count > 0
                         onClicked: Playback.playFromModel(tracks, 0)
                     }
                     Button {
-                        text: qsTr("Add to queue")
-                        enabled: tracks.count > 0
-                        onClicked: Playback.enqueueFromModel(tracks, false)
-                    }
-                    Button {
                         text: qsTr("Play next")
+                        focusPolicy: Qt.NoFocus
                         enabled: tracks.count > 0
                         onClicked: Playback.enqueueFromModel(tracks, true)
                     }
+                    Button {
+                        text: qsTr("Add to queue")
+                        focusPolicy: Qt.NoFocus
+                        enabled: tracks.count > 0
+                        onClicked: Playback.enqueueFromModel(tracks, false)
+                    }
                 }
             }
+
+            CoverArt {
+                Layout.preferredWidth: 88
+                Layout.preferredHeight: 88
+                Layout.alignment: Qt.AlignTop
+                source: root.coverUrl
+                requestSize: 256
+            }
+
+            Item {
+                Layout.fillWidth: true
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: Theme.borderSubtle
         }
 
         ListView {
             id: list
+            objectName: "trackList"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -117,15 +194,15 @@ Pane {
             section.delegate: Label {
                 required property string section
                 width: list.width
-                leftPadding: 16
-                topPadding: 12
-                bottomPadding: 4
+                leftPadding: Theme.spaceLG
+                topPadding: Theme.spaceMD
+                bottomPadding: Theme.spaceXS
                 text: qsTr("Disc %1").arg(section)
                 font.bold: true
-                opacity: 0.8
+                color: Theme.textSecondary
             }
 
-            delegate: ItemDelegate {
+            delegate: NavRow {
                 id: row
 
                 required property int index
@@ -138,23 +215,30 @@ Pane {
                 readonly property bool playingNow: trackId === Playback.currentTrackId
 
                 width: list.width
-                leftPadding: 16
-                rightPadding: 16
+                height: 36
+                current: ListView.isCurrentItem
+                paneActive: root.paneActive
+                onClicked: {
+                    list.currentIndex = index;
+                    root.interacted();
+                }
                 onDoubleClicked: Playback.playFromModel(tracks, index)
 
                 contentItem: RowLayout {
-                    spacing: 12
+                    spacing: Theme.spaceMD
 
                     Label {
-                        Layout.preferredWidth: 28
+                        Layout.preferredWidth: 32
                         horizontalAlignment: Text.AlignRight
                         text: row.playingNow ? "▶" : (row.trackNumber > 0 ? row.trackNumber : "")
-                        opacity: 0.6
+                        font.family: Theme.fontMono
+                        color: row.playingNow ? Theme.accent : Theme.textMuted
                     }
                     Label {
                         Layout.fillWidth: true
                         text: row.title
                         font.bold: row.playingNow
+                        color: row.playingNow ? Theme.accent : Theme.textPrimary
                         elide: Text.ElideRight
                     }
                     Label {
@@ -163,12 +247,14 @@ Pane {
                         visible: row.artist !== "" && row.artist !== root.albumArtist
                         text: row.artist
                         elide: Text.ElideRight
-                        opacity: 0.7
+                        color: Theme.textSecondary
                     }
                     Label {
+                        Layout.preferredWidth: 56
+                        horizontalAlignment: Text.AlignRight
                         text: row.duration
-                        opacity: 0.6
-                        font.features: { "tnum": 1 }
+                        font.family: Theme.fontMono
+                        color: Theme.textMuted
                     }
                 }
             }

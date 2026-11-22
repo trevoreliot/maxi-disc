@@ -21,3 +21,6 @@ secrets.*
 
 # Local test media
 /testdata/local/
+
+# UI drawings (large JPEGs, kept local only)
+/docs/ui-draft/

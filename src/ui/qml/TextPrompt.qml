@@ -13,6 +13,7 @@ Dialog {
     signal submitted(string text)
 
     modal: true
+    focus: true // keys go to the dialog, not the KeyRouter
     anchors.centerIn: Overlay.overlay
     width: 360
     standardButtons: Dialog.Ok | Dialog.Cancel

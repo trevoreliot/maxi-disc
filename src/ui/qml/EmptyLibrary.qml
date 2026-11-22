@@ -3,7 +3,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// First-run screen: no library folders yet.
+// First-run screen: no library folders yet. Enter (via the Library screen) adds a folder too.
 Item {
     id: root
 
@@ -11,22 +11,23 @@ Item {
 
     ColumnLayout {
         anchors.centerIn: parent
-        spacing: 16
+        spacing: Theme.spaceLG
 
         Label {
             Layout.alignment: Qt.AlignHCenter
             text: qsTr("Your library is empty")
-            font.pixelSize: 24
+            font.pixelSize: Theme.fontDisplay
         }
         Label {
             Layout.alignment: Qt.AlignHCenter
             text: qsTr("Add the folder where your music lives. It will be scanned and kept up to date.")
-            opacity: 0.7
+            color: Theme.textSecondary
         }
         Button {
             Layout.alignment: Qt.AlignHCenter
-            text: qsTr("Add music folder…")
+            text: qsTr("Add music folder…  (Enter)")
             highlighted: true
+            focusPolicy: Qt.NoFocus
             onClicked: root.addFolderRequested()
         }
     }

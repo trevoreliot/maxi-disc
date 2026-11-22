@@ -3,6 +3,7 @@
 
 #include <QAbstractListModel>
 #include <QList>
+#include <QVariantMap>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 #include <algorithm>
@@ -28,6 +29,8 @@ public:
 
     // Schedules a reload (coalesced; runs on the next event-loop pass).
     Q_INVOKABLE void reload();
+    // Row `row` as {roleName: value}; empty if out of range.
+    Q_INVOKABLE QVariantMap get(int row) const;
 
 Q_SIGNALS:
     void countChanged();

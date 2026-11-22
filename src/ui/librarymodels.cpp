@@ -30,6 +30,18 @@ void LibraryListModel::reload()
     });
 }
 
+QVariantMap LibraryListModel::get(int row) const
+{
+    QVariantMap map;
+    if (row < 0 || row >= rowCount())
+        return map;
+    const QModelIndex idx = index(row);
+    const QHash<int, QByteArray> roles = roleNames();
+    for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+        map.insert(QString::fromUtf8(it.value()), data(idx, it.key()));
+    return map;
+}
+
 void LibraryListModel::setLoading(bool loading)
 {
     if (m_loading == loading)

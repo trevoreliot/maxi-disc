@@ -37,7 +37,7 @@ TestCase {
     }
     Component {
         id: barComp
-        NowPlayingBar {
+        TransportBar {
             width: 1100
         }
     }
@@ -86,7 +86,7 @@ TestCase {
         tryCompare(Playback, "playing", true);
 
         const bar = createTemporaryObject(barComp, tc, { y: 520 });
-        shot(bar, "now-playing-bar");
+        shot(bar, "transport-bar");
         Playback.playPause();
         tryCompare(Playback, "paused", true);
         Playback.playPause();

@@ -10,22 +10,20 @@ Item {
     property string source
     // Square pixel size to request; the provider rounds it up to a cached bucket.
     property int requestSize: Math.ceil(Math.max(width, height) * Screen.devicePixelRatio)
-
-    SystemPalette {
-        id: pal
-    }
+    property bool showPlaceholder: true
+    readonly property bool ready: image.status === Image.Ready
 
     Rectangle {
         anchors.fill: parent
-        visible: image.status !== Image.Ready
-        color: Qt.darker(pal.window, 1.15)
-        radius: 4
+        visible: root.showPlaceholder && image.status !== Image.Ready
+        color: Theme.surfaceElevated
+        radius: Theme.radiusSmall
 
         Label {
             anchors.centerIn: parent
             text: "♪"
             font.pixelSize: Math.max(12, root.height * 0.35)
-            opacity: 0.35
+            color: Theme.textMuted
         }
     }
 

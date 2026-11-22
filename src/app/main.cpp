@@ -48,7 +48,7 @@ int main(int argc, char *argv[])
     parser.addOptions({quitAfterLoad, databaseOpt, noScanOpt, noMprisOpt, screenshotOpt, screenshotDelayOpt});
     parser.process(app);
 
-    // Fusion follows the desktop palette (light/dark) and looks the same everywhere.
+    // Fusion looks the same everywhere; its colours come from Theme (Main.qml's palette).
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE"))
         QQuickStyle::setStyle(QStringLiteral("Fusion"));
 

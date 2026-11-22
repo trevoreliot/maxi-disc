@@ -5,11 +5,63 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// The play queue: double-click to jump, ✕ to remove, save as a playlist.
+// The play queue, docked on the right of every screen: double-click (or Enter) to jump,
+// ✕ to remove, save as a playlist. The keyboard cursor is separate from the playing track;
+// it starts on the playing track whenever the panel gains keyboard focus.
 Pane {
     id: root
 
+    property bool paneActive: false
+    readonly property alias currentIndex: list.currentIndex
+
+    signal interacted()
+
+    function moveSelection(delta: int) {
+        if (list.count === 0)
+            return;
+        list.currentIndex = Math.max(0, Math.min(list.count - 1, list.currentIndex + delta));
+        list.positionViewAtIndex(list.currentIndex, ListView.Contain);
+    }
+
+    function activateCurrent() {
+        if (list.currentIndex >= 0)
+            Playback.playQueueIndex(list.currentIndex);
+    }
+
+    // Down/Up/Enter; anything else isn't the queue's.
+    function handleAction(action: int): bool {
+        switch (action) {
+        case KeyRouter.MoveDown:
+            moveSelection(1);
+            return true;
+        case KeyRouter.MoveUp:
+            moveSelection(-1);
+            return true;
+        case KeyRouter.Activate:
+            activateCurrent();
+            return true;
+        }
+        return false;
+    }
+
+    onPaneActiveChanged: {
+        if (paneActive) {
+            list.currentIndex = Math.max(0, Playback.queue.currentIndex);
+            if (list.currentIndex < list.count)
+                list.positionViewAtIndex(list.currentIndex, ListView.Contain);
+        }
+    }
+
     padding: 0
+    background: Rectangle {
+        color: Theme.surface
+
+        Rectangle {
+            width: 1
+            height: parent.height
+            color: Theme.border
+        }
+    }
 
     TextPrompt {
         id: savePrompt
@@ -18,13 +70,18 @@ Pane {
         onSubmitted: (name) => Playback.saveQueueAsPlaylist(name)
     }
 
+    FocusBar {
+        active: root.paneActive
+    }
+
     ColumnLayout {
         anchors.fill: parent
+        anchors.leftMargin: 1
         spacing: 0
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.margins: 8
+            Layout.margins: Theme.spaceSM
 
             Label {
                 Layout.fillWidth: true
@@ -36,6 +93,7 @@ Pane {
             }
             ToolButton {
                 text: qsTr("Save…")
+                focusPolicy: Qt.NoFocus
                 enabled: Playback.queue.count > 0
                 onClicked: {
                     savePrompt.text = "";
@@ -44,22 +102,29 @@ Pane {
             }
             ToolButton {
                 text: qsTr("Clear")
+                focusPolicy: Qt.NoFocus
                 enabled: Playback.queue.count > 0
                 onClicked: Playback.clearQueue()
             }
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: Theme.borderSubtle
+        }
+
         ListView {
             id: list
+            objectName: "queueList"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             model: Playback.queue
-            currentIndex: Playback.queue.currentIndex
             ScrollBar.vertical: ScrollBar {}
 
-            delegate: ItemDelegate {
+            delegate: NavRow {
                 id: row
 
                 required property int index
@@ -71,15 +136,21 @@ Pane {
                 width: list.width
                 leftPadding: 10
                 rightPadding: 4
-                highlighted: isCurrent
+                current: ListView.isCurrentItem
+                paneActive: root.paneActive
+                onClicked: {
+                    list.currentIndex = index;
+                    root.interacted();
+                }
                 onDoubleClicked: Playback.playQueueIndex(index)
 
                 contentItem: RowLayout {
-                    spacing: 8
+                    spacing: Theme.spaceSM
 
                     Label {
                         Layout.preferredWidth: 14
                         text: row.isCurrent ? (Playback.playing ? "▶" : "⏸") : ""
+                        color: Theme.accent
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -89,22 +160,26 @@ Pane {
                             Layout.fillWidth: true
                             text: row.title
                             font.bold: row.isCurrent
+                            color: row.isCurrent ? Theme.accent : Theme.textPrimary
                             elide: Text.ElideRight
                         }
                         Label {
                             Layout.fillWidth: true
                             text: row.artist
-                            opacity: 0.6
+                            font.pixelSize: Theme.fontSmall
+                            color: Theme.textMuted
                             elide: Text.ElideRight
                         }
                     }
                     Label {
                         text: AppBridge.formatDuration(row.durationMs)
-                        opacity: 0.6
-                        font.features: { "tnum": 1 }
+                        font.family: Theme.fontMono
+                        font.pixelSize: Theme.fontSmall
+                        color: Theme.textMuted
                     }
                     ToolButton {
                         text: "✕"
+                        focusPolicy: Qt.NoFocus
                         opacity: row.hovered ? 0.8 : 0.0
                         onClicked: Playback.removeFromQueue(row.index)
                         ToolTip.visible: hovered

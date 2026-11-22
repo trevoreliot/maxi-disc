@@ -100,9 +100,9 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - [x] **M3 Library scanner** — Done when: background scan of chosen folders into SQLite; incremental rescan; folder monitor. User test: scan the real library; note time and track count.
 - [x] **M4 Library UI** — Done when: QML artist / album / track browser on C++ list models, album grid with art (async, cached thumbnails), search box (FTS5). User test: browse and search feel instant on the full library; profile with the QML Profiler.
 - [x] **M5 Queue, gapless, playlists** — Done when: play queue, gapless transitions, ReplayGain, .m3u import/export, MPRIS. User test: a live or classical album plays with no gaps; media keys work.
-- [ ] **M5b UI redesign + Vim/Evil keyboard navigation** — Scheduled right after M5 so later
+- [x] **M5b UI redesign + Vim/Evil keyboard navigation** — Scheduled right after M5 so later
   milestones' screens (tag editor, artwork, sync, MiniDisc) are built to the final layout once.
-  Done when: the shell/layout follows the user's drawings (to be supplied in `docs/design/`);
+  Done when: the shell/layout follows the user's drawings (`docs/ui-draft/`, local only: not in git);
   a keyboard focus model across panes and lists; Vim/Evil-style keys active whenever a text field
   doesn't have focus: `/` focuses search (Ctrl+F kept), `h`/`j`/`k`/`l` move left/down/up/right
   (between panes and within lists/grids), Enter activates, Esc backs out / leaves search; key
@@ -217,3 +217,18 @@ and the user has run the "User test". Tick the box, commit, then stop.
     least three distinct GStreamer-internal stalls, all triggered by rapid state changes.
     Proposed fix: Player runs GStreamer control calls on its own thread + recovers from a
     stalled state change by abandoning the pipeline and resuming on a fresh one.
+- M5b notes / follow-ups:
+  - Theme should become user-configurable (user asked, 2026-11-21). `Theme` (src/ui/theme.h) is
+    a constant C++ singleton today: give its properties NOTIFY signals, load values from QSettings
+    or a theme file, and keep Main.qml's palette mapping as the single place roles are set.
+  - Stubs in the UI waiting on core work: shuffle (PlayQueue shuffle order + MPRIS `Shuffle`);
+    audio analyzer (GStreamer `spectrum` element in the Player, levels throttled to ~25 fps,
+    paused when hidden; `AudioAnalyzerStub.levels` is ready for them); Discord / Last.fm toggles
+    (M15 / M14); Export screen devices, sync and MD options (M8–M12).
+  - MD Visualizer (main-menu tile 3) isn't designed yet: a disabled placeholder tile.
+  - Keyboard ideas not done: switch the browse dropdown mode from the keyboard (it needs a click
+    today), `1`/`2` to open main-menu tiles, `gg`/`G`, `n`/`N`, a key-help overlay. All go in
+    KeyRouter's tables + Main.handleAction().
+  - Export's "tracks to export" can't list an artist's tracks: TrackListModel filters by album,
+    playlist or search only (M9 needs an artist filter or a staging model).
+  - Queue panel lost drag-to-resize (was a SplitView pane); fixed at 320 px.
