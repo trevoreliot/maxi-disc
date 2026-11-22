@@ -32,6 +32,10 @@ constexpr std::array kTextBindings{
     TextBinding{u's', KeyRouter::Skip},
     TextBinding{u'r', KeyRouter::Retry},
     TextBinding{u'm', KeyRouter::MountToggle},
+    TextBinding{u'i', KeyRouter::ExportAdd},
+    TextBinding{u'x', KeyRouter::ExportRemove},
+    TextBinding{u'p', KeyRouter::ExportPlan},
+    TextBinding{u'S', KeyRouter::ExportSync},
 };
 
 // Keys matched on key code + exact modifiers, in a context: outside text fields, inside
@@ -54,6 +58,7 @@ const std::array kKeyBindings{
     KeyBinding{Qt::Key_Right, Qt::NoModifier, KeyRouter::MoveRight, Where::Outside},
     KeyBinding{Qt::Key_Return, Qt::NoModifier, KeyRouter::Activate, Where::Outside},
     KeyBinding{Qt::Key_Enter, Qt::NoModifier, KeyRouter::Activate, Where::Outside},
+    KeyBinding{Qt::Key_Delete, Qt::NoModifier, KeyRouter::ExportRemove, Where::Outside},
     KeyBinding{Qt::Key_Left, Qt::ControlModifier, KeyRouter::PreviousTrack, Where::Outside},
     KeyBinding{Qt::Key_Right, Qt::ControlModifier, KeyRouter::NextTrack, Where::Outside},
 };

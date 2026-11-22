@@ -43,7 +43,8 @@ public Q_SLOTS:
     void togglePlayPause();
     void stop();
     void seek(qint64 positionMs);
-    // Stops and empties the queue.
+    // Empties the queue, except the playing (or paused) track, which goes on: it's the only
+    // entry left and playback ends after it. Stopped: empties it all.
     void clearQueue();
     // Updates queued entries' metadata after their tags changed (matched by path); announces
     // the current track again if it was one of them. Playback isn't affected.

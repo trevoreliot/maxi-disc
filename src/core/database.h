@@ -2,6 +2,7 @@
 #pragma once
 
 #include "deviceprofile.h"
+#include "synctypes.h"
 #include "tracktags.h"
 
 #include <QHash>
@@ -111,6 +112,20 @@ public:
     bool deleteDeviceProfile(const QString &deviceId);
     // Remembers the device's current name (for listing profiles of unplugged devices).
     bool setDeviceLastSeenName(const QString &deviceId, const QString &name);
+
+    // --- Device sync (M9): each device's selection and what was written to it ---
+    QList<SyncItem> syncItems(const QString &deviceId) const; // in the order added
+    // Adds an entry to the device's selection; adding one that's there already returns its id.
+    std::optional<qint64> addSyncItem(const SyncItem &item, QString *error = nullptr);
+    bool removeSyncItem(qint64 id);
+    QList<ManifestEntry> manifest(const QString &deviceId) const; // by path
+    // Records a file written to the device, replacing the row at `replacesRelPath` too (a
+    // move, or an update to a new path). Paths are matched case-insensitively (FAT/exFAT).
+    bool putManifestEntry(const ManifestEntry &entry, const QString &replacesRelPath = {},
+                          QString *error = nullptr);
+    bool removeManifestEntry(const QString &deviceId, const QString &relPath);
+    // How device paths are compared: case-folded (FAT, exFAT and NTFS ignore case).
+    static QString pathKey(const QString &relPath) { return relPath.toCaseFolded(); }
 
     // --- Playlists (items are file paths, in order; duplicates allowed) ---
     std::optional<qint64> createPlaylist(const QString &name, const QStringList &paths = {},

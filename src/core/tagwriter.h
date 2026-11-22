@@ -53,6 +53,14 @@ class TagWriter
 {
 public:
     static bool write(const QString &path, const TagChanges &changes, QString *error = nullptr);
+
+    // USB sync (M9): tags of a file prepared for a device, written in place (it's a private
+    // copy in the transcode cache). `tagSource` non-empty: copy every tag from that file first
+    // (a fresh transcode has none); MP3s get ID3v2.3, which more players read. Art: Keep the
+    // pictures (the source's, after a copy), Replace them all with `cover`, or Strip them.
+    enum class DeviceArt { Keep, Replace, Strip };
+    static bool writeDeviceTags(const QString &path, const QString &tagSource, DeviceArt art,
+                                const EmbeddedPicture &cover = {}, QString *error = nullptr);
 };
 
 struct TagEditResult

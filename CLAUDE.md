@@ -68,10 +68,18 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     list model; construct before the engine; tests use `.monitor = false` + `setTestDevices`),
     `ProfileEditor` + `ProfileEditorDialog` (Main owns it). Export keys: j/k devices ↔ browse, Enter
     = set up/edit profile, `m` mount/unmount.
+  - USB sync (M9): core `SyncPlanner` (`plan()` gathers DB + device scan, `diff()` is pure:
+    Add/Update/Move/Remove/Forget against `device_manifest`, the files the app wrote; others are
+    never touched, decisions/0005) → `UsbSync::run` (temp `.mmm-part-*` + fsync + rename, per-file
+    manifest commit; transcodes via `Transcoder` + `TranscodeCache` on a small pool) → `SyncJob`
+    (worker thread, own Database, queued signals). `ArtShrinker` resizes art with GStreamer (no
+    QtGui in core). UI: `Sync` QML singleton (construct after Devices; tests pass a temp `cacheDir`)
+    + `SyncPane.qml`. Export keys: `i` add, `x`/Delete remove, `p` plan, `S` sync, Esc closes the plan.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).
-- `src/app/` — `main.cpp` only: app setup and loads `MusicMdManager/Main`.
+- `src/app/` — `main.cpp` only: app setup and loads `MusicMdManager/Main`. It's a `QApplication` (links
+  Widgets) only so Plasma gives Qt Quick's `FileDialog` the native KDE dialog (multi-select, type-to-find).
 - `tools/mmm-play/` — terminal player on `mmm::Player` (manual testing / debugging):
   `./build/debug/tools/mmm-play/mmm-play FILE...` (space, ←/→, +/-, n/p, q).
 - `tools/mmm-tags/` — prints what `TagReader` sees: `mmm-tags [--cover DIR] [--db FILE] PATH...`
@@ -136,6 +144,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   output for "passed" ("Failed" matches too: an M5 commit slipped through that way).
 - MPRIS tests run under `dbus-run-session` (private bus); client calls must be async (the service
   is on the same thread). The app smoke test passes `--no-mpris` and `--no-devices`.
+- Sync tests (`tst_syncplanner`, `tst_usbsync`, `tst_transcoder`, `tst_artshrinker`) use a temp dir as
+  the mounted device and generated media (`testmedia.h`: `generateTone`, `generateImage`).
 - UDisks2 tests (`tst_udisksmonitor`, `tst_devicemanager`) also run under `dbus-run-session`
   against `tests/core/fakeudisks.h` (a fake service on the private bus): never the real system
   bus, never real devices. Build its volumes with `FakeUdisks::volume()` (GCC rejects partial

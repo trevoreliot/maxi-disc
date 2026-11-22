@@ -54,6 +54,10 @@ public:
         Skip,           // artwork finder: skip this album
         Retry,          // artwork finder: search again
         MountToggle,    // Export: mount / unmount the selected device
+        ExportAdd,      // Export: add the browse row under the cursor to the device's selection
+        ExportRemove,   // Export: remove the selection entry under the cursor
+        ExportPlan,     // Export: plan a sync of the selected device
+        ExportSync,     // Export: run the plan that's shown
     };
     Q_ENUM(Action)
 

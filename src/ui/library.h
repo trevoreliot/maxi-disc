@@ -90,6 +90,9 @@ public:
     // Imports an .m3u/.m3u8 as a new playlist named after the file. Entries that aren't in
     // the library are kept (they show up if the files are added later) and reported.
     Q_INVOKABLE int importPlaylist(const QUrl &file);
+    // Imports several (the file dialog's multiple selection), each as its own playlist, with
+    // one summary message. Returns the id of the last one imported, 0 if none was.
+    Q_INVOKABLE int importPlaylists(const QList<QUrl> &files);
     // Writes the playlist as extended M3U with absolute paths.
     Q_INVOKABLE bool exportPlaylist(int id, const QUrl &file);
 

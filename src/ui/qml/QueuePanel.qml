@@ -103,7 +103,11 @@ Pane {
             ToolButton {
                 text: qsTr("Clear")
                 focusPolicy: Qt.NoFocus
-                enabled: Playback.queue.count > 0
+                // A playing / paused track stays: nothing to clear if it's all there is.
+                enabled: Playback.queue.count > (Playback.playing || Playback.paused ? 1 : 0)
+                ToolTip.visible: hovered
+                ToolTip.text: Playback.playing || Playback.paused ? qsTr("Clear the queue (the current track keeps playing)")
+                                                                   : qsTr("Clear the queue")
                 onClicked: Playback.clearQueue()
             }
         }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QCommandLineParser>
 #include <QDir>
-#include <QGuiApplication>
+#include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -13,10 +13,14 @@
 #include "devices.h"
 #include "library.h"
 #include "playback.h"
+#include "sync.h"
 
 int main(int argc, char *argv[])
 {
-    QGuiApplication app(argc, argv);
+    // QApplication (not QGuiApplication): Plasma's platform theme only offers its native file
+    // dialog (multi-select, Ctrl+A, type-to-find) to widget applications; Qt Quick's own
+    // fallback dialog can't select several files.
+    QApplication app(argc, argv);
     QGuiApplication::setApplicationName(mmm::AppInfo::name());
     QGuiApplication::setApplicationDisplayName(mmm::AppInfo::displayName());
     QGuiApplication::setOrganizationName(mmm::AppInfo::organization());
@@ -63,6 +67,7 @@ int main(int argc, char *argv[])
     Library library({.databasePath = databasePath, .scanOnStart = scan, .watch = scan});
     Playback playback({.player = {}, .mpris = !parser.isSet(noMprisOpt), .persistSettings = true});
     Devices devices({.databasePath = databasePath, .monitor = !parser.isSet(noDevicesOpt)});
+    Sync sync({.databasePath = databasePath, .cacheDir = {}});
     QObject::connect(&playback, &Playback::quitRequested, &app, &QCoreApplication::quit);
 
     QQmlApplicationEngine engine;

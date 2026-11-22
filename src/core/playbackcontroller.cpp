@@ -133,6 +133,13 @@ void PlaybackController::seek(qint64 positionMs)
 
 void PlaybackController::clearQueue()
 {
+    // Playing or paused: the track goes on, only the rest of the queue goes (playback ends
+    // after it). The queue's reset updates GStreamer's upcoming tracks (none now).
+    if (const TrackRow *current = m_queue.current(); current && m_player.playbackState() != Player::PlaybackState::Stopped) {
+        const TrackRow keep = *current;
+        m_queue.setItems({keep}, 0);
+        return;
+    }
     ++m_actionGeneration;
     m_player.stop();
     m_player.setSource({});

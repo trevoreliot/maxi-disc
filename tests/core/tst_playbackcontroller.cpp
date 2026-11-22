@@ -232,7 +232,27 @@ private Q_SLOTS:
         pc.togglePlayPause();
         QTRY_COMPARE_WITH_TIMEOUT(pc.player()->playbackState(), State::Playing, kTimeoutMs);
 
+        // Clearing keeps the playing track: it goes on, alone in the queue.
         QSignalSpy changed(&pc, &PlaybackController::currentTrackChanged);
+        pc.clearQueue();
+        QCOMPARE(pc.player()->playbackState(), State::Playing);
+        QCOMPARE(pc.currentTrack()->id, 4);
+        QCOMPARE(pc.queue()->count(), 1);
+        QCOMPARE(pc.queue()->currentIndex(), 0);
+        QVERIFY(!pc.canGoNext());
+        QCOMPARE(changed.count(), 0);
+        QTest::qWait(300);
+        QCOMPARE(pc.player()->playbackState(), State::Playing);
+        // Paused too.
+        pc.togglePlayPause();
+        QTRY_COMPARE_WITH_TIMEOUT(pc.player()->playbackState(), State::Paused, kTimeoutMs);
+        pc.clearQueue();
+        QCOMPARE(pc.queue()->count(), 1);
+        QCOMPARE(pc.player()->playbackState(), State::Paused);
+
+        // Stopped: everything goes.
+        pc.stop();
+        QTRY_COMPARE_WITH_TIMEOUT(pc.player()->playbackState(), State::Stopped, kTimeoutMs);
         pc.clearQueue();
         QCOMPARE(pc.player()->playbackState(), State::Stopped);
         QVERIFY(!pc.currentTrack());

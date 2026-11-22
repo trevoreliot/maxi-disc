@@ -64,4 +64,37 @@ QString generateTone(const QString &path, const QString &encoder, int durationMs
     return result;
 }
 
+QByteArray generateImage(int width, int height, const QString &encoder)
+{
+    gst::ensureInitialized();
+    const QString desc = QStringLiteral("videotestsrc num-buffers=1 pattern=smpte ! video/x-raw,width=%1,height=%2 "
+                                        "! videoconvert ! %3 ! appsink name=sink sync=false")
+                             .arg(width)
+                             .arg(height)
+                             .arg(encoder);
+    GError *err = nullptr;
+    GstElement *pipeline = gst_parse_launch(desc.toUtf8().constData(), &err);
+    g_clear_error(&err);
+    if (!pipeline)
+        return {};
+    GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "sink");
+    gst_element_set_state(pipeline, GST_STATE_PLAYING);
+    GstSample *sample = nullptr;
+    g_signal_emit_by_name(sink, "try-pull-sample", static_cast<GstClockTime>(10 * GST_SECOND), &sample);
+    QByteArray out;
+    if (sample) {
+        GstBuffer *buffer = gst_sample_get_buffer(sample);
+        GstMapInfo map;
+        if (buffer && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+            out = QByteArray(reinterpret_cast<const char *>(map.data), static_cast<qsizetype>(map.size));
+            gst_buffer_unmap(buffer, &map);
+        }
+        gst_sample_unref(sample);
+    }
+    gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_object_unref(sink);
+    gst_object_unref(pipeline);
+    return out;
+}
+
 } // namespace mmm::test

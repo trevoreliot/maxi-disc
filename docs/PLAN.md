@@ -35,6 +35,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | Online services | Last.fm scrobbling, Discord Rich Presence. Requires a Last.fm API key + secret and a Discord application ID (supplied by user at runtime/config, never committed) |
 | Album art | Folder file beats embedded; the finder saves both, 1200 px CAA JPEG, no file in folders shared with other albums. See `docs/decisions/0003-album-art-precedence-and-storage.md` |
 | Devices / profiles | UDisks2 (USB or SD-card volumes with a filesystem, not system disks); profiles in the library DB keyed by filesystem UUID. See `docs/decisions/0004-device-detection-and-profiles.md` |
+| USB sync | Per-device selection (playlists, albums, artists, genres) mirrored to the device; only files the app wrote (manifest) are ever replaced/moved/removed; playlists in `<musicDir>/Playlists/*.m3u8`. See `docs/decisions/0005-usb-sync-manifest-and-mirror.md` |
 | GStreamer stalls | Recover (engine thread + abandon/replace a stalled pipeline) rather than fix GStreamer internals. See `docs/decisions/0001-gstreamer-stall-recovery.md` (evidence + how to pursue upstream) |
 | Licence | GPL-3.0-or-later (Qt LGPLv3 + linux-minidisc GPL). Verify linux-minidisc is GPL-2.0-or-later before M10 |
 
@@ -119,7 +120,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 
 ### Phase 4: USB sync
 - [x] **M8 Device detection + profiles** — Done when: detects USB mounts; per-device profile (folder layout, playable formats, transcode target); built-in profiles for USB flash drive and generic DAP. User test: plug in a thumb drive and create a profile.
-- [ ] **M9 Sync engine** — Done when: sync plan (add / update / remove) shown before running; copy with progress; transcode cache; playlists written. User test: sync a playlist, change it, sync again; only the changes copy.
+- [x] **M9 Sync engine** — Done when: sync plan (add / update / remove) shown before running; copy with progress; transcode cache; playlists written. User test: sync a playlist, change it, sync again; only the changes copy.
 - [ ] **M9b On-device browser** — Done when: the Export screen's right pane has a toggle between "Tracks to Export" and "On Device"; On Device lists the selected device's music (artist → album → tracks, sizes, free space) from M9's device scan, marks tracks not in the library, and offers Mount when unmounted; read-only. User test: plug in a thumb drive with music on it and browse what's there.
 
 ### Phase 5: MiniDisc
@@ -262,6 +263,31 @@ and the user has run the "User test". Tick the box, commit, then stop.
     mtime (the same manifest M9 diffs against, so a re-open is instant and only changed files are
     re-read). Show results as they arrive; a toggle in the pane header plus a KeyRouter binding
     (no QML Shortcut). Later ideas: delete from device, "add to library", playlists on the device.
+- M9 notes / follow-ups:
+  - Sync = core `SyncPlanner` (plan, pure `diff`) → `UsbSync::run` (executor) on `SyncJob`'s
+    worker; `Sync` QML singleton + `SyncPane.qml` on the Export screen. Keys: `i` add, `x`/Delete
+    remove, `l`/`h` selection ↔ browse, `p` plan, `S` sync, Esc closes the plan.
+  - Not done: single tracks or "the whole library" as selection entries; a `cover.jpg` per album
+    folder on the device (some DAPs prefer folder art); `.m3u` / CRLF / backslash playlists for old
+    car stereos; cache size setting + "clear cache"; other targets (Opus/AAC); ReplayGain applied
+    while transcoding; adopting files already on a device into the manifest; auto-sync on plug-in;
+    "safely remove" after a sync (see M8 notes); selection editing from the Library screen.
+  - Planning stats every source file (fine for a few thousand tracks; a 30k-track selection
+    takes a few seconds on a HDD). Transcodes run on up to 4 threads; the copy is sequential.
+  - Fixed during the M9 user test: importing .m3u files made on Windows / by a DAP
+    (`\Music\Artist\…`, `E:\…`) found nothing; `M3u::read` now maps backslashes and finds
+    rooted paths below the folders above the playlist. Check a real file read-only with
+    `MMM_TEST_M3U=list.m3u ./build/debug/tests/tst_m3u userPlaylist`.
+  - Two syncs can't run at once (one `SyncJob`); changing the selected device while syncing
+    keeps the running sync (its progress stays on screen).
+- Duplicate formats (user asked, 2026-11-22): "hide lower-quality duplicates". When an album has
+  the same song in several formats (game soundtracks ship FLAC + MP3 side by side), browsing,
+  playing, search and USB sync show one copy: lossless over lossy, then higher bitrate. Match on
+  album + disc + track number + title (case-insensitive); keep the others in the DB (a "show all
+  copies" toggle, and the tag editor still sees them). Core: a `LibraryQuery` option or a
+  `preferred_track_id` computed after each scan; tests with generated FLAC + MP3 pairs. Found
+  52 such pairs in the user's library (moved to `/mnt/ssd500/Media/Music-duplicates/` with a
+  `MOVED-FROM-LIBRARY.txt` list, at the user's request), so this is for new ones.
 - Packaging: the app sets its desktop file name (`music-md-manager`) but no .desktop file is
   installed, so Qt logs "qt.qpa.services: Failed to register with host portal … App info not found"
   at startup (harmless). Install `music-md-manager.desktop` (+ icon) with the AppImage/Flatpak work

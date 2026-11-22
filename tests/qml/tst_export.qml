@@ -125,6 +125,73 @@ TestCase {
         compare(Devices.current.hasProfile, false);
     }
 
+    // M9: choosing what goes on a device and planning a sync, by keyboard.
+    function test_keyboardSyncSelection() {
+        // The fixture folder stands in for the mounted stick (only planned here: the C++
+        // tests run real syncs).
+        Devices.setTestDevices([{ id: "uuid:T-SYNC", name: "SYNCSTICK", fsType: "vfat", mountPoint: fixtureDir,
+                                  totalBytes: 16000000000, freeBytes: 8000000000 }]);
+        const win = openExport();
+        const view = win.exportView;
+        const ed = win.profileEditorDialog.profileEditor;
+        verify(ed.load("uuid:T-SYNC"));
+        verify(ed.save());
+        tryCompare(Sync, "canPlan", true);
+        compare(Sync.deviceId, "uuid:T-SYNC");
+        verify(findChild(view, "selectionHint").visible);
+
+        keyClick("j"); // past the only device: the browse list
+        compare(view.pane, ExportView.Browse);
+        view.browse.setMode(BrowsePane.Albums);
+        keyClick("j"); // the first album
+        verify(view.browse.currentItem() !== null);
+        compare(view.browse.currentItem().kind, "album");
+        keyClick("i");
+        compare(Sync.selection.count, 1);
+        tryVerify(() => Sync.tracks.count > 0);
+        verify(findChild(view, "exportCount").visible);
+        verify(!findChild(view, "selectionHint").visible);
+        keyClick("i"); // the same album again: still one entry
+        compare(Sync.selection.count, 1);
+        keyClick("j");
+        keyClick("i");
+        compare(Sync.selection.count, 2);
+
+        // l: into the selection; x removes the entry under the cursor; h: back.
+        keyClick("l");
+        compare(view.pane, ExportView.Selection);
+        keyClick("j");
+        compare(view.syncView.selectionIndex, 1);
+        keyClick("x");
+        compare(Sync.selection.count, 1);
+        keyClick("h");
+        compare(view.pane, ExportView.Browse);
+        if (screenshotDir !== "") {
+            wait(200);
+            grabImage(win.contentItem).save(screenshotDir + "/export-selection.png");
+        }
+
+        // p plans; Esc closes the plan (and stays on the Export screen).
+        keyClick("p");
+        tryCompare(Sync, "state", Sync.Ready, 10000);
+        compare(findChild(view, "exportTitle").text, "Sync plan");
+        verify(findChild(view, "planSummary").text !== "");
+        compare(findChild(view, "syncButton").enabled, Sync.canSync);
+        if (screenshotDir !== "") {
+            wait(200);
+            grabImage(win.contentItem).save(screenshotDir + "/export-plan.png");
+        }
+        keyClick(Qt.Key_Escape);
+        compare(Sync.state, Sync.Idle);
+        compare(win.currentScreen, Main.ExportScreen);
+        compare(findChild(view, "exportTitle").text, "Tracks to Export");
+
+        // Clean up the shared fixture database.
+        Sync.removeAt(0);
+        compare(Sync.selection.count, 0);
+        verify(ed.remove());
+    }
+
     function test_screenshot() {
         if (screenshotDir === "")
             skip("set MMM_SCREENSHOT_DIR to save screenshots");

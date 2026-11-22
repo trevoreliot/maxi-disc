@@ -103,6 +103,8 @@ ApplicationWindow {
             topChrome.clearSearch();
         } else if (currentScreen === Main.LibraryScreen && libraryScreen.back()) {
             // handled inside the library
+        } else if (currentScreen === Main.ExportScreen && exportScreen.back()) {
+            // closed the sync plan
         } else if (currentScreen !== Main.MenuScreen) {
             showScreen(Main.MenuScreen);
         }

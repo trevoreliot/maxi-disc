@@ -15,4 +15,8 @@ QString coverCacheDir();
 // ~/.cache/music-md-manager/art: embedded cover art extracted as-is (for MPRIS artUrl).
 QString artCacheDir();
 
+// ~/.cache/music-md-manager/transcode: files prepared for devices (MP3s, resized art), reused
+// across syncs (TranscodeCache).
+QString transcodeCacheDir();
+
 } // namespace mmm::AppPaths

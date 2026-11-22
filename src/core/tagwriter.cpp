@@ -164,24 +164,10 @@ bool save(TagLib::File *file)
     return file->save();
 }
 
-// Front cover first, then the pictures worth keeping.
-bool replaceFrontCover(TagLib::File *file, const EmbeddedPicture &cover)
+// Replaces all embedded pictures.
+bool setPictures(TagLib::File *file, const TagLib::List<TagLib::VariantMap> &pictures)
 {
     using namespace TagLib;
-    const QByteArray &data = cover.data;
-    VariantMap front;
-    front.insert("data", ByteVector(data.constData(), static_cast<unsigned int>(data.size())));
-    front.insert("mimeType", toTag(cover.mimeType));
-    front.insert("pictureType", String("Front Cover"));
-    front.insert("description", toTag(cover.description));
-    List<VariantMap> pictures;
-    pictures.append(front);
-    if (!dynamic_cast<MP4::File *>(file)) {
-        for (const VariantMap &p : file->complexProperties("PICTURE")) {
-            if (p.value("pictureType").toString() != String("Front Cover"))
-                pictures.append(p);
-        }
-    }
     // MP3/WAV/AIFF: write the ID3v2 tag itself (the file's tag is a union with ID3v1/INFO).
     if (auto *f = dynamic_cast<MPEG::File *>(file))
         return f->ID3v2Tag(true)->setComplexProperties("PICTURE", pictures);
@@ -190,6 +176,32 @@ bool replaceFrontCover(TagLib::File *file, const EmbeddedPicture &cover)
     if (auto *f = dynamic_cast<RIFF::AIFF::File *>(file))
         return f->tag()->setComplexProperties("PICTURE", pictures);
     return file->setComplexProperties("PICTURE", pictures);
+}
+
+TagLib::VariantMap pictureMap(const EmbeddedPicture &cover)
+{
+    using namespace TagLib;
+    VariantMap front;
+    front.insert("data", ByteVector(cover.data.constData(), static_cast<unsigned int>(cover.data.size())));
+    front.insert("mimeType", toTag(cover.mimeType));
+    front.insert("pictureType", String("Front Cover"));
+    front.insert("description", toTag(cover.description));
+    return front;
+}
+
+// Front cover first, then the pictures worth keeping.
+bool replaceFrontCover(TagLib::File *file, const EmbeddedPicture &cover)
+{
+    using namespace TagLib;
+    List<VariantMap> pictures;
+    pictures.append(pictureMap(cover));
+    if (!dynamic_cast<MP4::File *>(file)) {
+        for (const VariantMap &p : file->complexProperties("PICTURE")) {
+            if (p.value("pictureType").toString() != String("Front Cover"))
+                pictures.append(p);
+        }
+    }
+    return setPictures(file, pictures);
 }
 
 bool applyChanges(const QString &path, const TagChanges &c, QString *error)
@@ -290,6 +302,54 @@ bool TagWriter::write(const QString &path, const TagChanges &changes, QString *e
         return fail(QStringLiteral("cannot replace the file: %1").arg(QString::fromStdString(ec.message())));
     }
     return true;
+}
+
+bool TagWriter::writeDeviceTags(const QString &path, const QString &tagSource, DeviceArt art,
+                                const EmbeddedPicture &cover, QString *error)
+{
+    using namespace TagLib;
+    auto fail = [&](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+    const QByteArray name = QFile::encodeName(path);
+    FileRef ref(name.constData(), false);
+    if (ref.isNull() || !ref.file()->isValid() || ref.file()->readOnly())
+        return fail(QStringLiteral("cannot open %1 for writing tags").arg(path));
+    File *file = ref.file();
+    auto *mpeg = dynamic_cast<MPEG::File *>(file);
+
+    if (!tagSource.isEmpty()) {
+        const QByteArray sourceName = QFile::encodeName(tagSource);
+        FileRef source(sourceName.constData(), false);
+        if (source.isNull() || !source.file()->isValid())
+            return fail(QStringLiteral("cannot read the tags of %1").arg(tagSource));
+        // Fields the target can't store (rare ones in ID3v2) are dropped, not an error.
+        if (mpeg)
+            mpeg->ID3v2Tag(true)->setProperties(source.file()->properties());
+        else
+            file->setProperties(source.file()->properties());
+        if (art == DeviceArt::Keep && !setPictures(file, source.file()->complexProperties("PICTURE")))
+            return fail(QStringLiteral("this file type can't store cover art"));
+    }
+    if (art == DeviceArt::Replace) {
+        List<VariantMap> pictures;
+        pictures.append(pictureMap(cover));
+        if (!setPictures(file, pictures))
+            return fail(QStringLiteral("this file type can't store cover art"));
+    } else if (art == DeviceArt::Strip && !setPictures(file, {})) {
+        return fail(QStringLiteral("cannot remove the cover art"));
+    }
+
+    bool saved = false;
+    if (mpeg && !tagSource.isEmpty()) {
+        // A transcode: ID3v2.3 only (no ID3v1/APE), the version most portable players read.
+        saved = mpeg->save(MPEG::File::ID3v2, File::StripOthers, ID3v2::v3, File::DoNotDuplicate);
+    } else {
+        saved = save(file);
+    }
+    return saved || fail(QStringLiteral("TagLib could not save the tags of %1").arg(path));
 }
 
 TagEditResult editTracks(Database &db, const QStringList &paths, const TagChanges &changes)

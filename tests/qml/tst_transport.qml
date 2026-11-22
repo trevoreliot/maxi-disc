@@ -31,6 +31,7 @@ TestCase {
     }
 
     function cleanup() {
+        Playback.stop(); // clearing keeps a playing track
         Playback.clearQueue();
     }
 

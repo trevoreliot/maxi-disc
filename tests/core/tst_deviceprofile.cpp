@@ -114,12 +114,14 @@ private Q_SLOTS:
             QVERIFY(db.open(path));
             QSqlQuery q(db.connection());
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_profiles")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE device_sync_items")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE device_manifest")));
             QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 3")));
         }
         Database db;
         QString error;
         QVERIFY2(db.open(path, &error), qPrintable(error));
-        QCOMPARE(db.schemaVersion(), 4);
+        QCOMPARE(db.schemaVersion(), Database::latestSchemaVersion());
         DeviceProfile p = *DeviceProfiles::builtIn(QStringLiteral("usb-flash"));
         p.deviceId = QStringLiteral("uuid:1");
         p.name = QStringLiteral("x");

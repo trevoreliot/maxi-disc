@@ -6,29 +6,50 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 // Screen 2, Export (docs/ui-draft/export.jpeg): connected devices (M8) above the browse
-// pane on the left; what to export (M9) and the selected device's options on the right.
-// USB / DAP sync arrives in M9, MiniDisc in M10–M12.
+// pane on the left; what goes on the selected device (M9, SyncPane) and its options on the
+// right. MiniDisc arrives in M10–M12.
 //
 // Keyboard: the left column is two panes stacked: j past the last device moves into the
 // browse list, k at its top moves back up. Enter on a device sets up / edits its profile
-// (Main opens the dialog), m mounts / unmounts it.
+// (Main opens the dialog), m mounts / unmounts it. In the browse list i (or a double-click)
+// adds the row to the device's selection; l moves into the selection, where x / Delete
+// removes an entry. p plans a sync, S runs the plan shown (or cancels a running sync), Esc
+// closes the plan or stops planning.
 Item {
     id: root
 
-    enum Pane { DeviceList, Browse }
+    enum Pane { DeviceList, Browse, Selection }
 
     property bool active: false // this screen has keyboard focus
     // The device pane while there are devices; the browse list when the last one goes. A
     // device plugged in while the user is browsing here doesn't pull the keys away.
     property int focusedPane: ExportView.Browse
     // With no devices, the device pane has nothing to focus: the browse list has the keys.
-    readonly property int pane: focusedPane === ExportView.DeviceList && Devices.count === 0 ? ExportView.Browse
-                                                                                           : focusedPane
+    // The selection pane has the keys only while it lists something.
+    readonly property int pane: (focusedPane === ExportView.DeviceList && Devices.count === 0)
+                                || (focusedPane === ExportView.Selection && (Sync.selection.count === 0 || syncPane.showsPlan))
+                                ? ExportView.Browse : focusedPane
 
     readonly property alias browse: browsePane
     readonly property alias deviceList: deviceView
+    readonly property alias syncView: syncPane
 
     Component.onCompleted: if (Devices.count > 0) focusedPane = ExportView.DeviceList
+    // An emptied (or replaced by the plan) selection hands the keys back to the browse list.
+    Connections {
+        target: Sync.selection
+        function onCountChanged() {
+            if (Sync.selection.count === 0 && root.focusedPane === ExportView.Selection)
+                root.focusedPane = ExportView.Browse;
+        }
+    }
+    Connections {
+        target: Sync
+        function onStateChanged() {
+            if (Sync.state !== Sync.Idle && Sync.state !== Sync.Planning && root.focusedPane === ExportView.Selection)
+                root.focusedPane = ExportView.Browse;
+        }
+    }
     Connections {
         target: Devices
         function onCountChanged() {
@@ -48,10 +69,52 @@ Item {
             editProfileRequested(Devices.current.deviceId);
     }
 
+    // The browse row under the cursor goes into the device's sync selection.
+    function addCurrentBrowseItem() {
+        const item = browsePane.currentItem();
+        if (item && Sync.state === Sync.Idle)
+            Sync.addItem(item.kind, item.id, item.name);
+    }
+
     function handleAction(action: int): bool {
-        if (action === KeyRouter.MountToggle) {
-            Devices.toggleMountCurrent();
+        switch (action) {
+        case KeyRouter.MountToggle:
+            if (Sync.state !== Sync.Planning && Sync.state !== Sync.Syncing) // not under a running sync
+                Devices.toggleMountCurrent();
             return true;
+        case KeyRouter.ExportPlan:
+            Sync.plan();
+            return true;
+        case KeyRouter.ExportSync: // like the button: Cancel while it runs
+            if (Sync.state === Sync.Planning || Sync.state === Sync.Syncing)
+                Sync.cancel();
+            else
+                Sync.run();
+            return true;
+        case KeyRouter.ExportAdd:
+            if (pane === ExportView.Browse)
+                addCurrentBrowseItem();
+            return true;
+        case KeyRouter.ExportRemove:
+            if (pane === ExportView.Selection && Sync.state === Sync.Idle)
+                syncPane.removeCurrent();
+            return true;
+        }
+        if (pane === ExportView.Selection) {
+            switch (action) {
+            case KeyRouter.MoveDown:
+                syncPane.moveSelection(1);
+                return true;
+            case KeyRouter.MoveUp:
+                syncPane.moveSelection(-1);
+                return true;
+            case KeyRouter.MoveLeft:
+                focusedPane = ExportView.Browse;
+                return true;
+            case KeyRouter.Activate:
+                return true;
+            }
+            return false;
         }
         if (pane === ExportView.DeviceList) {
             switch (action) {
@@ -87,11 +150,27 @@ Item {
             return true;
         case KeyRouter.MoveLeft:
             return true;
+        case KeyRouter.MoveRight:
+            if (Sync.selection.count > 0 && !syncPane.showsPlan) {
+                focusedPane = ExportView.Selection;
+                return true;
+            }
+            return false; // on to the queue, if open
         }
-        return false; // MoveRight: nothing to the right yet (the queue, if open)
+        return false;
     }
 
+    // Esc: closes the plan or result, stops planning. A running sync is only stopped on
+    // purpose (Cancel / S): Esc leaves the screen and the sync goes on.
     function back(): bool {
+        if (Sync.state === Sync.Ready || Sync.state === Sync.Done) {
+            Sync.dismiss();
+            return true;
+        }
+        if (Sync.state === Sync.Planning) {
+            Sync.cancel();
+            return true;
+        }
         return false;
     }
 
@@ -247,8 +326,12 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 showPlaylistTools: false
-                paneActive: root.active
-                onInteracted: root.interacted()
+                paneActive: root.active && root.pane === ExportView.Browse
+                onInteracted: {
+                    root.focusedPane = ExportView.Browse;
+                    root.interacted();
+                }
+                onRowDoubleClicked: root.addCurrentBrowseItem()
             }
         }
 
@@ -260,29 +343,56 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 Layout.margins: Theme.spaceLG
+                Layout.bottomMargin: Theme.spaceSM
                 spacing: Theme.spaceSM
 
                 SectionTitle {
-                    text: qsTr("Tracks to Export")
+                    objectName: "exportTitle"
+                    text: Sync.state === Sync.Syncing ? qsTr("Syncing to %1…").arg(Sync.planSummary.deviceName ?? "")
+                        : Sync.state === Sync.Done ? qsTr("Sync finished")
+                        : Sync.state === Sync.Ready ? qsTr("Sync plan")
+                        : qsTr("Tracks to Export")
                 }
-                Badge {
-                    text: qsTr("PREVIEW")
+                Label {
+                    objectName: "exportCount"
+                    visible: !syncPane.showsPlan && Sync.tracks.count > 0
+                    text: qsTr("%1 tracks · %2").arg(Sync.tracks.count).arg(syncPane.formatDuration(Sync.totalDurationMs))
+                    color: Theme.textMuted
                 }
                 Item {
                     Layout.fillWidth: true
                 }
+                Button {
+                    objectName: "addToExportButton"
+                    visible: Sync.state === Sync.Idle && Sync.deviceId !== ""
+                    enabled: browsePane.currentList.currentIndex >= 0
+                    text: qsTr("Add selected (i)")
+                    flat: true
+                    focusPolicy: Qt.NoFocus
+                    onClicked: root.addCurrentBrowseItem()
+                }
+                Button {
+                    objectName: "closePlanButton"
+                    visible: Sync.state === Sync.Ready || Sync.state === Sync.Done
+                    text: qsTr("Close (Esc)")
+                    flat: true
+                    focusPolicy: Qt.NoFocus
+                    onClicked: Sync.dismiss()
+                }
             }
 
-            Label {
+            SyncPane {
+                id: syncPane
+                objectName: "syncPane"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.leftMargin: Theme.spaceLG
                 Layout.rightMargin: Theme.spaceLG
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                wrapMode: Text.Wrap
-                text: qsTr("Choosing music to copy to a USB drive or DAP, or to record to a MiniDisc, arrives with device support.")
-                color: Theme.textMuted
+                paneActive: root.active && root.pane === ExportView.Selection
+                onInteracted: {
+                    root.focusedPane = ExportView.Selection;
+                    root.interacted();
+                }
             }
 
             RowLayout {
@@ -312,6 +422,19 @@ Item {
                         font.pixelSize: Theme.fontSmall
                         color: Theme.textMuted
                         elide: Text.ElideMiddle
+                    }
+                    Label {
+                        objectName: "syncErrorLabel"
+                        Layout.fillWidth: true
+                        visible: Sync.errorString !== ""
+                        text: Sync.errorString
+                        font.pixelSize: Theme.fontSmall
+                        color: Theme.errorText
+                        wrapMode: Text.Wrap
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: Sync.clearError()
+                        }
                     }
                     Label {
                         objectName: "deviceErrorLabel"
@@ -430,12 +553,29 @@ Item {
                                         objectName: "mountToggleButton"
                                         Layout.fillWidth: true
                                         enabled: Devices.currentIndex >= 0 && !Devices.current.busy
+                                                 && Sync.state !== Sync.Syncing && Sync.state !== Sync.Planning
                                         text: Devices.current.mounted ? qsTr("Unmount") : qsTr("Mount")
                                         focusPolicy: Qt.NoFocus
                                         onClicked: Devices.toggleMountCurrent()
                                     }
-                                    StubButton { text: qsTr("Plan sync") }
-                                    StubButton { text: qsTr("Sync") }
+                                    Button {
+                                        objectName: "planSyncButton"
+                                        Layout.fillWidth: true
+                                        enabled: Sync.canPlan
+                                        text: qsTr("Plan sync (p)")
+                                        focusPolicy: Qt.NoFocus
+                                        onClicked: Sync.plan()
+                                    }
+                                    Button {
+                                        objectName: "syncButton"
+                                        Layout.fillWidth: true
+                                        readonly property bool stopping: Sync.state === Sync.Syncing || Sync.state === Sync.Planning
+                                        enabled: stopping || Sync.canSync
+                                        highlighted: Sync.canSync
+                                        text: stopping ? qsTr("Cancel") : qsTr("Sync (S)")
+                                        focusPolicy: Qt.NoFocus
+                                        onClicked: stopping ? Sync.cancel() : Sync.run()
+                                    }
                                 }
                             }
                         }

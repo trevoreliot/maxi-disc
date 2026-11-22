@@ -188,25 +188,46 @@ bool Library::appendToPlaylist(int id, const QStringList &paths)
 
 int Library::importPlaylist(const QUrl &file)
 {
-    const QString path = file.isLocalFile() ? file.toLocalFile() : file.toString();
-    QList<mmm::M3u::Entry> entries;
-    QString error;
-    if (!mmm::M3u::read(path, &entries, &error)) {
-        setError(QStringLiteral("Cannot read %1: %2").arg(path, error));
-        return 0;
+    return importPlaylists({file});
+}
+
+int Library::importPlaylists(const QList<QUrl> &files)
+{
+    int lastId = 0;
+    int imported = 0;
+    qsizetype found = 0;
+    qsizetype total = 0;
+    QStringList failed;
+    for (const QUrl &file : files) {
+        const QString path = file.isLocalFile() ? file.toLocalFile() : file.toString();
+        QList<mmm::M3u::Entry> entries;
+        QString error;
+        if (!mmm::M3u::read(path, &entries, &error)) {
+            failed << QStringLiteral("%1: %2").arg(QFileInfo(path).fileName(), error);
+            continue;
+        }
+        QStringList paths;
+        for (const auto &e : std::as_const(entries))
+            paths << e.path;
+        const int id = createPlaylist(QFileInfo(path).completeBaseName(), paths);
+        if (!id) {
+            failed << QFileInfo(path).fileName();
+            continue;
+        }
+        lastId = id;
+        ++imported;
+        total += paths.size();
+        found += mmm::LibraryQuery(*m_db).tracksByPaths(paths).size();
     }
-    QStringList paths;
-    for (const auto &e : std::as_const(entries))
-        paths << e.path;
-    const int id = createPlaylist(QFileInfo(path).completeBaseName(), paths);
-    if (id) {
-        const qsizetype found = mmm::LibraryQuery(*m_db).tracksByPaths(paths).size();
-        setStatusMessage(found == paths.size()
-                             ? QStringLiteral("Imported %1 tracks").arg(found)
-                             : QStringLiteral("Imported %1 of %2 tracks (%3 not in the library)")
-                                   .arg(found).arg(paths.size()).arg(paths.size() - found));
+    if (!failed.isEmpty())
+        setError(QStringLiteral("Couldn't import %1").arg(failed.join(QStringLiteral(", "))));
+    if (imported > 0) {
+        const QString what = imported == 1 ? QStringLiteral("Imported %1 tracks").arg(found)
+                                           : QStringLiteral("Imported %1 playlists, %2 tracks").arg(imported).arg(found);
+        setStatusMessage(found == total ? what
+                                        : QStringLiteral("%1 (%2 of %3 not in the library)").arg(what).arg(total - found).arg(total));
     }
-    return id;
+    return lastId;
 }
 
 bool Library::exportPlaylist(int id, const QUrl &file)

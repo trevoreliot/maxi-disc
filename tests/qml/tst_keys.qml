@@ -111,7 +111,12 @@ TestCase {
             { tag: "s", key: "s", action: KeyRouter.Skip },
             { tag: "r", key: "r", action: KeyRouter.Retry },
             { tag: "m", key: "m", action: KeyRouter.MountToggle },
-            { tag: "unbound x", key: "x", action: -1 },
+            { tag: "i", key: "i", action: KeyRouter.ExportAdd },
+            { tag: "x", key: "x", action: KeyRouter.ExportRemove },
+            { tag: "p", key: "p", action: KeyRouter.ExportPlan },
+            { tag: "S", key: "S", action: KeyRouter.ExportSync },
+            { tag: "delete", key: Qt.Key_Delete, action: KeyRouter.ExportRemove },
+            { tag: "unbound z", key: "z", action: -1 },
             { tag: "ctrl+j", key: Qt.Key_J, mods: Qt.ControlModifier, action: -1 },
             { tag: "alt+h", key: Qt.Key_H, mods: Qt.AltModifier, action: -1 },
         ];

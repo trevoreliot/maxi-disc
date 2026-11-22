@@ -6,6 +6,7 @@
 
 #include "coverimageprovider.h"
 #include "devices.h"
+#include "sync.h"
 #include "fixturelibrary.h"
 #include "library.h"
 #include "playback.h"
@@ -27,6 +28,7 @@ public Q_SLOTS:
             .player = {.audioSink = "fakesink sync=true"}, .mpris = false, .persistSettings = false});
         // No device detection: tests set devices with Devices.setTestDevices().
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
+        m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
     }
 
     void qmlEngineAvailable(QQmlEngine *engine)
@@ -39,6 +41,7 @@ public Q_SLOTS:
 
     void cleanupTestCase()
     {
+        m_sync.reset();
         m_devices.reset();
         m_playback.reset();
         m_library.reset();
@@ -49,6 +52,7 @@ private:
     std::unique_ptr<Library> m_library;
     std::unique_ptr<Playback> m_playback;
     std::unique_ptr<Devices> m_devices;
+    std::unique_ptr<Sync> m_sync;
 };
 
 QUICK_TEST_MAIN_WITH_SETUP(mmm_qml, Setup)

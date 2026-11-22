@@ -20,7 +20,7 @@ if(CCACHE_PROGRAM)
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
 endif()
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Concurrent DBus Network Sql Gui Qml Quick QuickControls2)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Concurrent DBus Network Sql Gui Widgets Qml Quick QuickControls2)
 qt_standard_project_setup(REQUIRES 6.8)
 qt_policy(SET QTP0004 NEW)
 set(QT_QML_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml")

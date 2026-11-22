@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -74,6 +75,48 @@ private Q_SLOTS:
         QList<mmm::M3u::Entry> e;
         QVERIFY(mmm::M3u::read(pl, &e));
         QCOMPARE(paths(e), QStringList{QStringLiteral("/music/Björk.mp3")});
+    }
+
+    // Made on Windows or by a DAP: backslashes, paths rooted on another drive.
+    void readsWindowsAndDevicePaths()
+    {
+        const QString root = m_dir.filePath(QStringLiteral("win/Media"));
+        const QString who = root + QStringLiteral("/Music/The Who/Who’s Next");
+        QVERIFY(QDir().mkpath(who));
+        QVERIFY(QDir().mkpath(root + QStringLiteral("/Music/Playlists")));
+        for (const char *name : {"Baba O’Riley.mp3", "Bargain.mp3", "Behind Blue Eyes.mp3"})
+            QVERIFY(writeRaw(who + QLatin1Char('/') + QString::fromUtf8(name), "x"));
+        const QString pl = root + QStringLiteral("/Music/Playlists/Classic Rock I.m3u");
+        QVERIFY(writeRaw(pl, QStringLiteral("#EXTM3U\r\n"
+                                            "\\Music\\The Who\\Who’s Next\\Baba O’Riley.mp3\r\n"
+                                            "E:\\Music\\The Who\\Who’s Next\\Bargain.mp3\r\n"
+                                            "..\\The Who\\Who’s Next\\Behind Blue Eyes.mp3\r\n"
+                                            "\\Music\\Nobody\\Gone.mp3\r\n")
+                                 .toUtf8()));
+        QList<mmm::M3u::Entry> entries;
+        QVERIFY(mmm::M3u::read(pl, &entries));
+        QCOMPARE(paths(entries), QStringList({who + QStringLiteral("/Baba O’Riley.mp3"), who + QStringLiteral("/Bargain.mp3"),
+                                              who + QStringLiteral("/Behind Blue Eyes.mp3"),
+                                              QStringLiteral("/Music/Nobody/Gone.mp3")})); // not found: as written
+    }
+
+    // MMM_TEST_M3U=/path/to/list.m3u ./tst_m3u userPlaylist: how many entries resolve (read-only).
+    void userPlaylist()
+    {
+        const QString pl = qEnvironmentVariable("MMM_TEST_M3U");
+        if (pl.isEmpty())
+            QSKIP("set MMM_TEST_M3U to a playlist to check");
+        QList<mmm::M3u::Entry> entries;
+        QVERIFY(mmm::M3u::read(pl, &entries));
+        int found = 0;
+        for (const auto &e : std::as_const(entries)) {
+            if (QFileInfo::exists(e.path))
+                ++found;
+            else
+                qInfo().noquote() << "not found:" << e.path;
+        }
+        qInfo().noquote() << found << "of" << entries.size() << "entries found";
+        QCOMPARE(found, entries.size());
     }
 
     void missingFile()

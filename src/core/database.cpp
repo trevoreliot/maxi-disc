@@ -144,12 +144,46 @@ QStringList migrationV4()
     };
 }
 
+QStringList migrationV5()
+{
+    const QString now = QString::fromLatin1(kNow);
+    return {
+        QStringLiteral(R"(CREATE TABLE device_sync_items (
+            id         INTEGER PRIMARY KEY,
+            device_id  TEXT NOT NULL,
+            kind       TEXT NOT NULL,
+            target_id  INTEGER NOT NULL,
+            name       TEXT NOT NULL DEFAULT '',
+            added_at   INTEGER NOT NULL DEFAULT %1,
+            UNIQUE (device_id, kind, target_id)))").arg(now),
+        QStringLiteral(R"(CREATE TABLE device_manifest (
+            device_id        TEXT NOT NULL,
+            path_key         TEXT NOT NULL,
+            rel_path         TEXT NOT NULL,
+            kind             TEXT NOT NULL,
+            source_path      TEXT NOT NULL,
+            source_size      INTEGER NOT NULL DEFAULT 0,
+            source_mtime_ms  INTEGER NOT NULL DEFAULT 0,
+            output_sig       TEXT NOT NULL DEFAULT '',
+            dest_size        INTEGER NOT NULL DEFAULT 0,
+            dest_mtime_ms    INTEGER NOT NULL DEFAULT 0,
+            title            TEXT NOT NULL DEFAULT '',
+            artist           TEXT NOT NULL DEFAULT '',
+            album            TEXT NOT NULL DEFAULT '',
+            duration_ms      INTEGER NOT NULL DEFAULT 0,
+            codec            TEXT NOT NULL DEFAULT '',
+            synced_at        INTEGER NOT NULL DEFAULT %1,
+            PRIMARY KEY (device_id, path_key)))").arg(now),
+    };
+}
+
 using Migration = QStringList (*)();
 constexpr Migration kMigrations[] = {
     &migrationV1,
     &migrationV2,
     &migrationV3,
     &migrationV4,
+    &migrationV5,
 };
 
 QVariant nullIfEmpty(const QString &s) { return s.isEmpty() ? QVariant() : QVariant(s); }
@@ -942,6 +976,172 @@ bool Database::appendToPlaylist(qint64 id, const QStringList &paths, QString *er
         }
     }
     return true;
+}
+
+// --- Device sync ---
+
+namespace {
+
+// A null QString binds as SQL NULL: NOT NULL text columns get "" instead.
+QString text(const QString &v)
+{
+    return v.isNull() ? QStringLiteral("") : v;
+}
+
+} // namespace
+
+QList<SyncItem> Database::syncItems(const QString &deviceId) const
+{
+    QList<SyncItem> out;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT id, kind, target_id, name FROM device_sync_items WHERE device_id = ? "
+                             "ORDER BY added_at, id"));
+    q.addBindValue(deviceId);
+    if (!q.exec()) {
+        qCWarning(lcDb) << "syncItems failed:" << describe(q);
+        return out;
+    }
+    while (q.next()) {
+        const auto kind = SyncItem::kindFrom(q.value(1).toString());
+        if (!kind)
+            continue;
+        out << SyncItem{q.value(0).toLongLong(), deviceId, *kind, q.value(2).toLongLong(), q.value(3).toString()};
+    }
+    return out;
+}
+
+std::optional<qint64> Database::addSyncItem(const SyncItem &item, QString *error)
+{
+    if (item.deviceId.isEmpty() || item.targetId <= 0) {
+        if (error)
+            *error = QStringLiteral("a sync item needs a device and a target");
+        return std::nullopt;
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("INSERT INTO device_sync_items (device_id, kind, target_id, name) VALUES (?, ?, ?, ?) "
+                             "ON CONFLICT (device_id, kind, target_id) DO UPDATE SET name = excluded.name "
+                             "RETURNING id"));
+    q.addBindValue(item.deviceId);
+    q.addBindValue(SyncItem::toString(item.kind));
+    q.addBindValue(item.targetId);
+    q.addBindValue(text(item.name));
+    if (!q.exec() || !q.next()) {
+        if (error)
+            *error = describe(q);
+        return std::nullopt;
+    }
+    const qint64 id = q.value(0).toLongLong();
+    q.finish();
+    return id;
+}
+
+bool Database::removeSyncItem(qint64 id)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM device_sync_items WHERE id = ?"));
+    q.addBindValue(id);
+    return q.exec() && q.numRowsAffected() > 0;
+}
+
+QList<ManifestEntry> Database::manifest(const QString &deviceId) const
+{
+    QList<ManifestEntry> out;
+    QSqlQuery q(m_db);
+    q.setForwardOnly(true);
+    q.prepare(QStringLiteral(R"(
+        SELECT rel_path, kind, source_path, source_size, source_mtime_ms, output_sig, dest_size,
+               dest_mtime_ms, title, artist, album, duration_ms, codec
+        FROM device_manifest WHERE device_id = ? ORDER BY path_key)"));
+    q.addBindValue(deviceId);
+    if (!q.exec()) {
+        qCWarning(lcDb) << "manifest failed:" << describe(q);
+        return out;
+    }
+    while (q.next()) {
+        ManifestEntry e;
+        e.deviceId = deviceId;
+        e.relPath = q.value(0).toString();
+        e.kind = q.value(1).toString() == QLatin1String("playlist") ? ManifestEntry::Kind::Playlist
+                                                                     : ManifestEntry::Kind::Track;
+        e.sourcePath = q.value(2).toString();
+        e.sourceSize = q.value(3).toLongLong();
+        e.sourceMtimeMs = q.value(4).toLongLong();
+        e.outputSig = q.value(5).toString();
+        e.destSize = q.value(6).toLongLong();
+        e.destMtimeMs = q.value(7).toLongLong();
+        e.title = q.value(8).toString();
+        e.artist = q.value(9).toString();
+        e.album = q.value(10).toString();
+        e.durationMs = q.value(11).toLongLong();
+        e.codec = q.value(12).toString();
+        out << std::move(e);
+    }
+    return out;
+}
+
+bool Database::putManifestEntry(const ManifestEntry &e, const QString &replacesRelPath, QString *error)
+{
+    if (e.deviceId.isEmpty() || e.relPath.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("a manifest entry needs a device and a path");
+        return false;
+    }
+    if (!exec(QStringLiteral("SAVEPOINT put_manifest"), error))
+        return false;
+    auto rollback = [&](const QSqlQuery &q) {
+        if (error)
+            *error = describe(q);
+        exec(QStringLiteral("ROLLBACK TO put_manifest"), nullptr);
+        exec(QStringLiteral("RELEASE put_manifest"), nullptr);
+        return false;
+    };
+    QSqlQuery q(m_db);
+    if (!replacesRelPath.isEmpty() && pathKey(replacesRelPath) != pathKey(e.relPath)) {
+        q.prepare(QStringLiteral("DELETE FROM device_manifest WHERE device_id = ? AND path_key = ?"));
+        q.addBindValue(e.deviceId);
+        q.addBindValue(pathKey(replacesRelPath));
+        if (!q.exec())
+            return rollback(q);
+    }
+    q.prepare(QStringLiteral(R"(
+        INSERT INTO device_manifest (device_id, path_key, rel_path, kind, source_path, source_size,
+                                     source_mtime_ms, output_sig, dest_size, dest_mtime_ms, title, artist,
+                                     album, duration_ms, codec)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (device_id, path_key) DO UPDATE SET
+            rel_path = excluded.rel_path, kind = excluded.kind, source_path = excluded.source_path,
+            source_size = excluded.source_size, source_mtime_ms = excluded.source_mtime_ms,
+            output_sig = excluded.output_sig, dest_size = excluded.dest_size,
+            dest_mtime_ms = excluded.dest_mtime_ms, title = excluded.title, artist = excluded.artist,
+            album = excluded.album, duration_ms = excluded.duration_ms, codec = excluded.codec,
+            synced_at = %1)").arg(QLatin1StringView(kNow)));
+    q.addBindValue(e.deviceId);
+    q.addBindValue(pathKey(e.relPath));
+    q.addBindValue(e.relPath);
+    q.addBindValue(e.kind == ManifestEntry::Kind::Playlist ? QStringLiteral("playlist") : QStringLiteral("track"));
+    q.addBindValue(text(e.sourcePath));
+    q.addBindValue(e.sourceSize);
+    q.addBindValue(e.sourceMtimeMs);
+    q.addBindValue(text(e.outputSig));
+    q.addBindValue(e.destSize);
+    q.addBindValue(e.destMtimeMs);
+    q.addBindValue(text(e.title));
+    q.addBindValue(text(e.artist));
+    q.addBindValue(text(e.album));
+    q.addBindValue(e.durationMs);
+    q.addBindValue(text(e.codec));
+    if (!q.exec())
+        return rollback(q);
+    return exec(QStringLiteral("RELEASE put_manifest"), error);
+}
+
+bool Database::removeManifestEntry(const QString &deviceId, const QString &relPath)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM device_manifest WHERE device_id = ? AND path_key = ?"));
+    q.addBindValue(deviceId);
+    q.addBindValue(pathKey(relPath));
+    return q.exec();
 }
 
 QStringList Database::playlistPaths(qint64 id) const

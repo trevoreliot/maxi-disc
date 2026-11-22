@@ -29,6 +29,27 @@ Pane {
     signal selected(int mode, var entry)
     // The user clicked in this pane (the window gives it keyboard focus).
     signal interacted()
+    // A row (not "All") was double-clicked; it's the current row now (Export adds it).
+    signal rowDoubleClicked()
+
+    // The row under the cursor as {kind, id, name} (a device sync entry: kind is "artist",
+    // "genre", "album" or "playlist"), or null on an "All" row or an empty list.
+    function currentItem(): var {
+        const i = currentList.currentIndex;
+        if (i < 0)
+            return null;
+        const e = [artistModel, genreModel, albumModel, playlistModel][mode].get(i);
+        switch (mode) {
+        case BrowsePane.Artists:
+            return { kind: "artist", id: e.artistId, name: e.name };
+        case BrowsePane.Genres:
+            return { kind: "genre", id: e.genreId, name: e.name };
+        case BrowsePane.Albums:
+            return { kind: "album", id: e.albumId, name: e.artist ? e.title + " – " + e.artist : e.title };
+        default:
+            return { kind: "playlist", id: e.playlistId, name: e.name };
+        }
+    }
 
     function moveSelection(delta: int) {
         const list = currentList;
@@ -103,13 +124,14 @@ Pane {
 
     FileDialog {
         id: importDialog
-        title: qsTr("Import playlist")
+        title: qsTr("Import playlists")
+        fileMode: FileDialog.OpenFiles
         nameFilters: [qsTr("Playlists (*.m3u *.m3u8)")]
         onAccepted: {
-            const id = Library.importPlaylist(selectedFile);
+            const id = Library.importPlaylists(selectedFiles);
             if (id > 0) {
-                // Same name Library gives it: the file's base name.
-                const file = decodeURIComponent(selectedFile.toString().split("/").pop());
+                // The last one imported, named like Library names it: the file's base name.
+                const file = decodeURIComponent(selectedFiles[selectedFiles.length - 1].toString().split("/").pop());
                 root.selected(BrowsePane.Playlists, { playlistId: id, name: file.replace(/\.m3u8?$/i, ""), itemCount: -1 });
             }
         }
@@ -191,6 +213,10 @@ Pane {
                     current: ListView.isCurrentItem
                     paneActive: root.paneActive
                     onClicked: root.clickRow(artistList, index)
+                    onDoubleClicked: {
+                        root.clickRow(artistList, index);
+                        root.rowDoubleClicked();
+                    }
 
                     contentItem: RowLayout {
                         Label {
@@ -235,6 +261,10 @@ Pane {
                     current: ListView.isCurrentItem
                     paneActive: root.paneActive
                     onClicked: root.clickRow(genreList, index)
+                    onDoubleClicked: {
+                        root.clickRow(genreList, index);
+                        root.rowDoubleClicked();
+                    }
 
                     contentItem: RowLayout {
                         Label {
@@ -270,6 +300,10 @@ Pane {
                     current: ListView.isCurrentItem
                     paneActive: root.paneActive
                     onClicked: root.clickRow(albumList, index)
+                    onDoubleClicked: {
+                        root.clickRow(albumList, index);
+                        root.rowDoubleClicked();
+                    }
 
                     contentItem: ColumnLayout {
                         spacing: 0
@@ -309,6 +343,10 @@ Pane {
                     current: ListView.isCurrentItem
                     paneActive: root.paneActive
                     onClicked: root.clickRow(playlistList, index)
+                    onDoubleClicked: {
+                        root.clickRow(playlistList, index);
+                        root.rowDoubleClicked();
+                    }
 
                     contentItem: RowLayout {
                         Label {

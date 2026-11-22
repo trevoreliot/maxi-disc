@@ -108,15 +108,39 @@ bool DeviceManager::saveProfile(DeviceProfile profile, QString *error)
     if (!m_db->saveDeviceProfile(profile, &dbError))
         return fail(QStringLiteral("Could not save the profile: %1").arg(dbError));
     rebuild();
+    Q_EMIT profileChanged(profile.deviceId);
     return true;
 }
 
 bool DeviceManager::deleteProfile(const QString &deviceId)
 {
     const bool ok = m_db->deleteDeviceProfile(deviceId);
-    if (ok)
+    if (ok) {
         rebuild();
+        Q_EMIT profileChanged(deviceId);
+    }
     return ok;
+}
+
+QList<SyncItem> DeviceManager::syncItems(const QString &deviceId) const
+{
+    return m_db->isOpen() ? m_db->syncItems(deviceId) : QList<SyncItem>();
+}
+
+bool DeviceManager::addSyncItem(const SyncItem &item, QString *error)
+{
+    if (!m_db->isOpen() || !m_db->addSyncItem(item, error))
+        return false;
+    Q_EMIT syncItemsChanged(item.deviceId);
+    return true;
+}
+
+bool DeviceManager::removeSyncItem(const QString &deviceId, qint64 itemId)
+{
+    if (!m_db->isOpen() || !m_db->removeSyncItem(itemId))
+        return false;
+    Q_EMIT syncItemsChanged(deviceId);
+    return true;
 }
 
 QString DeviceManager::objectPathFor(const QString &idOrObjectPath) const

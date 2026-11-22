@@ -37,6 +37,14 @@ add_library(mmm_core STATIC
     pathlayout.h pathlayout.cpp
     udisksmonitor.h udisksmonitor.cpp
     devicemanager.h devicemanager.cpp
+    synctypes.h synctypes.cpp
+    devicescanner.h devicescanner.cpp
+    syncplanner.h syncplanner.cpp
+    artshrinker.h artshrinker.cpp
+    transcoder.h transcoder.cpp
+    transcodecache.h transcodecache.cpp
+    usbsync.h usbsync.cpp
+    syncjob.h syncjob.cpp
     mprisservice.h mprisservice.cpp)
 target_include_directories(mmm_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"

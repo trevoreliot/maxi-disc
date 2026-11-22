@@ -2,7 +2,7 @@
 qt_add_executable(music-md-manager main.cpp)
 
 target_link_libraries(music-md-manager PRIVATE
-    mmm_ui mmm_uiplugin mmm_core Qt6::QuickControls2 mmm_build_flags)
+    mmm_ui mmm_uiplugin mmm_core Qt6::QuickControls2 Qt6::Widgets mmm_build_flags)
 mmm_add_sanitizer_defaults(music-md-manager)
 
 # Lets the QML Profiler attach (qmlprofiler / -qmljsdebugger=...). Inert unless that

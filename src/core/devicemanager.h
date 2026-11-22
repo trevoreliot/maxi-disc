@@ -10,6 +10,7 @@
 
 #include "device.h"
 #include "deviceprofile.h"
+#include "synctypes.h"
 #include "udisksmonitor.h"
 
 namespace mmm {
@@ -56,6 +57,12 @@ public:
     bool saveProfile(DeviceProfile profile, QString *error = nullptr);
     bool deleteProfile(const QString &deviceId);
 
+    // The device's sync selection (M9): playlists / albums / artists / genres to put on it.
+    QList<SyncItem> syncItems(const QString &deviceId) const;
+    // Adds an entry (adding one that's there already is fine); returns false on failure.
+    bool addSyncItem(const SyncItem &item, QString *error = nullptr);
+    bool removeSyncItem(const QString &deviceId, qint64 itemId);
+
     void mount(const QString &idOrObjectPath);
     void unmount(const QString &idOrObjectPath);
     void refreshSpace();
@@ -68,6 +75,8 @@ Q_SIGNALS:
     void devicesChanged();
     void mountFinished(const QString &deviceId, bool ok, const QString &mountPointOrError);
     void unmountFinished(const QString &deviceId, bool ok, const QString &error);
+    void syncItemsChanged(const QString &deviceId);
+    void profileChanged(const QString &deviceId);
 
 private:
     void rebuild();

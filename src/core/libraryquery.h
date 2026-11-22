@@ -115,6 +115,11 @@ public:
     QList<AlbumRow> albums(qint64 artistId = 0, qint64 genreId = 0) const;
     // An album's tracks by disc, track number, then title.
     QList<TrackRow> albumTracks(qint64 albumId) const;
+    // Tracks of the albums whose album artist this is (what the artist browser lists),
+    // album by album in albums(artistId) order.
+    QList<TrackRow> artistTracks(qint64 artistId) const;
+    // Tracks tagged with this genre, by album artist, album, disc, track.
+    QList<TrackRow> genreTracks(qint64 genreId) const;
     // Playlists by name.
     QList<PlaylistRow> playlists() const;
     // A playlist's tracks in order; entries whose file isn't in the library are skipped.

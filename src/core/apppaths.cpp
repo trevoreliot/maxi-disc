@@ -26,4 +26,10 @@ QString artCacheDir()
     return QDir(base).filePath(AppInfo::name() + QStringLiteral("/art"));
 }
 
+QString transcodeCacheDir()
+{
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation);
+    return QDir(base).filePath(AppInfo::name() + QStringLiteral("/transcode"));
+}
+
 } // namespace mmm::AppPaths

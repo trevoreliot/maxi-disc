@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <QByteArray>
 #include <QString>
 
 namespace mmm::test {
@@ -12,5 +13,10 @@ namespace mmm::test {
 // Returns an empty string on success, otherwise an error message.
 QString generateTone(const QString &path, const QString &encoder, int durationMs,
                      const QString &tags = {});
+
+// An image of `width`×`height` (GStreamer videotestsrc), encoded by `encoder`: "pngenc",
+// "jpegenc" or e.g. "jpegenc idct-method=float" (the JPEG encoder writes baseline JPEGs).
+// Returns the encoded bytes, empty on failure.
+QByteArray generateImage(int width, int height, const QString &encoder = QStringLiteral("pngenc"));
 
 } // namespace mmm::test

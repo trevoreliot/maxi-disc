@@ -12,10 +12,12 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QUrl>
 
 #include "artfinder.h"
 #include "coverimageprovider.h"
 #include "devices.h"
+#include "sync.h"
 #include "profileeditor.h"
 #include "fixturelibrary.h"
 #include "library.h"
@@ -69,6 +71,7 @@ private:
     QTemporaryDir m_dir;
     std::unique_ptr<Library> m_library;
     std::unique_ptr<Devices> m_devices;
+    std::unique_ptr<Sync> m_sync;
     QString m_cacheDir;
 
     template<typename Model>
@@ -103,11 +106,13 @@ private Q_SLOTS:
         m_library = std::make_unique<Library>(Library::Options{.databasePath = db, .scanOnStart = false, .watch = false});
         QVERIFY(m_library->isReady());
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
+        m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
         m_cacheDir = m_dir.filePath(QStringLiteral("covers"));
     }
 
     void cleanupTestCase()
     {
+        m_sync.reset();
         m_devices.reset();
         m_library.reset();
     }
@@ -528,6 +533,137 @@ private Q_SLOTS:
         QVERIFY(again.remove());
         QCOMPARE(m_devices->current().value(QStringLiteral("hasProfile")).toBool(), false);
         m_devices->setTestDevices({});
+    }
+
+    void importSeveralPlaylists()
+    {
+        const QStringList paths = m_library->runQuery([](const mmm::LibraryQuery &q) {
+            QStringList out;
+            for (const mmm::AlbumRow &a : q.albums())
+                for (const mmm::TrackRow &t : q.albumTracks(a.id))
+                    out << t.path;
+            return out;
+        }).result();
+        QVERIFY(paths.size() >= 3);
+        auto writeList = [&](const QString &name, const QByteArray &body) {
+            const QString file = m_dir.filePath(name);
+            QFile f(file);
+            if (!f.open(QIODevice::WriteOnly) || f.write(body) != body.size())
+                return QUrl();
+            return QUrl::fromLocalFile(file);
+        };
+        const QUrl one = writeList(QStringLiteral("One.m3u"), (paths[0] + QLatin1Char('\n') + paths[1] + QLatin1Char('\n')).toUtf8());
+        const QUrl two = writeList(QStringLiteral("Two.m3u8"), (paths[2] + QStringLiteral("\n/nowhere/x.mp3\n")).toUtf8());
+        const int id = m_library->importPlaylists({one, two, QUrl::fromLocalFile(m_dir.filePath(QStringLiteral("missing.m3u")))});
+        QVERIFY(id > 0);
+        QCOMPARE(m_library->statusMessage(), QStringLiteral("Imported 2 playlists, 3 tracks (1 of 4 not in the library)"));
+        QVERIFY(m_library->errorString().contains(QStringLiteral("missing.m3u")));
+        m_library->clearError();
+        const QList<mmm::PlaylistRow> lists = m_library->runQuery([](const mmm::LibraryQuery &q) { return q.playlists(); }).result();
+        int imported = 0;
+        for (const mmm::PlaylistRow &p : lists) {
+            if (p.name == QStringLiteral("One") || p.name == QStringLiteral("Two")) {
+                ++imported;
+                if (p.name == QStringLiteral("Two"))
+                    QCOMPARE(p.id, qint64(id)); // the last one imported
+                QVERIFY(m_library->deletePlaylist(static_cast<int>(p.id)));
+            }
+        }
+        QCOMPARE(imported, 2);
+    }
+
+    // --- USB sync (M9): selection → plan → run against a temp dir standing in for the stick ---
+    void syncController()
+    {
+        const QString mount = m_dir.filePath(QStringLiteral("stick"));
+        QVERIFY(QDir().mkpath(mount));
+        m_devices->setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("uuid:SYNC")},
+                                               {QStringLiteral("name"), QStringLiteral("SYNC")},
+                                               {QStringLiteral("mountPoint"), mount}}});
+        Sync &s = *m_sync;
+        QCOMPARE(s.deviceId(), QStringLiteral("uuid:SYNC"));
+        QCOMPARE(s.state(), Sync::Idle);
+        QVERIFY(!s.canPlan()); // not set up yet
+        QCOMPARE(s.selection()->count(), 0);
+
+        mmm::DeviceProfile p = *mmm::DeviceProfiles::builtIn(QStringLiteral("usb-flash"));
+        p.deviceId = QStringLiteral("uuid:SYNC");
+        p.name = QStringLiteral("Sync stick");
+        QSignalSpy canPlan(&s, &Sync::canPlanChanged);
+        QVERIFY(m_devices->manager()->saveProfile(p));
+        QVERIFY(s.canPlan());
+        QCOMPARE(canPlan.count(), 1);
+
+        const qint64 kidA = m_library->runQuery([](const mmm::LibraryQuery &q) {
+            for (const mmm::AlbumRow &a : q.albums())
+                if (a.title == QStringLiteral("Kid A"))
+                    return a.id;
+            return qint64(0);
+        }).result();
+        QVERIFY(kidA > 0);
+        QVERIFY(!s.addItem(QStringLiteral("bogus"), 1, QStringLiteral("x")));
+        QVERIFY(s.addItem(QStringLiteral("album"), static_cast<int>(kidA), QStringLiteral("Kid A – Radiohead")));
+        QCOMPARE(s.selection()->count(), 1);
+        QTRY_COMPARE(s.tracks()->count(), 2);
+        QTRY_COMPARE(s.selection()->data(s.selection()->index(0), SyncSelectionModel::TrackCountRole).toInt(), 2);
+        QCOMPARE(s.selection()->data(s.selection()->index(0), SyncSelectionModel::KindRole).toString(), QStringLiteral("Album"));
+        QCOMPARE(s.tracks()->data(s.tracks()->index(0), SyncTrackModel::TargetRole).toString(), QStringLiteral("FLAC"));
+
+        // Plan: only Kid A/01.flac exists on disk; the other is reported, not copied.
+        s.plan();
+        QCOMPARE(s.state(), Sync::Planning);
+        QVERIFY(!s.canPlan());
+        QTRY_COMPARE(s.state(), Sync::Ready);
+        QVariantMap summary = s.planSummary();
+        QCOMPARE(summary.value(QStringLiteral("adds")).toInt(), 1);
+        QCOMPARE(summary.value(QStringLiteral("warnings")).toStringList().size(), 1);
+        QCOMPARE(s.planActions()->count(), 1);
+        QCOMPARE(s.planActions()->data(s.planActions()->index(0), SyncPlanModel::KindRole).toString(), QStringLiteral("add"));
+        QVERIFY(s.canSync());
+
+        QSignalSpy progress(&s, &Sync::progressChanged);
+        s.run();
+        QCOMPARE(s.state(), Sync::Syncing);
+        QTRY_COMPARE_WITH_TIMEOUT(s.state(), Sync::Done, 20000);
+        QVERIFY(!progress.isEmpty());
+        const QVariantMap result = s.result();
+        QVERIFY2(result.value(QStringLiteral("ok")).toBool(), qPrintable(result.value(QStringLiteral("error")).toString()));
+        QCOMPARE(result.value(QStringLiteral("added")).toInt(), 1);
+        QDirIterator it(mount, {QStringLiteral("*.flac")}, QDir::Files, QDirIterator::Subdirectories);
+        QVERIFY(it.hasNext());
+        QVERIFY(it.next().startsWith(mount + QStringLiteral("/Music/Radiohead/Kid A/")));
+
+        // Again: nothing to do.
+        s.dismiss();
+        QCOMPARE(s.state(), Sync::Idle);
+        s.plan();
+        QTRY_COMPARE(s.state(), Sync::Ready);
+        QVERIFY(!s.planSummary().value(QStringLiteral("hasWork")).toBool());
+        QVERIFY(!s.canSync());
+
+        // A change while planning: the plan that comes back is dropped, not shown.
+        s.dismiss();
+        s.plan();
+        QCOMPARE(s.state(), Sync::Planning);
+        p.name = QStringLiteral("Sync stick 2");
+        QVERIFY(m_devices->manager()->saveProfile(p));
+        QTRY_VERIFY(!m_sync->job()->isBusy());
+        QCOMPARE(s.state(), Sync::Idle);
+        QVERIFY(s.planSummary().isEmpty());
+        QTRY_VERIFY(s.canPlan());
+        s.plan();
+        QTRY_COMPARE(s.state(), Sync::Ready);
+
+        // Changing the selection drops the shown plan.
+        s.removeAt(0);
+        QCOMPARE(s.state(), Sync::Idle);
+        QCOMPARE(s.selection()->count(), 0);
+        QTRY_COMPARE(s.tracks()->count(), 0);
+
+        QVERIFY(m_devices->manager()->deleteProfile(QStringLiteral("uuid:SYNC")));
+        QVERIFY(!s.canPlan());
+        m_devices->setTestDevices({});
+        QCOMPARE(s.deviceId(), QString());
     }
 
     // --- Artwork finder (M7) ---

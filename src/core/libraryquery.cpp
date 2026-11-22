@@ -139,6 +139,34 @@ QList<GenreRow> LibraryQuery::genres() const
     return rows;
 }
 
+QList<TrackRow> LibraryQuery::artistTracks(qint64 artistId) const
+{
+    QList<TrackRow> rows;
+    for (const AlbumRow &album : albums(artistId))
+        rows += albumTracks(album.id);
+    return rows;
+}
+
+QList<TrackRow> LibraryQuery::genreTracks(qint64 genreId) const
+{
+    QList<TrackRow> rows;
+    QSqlQuery q(m_db.connection());
+    q.setForwardOnly(true);
+    q.prepare(kTrackSelect + QStringLiteral(" WHERE t.genre_id = ?"));
+    q.addBindValue(genreId);
+    if (!run(q))
+        return rows;
+    while (q.next())
+        rows << trackFrom(q);
+    sortBy(rows,
+           [](const TrackRow &r) {
+               return sortName(r.albumArtist) + QChar(1) + r.album + QChar(1)
+                   + QStringLiteral("%1-%2").arg(r.discNumber, 3, 10, QLatin1Char('0')).arg(r.trackNumber, 4, 10, QLatin1Char('0'));
+           },
+           [](const TrackRow &a, const TrackRow &b) { return a.id < b.id; });
+    return rows;
+}
+
 QList<AlbumRow> LibraryQuery::albums(qint64 artistId, qint64 genreId) const
 {
     QString sql = QStringLiteral(R"(
