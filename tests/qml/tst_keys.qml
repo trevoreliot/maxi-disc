@@ -116,6 +116,7 @@ TestCase {
             { tag: "p", key: "p", action: KeyRouter.ExportPlan },
             { tag: "S", key: "S", action: KeyRouter.ExportSync },
             { tag: "delete", key: Qt.Key_Delete, action: KeyRouter.ExportRemove },
+            { tag: "o", key: "o", action: KeyRouter.ToggleOnDevice },
             { tag: "unbound z", key: "z", action: -1 },
             { tag: "ctrl+j", key: Qt.Key_J, mods: Qt.ControlModifier, action: -1 },
             { tag: "alt+h", key: Qt.Key_H, mods: Qt.AltModifier, action: -1 },

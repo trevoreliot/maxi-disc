@@ -116,6 +116,7 @@ private Q_SLOTS:
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_profiles")));
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_sync_items")));
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_manifest")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE device_file_tags")));
             QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 3")));
         }
         Database db;

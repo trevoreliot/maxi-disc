@@ -75,6 +75,11 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     (worker thread, own Database, queued signals). `ArtShrinker` resizes art with GStreamer (no
     QtGui in core). UI: `Sync` QML singleton (construct after Devices; tests pass a temp `cacheDir`)
     + `SyncPane.qml`. Export keys: `i` add, `x`/Delete remove, `p` plan, `S` sync, Esc closes the plan.
+  - On-device browser (M9b): core `DeviceBrowser` (DeviceScanner + TagReader, tags cached in
+    `device_file_tags` by size + mtime; `LibraryMatcher` decides "in library": synced from it, or same
+    artist/album/title, or artist/title ±3 s) on its own worker. UI: `OnDevice` QML singleton (reads
+    only while `active`, pauses during a sync, refreshes after) + `OnDeviceModel` (artist → album → track
+    rows, folding, cursor kept by key) + `OnDevicePane.qml`. `o` switches the Export right pane.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).
@@ -172,7 +177,7 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   comment saying where they were seen. New executables: call `mmm_add_sanitizer_defaults()`.
 - ctest runs headless (`offscreen`), so GPU-driver issues only show up in a real run.
   Run the app on the real display as part of each milestone's user test.
-- QML: `TestCase` is invisible by default; set `visible: true` or mouse events go nowhere.
+- [ ] QML: `TestCase` is invisible by default; set `visible: true` or mouse events go nowhere.
   No translations are loaded, so don't use `qsTr("%n item(s)")` plural forms (prints "(s)").
   Ids are `int` in QML (row ids stay < 2^31).
   `someQStringList.indexOf(x)` in QML compiles (qmlcachegen) to C++ that fails `-Wconversion`:

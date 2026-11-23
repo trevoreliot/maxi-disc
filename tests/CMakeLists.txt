@@ -81,12 +81,12 @@ set(MMM_DEVICE_TESTS tst_deviceprofile tst_pathlayout tst_udisksmonitor tst_devi
 qt_add_executable(tst_syncplanner core/tst_syncplanner.cpp)
 target_link_libraries(tst_syncplanner PRIVATE mmm_core Qt6::Test mmm_build_flags)
 add_test(NAME tst_syncplanner COMMAND tst_syncplanner)
-foreach(t tst_artshrinker tst_transcoder tst_usbsync)
+foreach(t tst_artshrinker tst_transcoder tst_usbsync tst_devicebrowser)
     qt_add_executable(${t} core/${t}.cpp core/testmedia.h core/testmedia.cpp)
     target_link_libraries(${t} PRIVATE mmm_core PkgConfig::GST TagLib::tag Qt6::Test mmm_build_flags)
     add_test(NAME ${t} COMMAND ${t})
 endforeach()
-set(MMM_SYNC_TESTS tst_syncplanner tst_artshrinker tst_transcoder tst_usbsync)
+set(MMM_SYNC_TESTS tst_syncplanner tst_artshrinker tst_transcoder tst_usbsync tst_devicebrowser)
 
 set(MMM_ARTWORK_TESTS tst_artworksaver tst_artworkmatch tst_httpfetcher tst_musicbrainzclient tst_coverartarchiveclient tst_artworkfinder)
 

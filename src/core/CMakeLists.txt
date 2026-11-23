@@ -44,6 +44,7 @@ add_library(mmm_core STATIC
     transcoder.h transcoder.cpp
     transcodecache.h transcodecache.cpp
     usbsync.h usbsync.cpp
+    devicebrowser.h devicebrowser.cpp
     syncjob.h syncjob.cpp
     mprisservice.h mprisservice.cpp)
 target_include_directories(mmm_core PUBLIC

@@ -131,6 +131,28 @@ struct SyncPlan
     bool hasWork() const { return !actions.isEmpty() || !staleTempFiles.isEmpty(); }
 };
 
+// An audio file on a device as the on-device browser shows it (M9b). Tags come from the file
+// (cached in device_file_tags by size + mtime); the flags are worked out per browse.
+struct DeviceTrack
+{
+    QString relPath;     // from the mount point
+    qint64 size = 0;
+    qint64 mtimeMs = 0;
+    QString title;       // as tagged ("" if untagged: the browser shows the file name)
+    QString artist;
+    QString album;
+    QString albumArtist;
+    int trackNumber = 0;
+    int discNumber = 0;
+    int year = 0;
+    qint64 durationMs = 0;
+    QString codec;       // "MP3", "FLAC", ... ("" if the file couldn't be read)
+    int bitrateKbps = 0;
+    bool inLibrary = false; // the library has this song (synced from it, or same tags)
+    bool synced = false;    // this app wrote it (device_manifest)
+    friend bool operator==(const DeviceTrack &, const DeviceTrack &) = default;
+};
+
 struct SyncProgress
 {
     int filesDone = 0;
@@ -161,3 +183,4 @@ struct SyncResult
 Q_DECLARE_METATYPE(mmm::SyncPlan)
 Q_DECLARE_METATYPE(mmm::SyncProgress)
 Q_DECLARE_METATYPE(mmm::SyncResult)
+Q_DECLARE_METATYPE(mmm::DeviceTrack)

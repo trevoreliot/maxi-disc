@@ -58,6 +58,7 @@ public:
         ExportRemove,   // Export: remove the selection entry under the cursor
         ExportPlan,     // Export: plan a sync of the selected device
         ExportSync,     // Export: run the plan that's shown
+        ToggleOnDevice, // Export: right pane "Tracks to Export" ↔ "On Device"
     };
     Q_ENUM(Action)
 

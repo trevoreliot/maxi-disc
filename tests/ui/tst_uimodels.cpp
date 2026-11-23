@@ -17,6 +17,7 @@
 #include "artfinder.h"
 #include "coverimageprovider.h"
 #include "devices.h"
+#include "ondevice.h"
 #include "sync.h"
 #include "profileeditor.h"
 #include "fixturelibrary.h"
@@ -72,6 +73,7 @@ private:
     std::unique_ptr<Library> m_library;
     std::unique_ptr<Devices> m_devices;
     std::unique_ptr<Sync> m_sync;
+    std::unique_ptr<OnDevice> m_onDevice;
     QString m_cacheDir;
 
     template<typename Model>
@@ -107,11 +109,13 @@ private Q_SLOTS:
         QVERIFY(m_library->isReady());
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
+        m_onDevice = std::make_unique<OnDevice>(OnDevice::Options{.databasePath = db});
         m_cacheDir = m_dir.filePath(QStringLiteral("covers"));
     }
 
     void cleanupTestCase()
     {
+        m_onDevice.reset();
         m_sync.reset();
         m_devices.reset();
         m_library.reset();
@@ -570,6 +574,123 @@ private Q_SLOTS:
             }
         }
         QCOMPARE(imported, 2);
+    }
+
+    // --- On-device browser (M9b) ---
+    void onDeviceModelGroupsAndFolds()
+    {
+        auto track = [](const char *rel, const char *artist, const char *album, const char *title, int no, qint64 size,
+                        bool inLibrary = true, const char *albumArtist = "") {
+            mmm::DeviceTrack t;
+            t.relPath = QString::fromUtf8(rel);
+            t.artist = QString::fromUtf8(artist);
+            t.album = QString::fromUtf8(album);
+            t.title = QString::fromUtf8(title);
+            t.albumArtist = QString::fromUtf8(albumArtist);
+            t.trackNumber = no;
+            t.size = size;
+            t.inLibrary = inLibrary;
+            return t;
+        };
+        OnDeviceModel m;
+        QAbstractItemModelTester tester(&m, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        m.beginBrowse();
+        m.addTracks({track("Music/b/2.mp3", "The Beatles", "Abbey Road", "Something", 2, 100),
+                     track("Music/x.mp3", "", "", "", 0, 50, false),
+                     track("Music/b/1.mp3", "The Beatles", "Abbey Road", "Come Together", 1, 100),
+                     track("Music/n/1.mp3", "Björk", "Now 42", "Army of Me", 1, 10, false, "Various Artists"),
+                     track("Music/a/1.mp3", "ABBA", "Gold", "SOS", 1, 30)});
+        m.endBrowse();
+        auto label = [&](int row) { return m.data(m.index(row), OnDeviceModel::LabelRole).toString(); };
+        auto kind = [&](int row) { return m.data(m.index(row), OnDeviceModel::KindRole).toInt(); };
+        // ABBA, The Beatles (as "Beatles"), Various Artists, then Unknown Artist.
+        const QStringList expected{QStringLiteral("ABBA"), QStringLiteral("Gold"), QStringLiteral("SOS"),
+                                   QStringLiteral("The Beatles"), QStringLiteral("Abbey Road"), QStringLiteral("Come Together"),
+                                   QStringLiteral("Something"), QStringLiteral("Various Artists"), QStringLiteral("Now 42"),
+                                   QStringLiteral("Army of Me"), QStringLiteral("Unknown Artist"), QStringLiteral("Unknown Album"),
+                                   QStringLiteral("x")};
+        QStringList labels;
+        for (int i = 0; i < m.rowCount(); ++i)
+            labels << label(i);
+        QCOMPARE(labels, expected);
+        QCOMPARE(kind(0), int(OnDeviceModel::ArtistRow));
+        QCOMPARE(kind(1), int(OnDeviceModel::AlbumRow));
+        QCOMPARE(kind(2), int(OnDeviceModel::TrackRow));
+        QCOMPARE(m.data(m.index(9), OnDeviceModel::DetailRole).toString(), QStringLiteral("Björk")); // compilation artist
+        QCOMPARE(m.data(m.index(3), OnDeviceModel::TrackCountRole).toInt(), 2);
+        QCOMPARE(m.data(m.index(7), OnDeviceModel::NotInLibraryCountRole).toInt(), 1);
+        QCOMPARE(m.trackCount(), 5);
+        QCOMPARE(m.notInLibraryCount(), 2);
+        QCOMPARE(m.totalBytes(), qint64(290));
+
+        // Folding the Beatles hides their album and tracks; the cursor stays on the header.
+        m.setCurrentIndex(3);
+        m.toggle(3);
+        QCOMPARE(m.rowCount(), expected.size() - 3);
+        QCOMPARE(m.currentIndex(), 3);
+        QVERIFY(!m.data(m.index(3), OnDeviceModel::ExpandedRole).toBool());
+        QCOMPARE(m.trackCount(), 5); // still counted
+        m.toggle(3);
+        QCOMPARE(m.rowCount(), expected.size());
+
+        // New results move rows: the cursor follows its row.
+        m.setCurrentIndex(5); // Come Together
+        m.addTracks({track("Music/0.mp3", "AC/DC", "Back in Black", "Hells Bells", 1, 20)});
+        m.rebuild();
+        QCOMPARE(label(m.currentIndex()), QStringLiteral("Come Together"));
+        m.move(-100);
+        QCOMPARE(m.currentIndex(), 0);
+        m.move(1000);
+        QCOMPARE(m.currentIndex(), m.rowCount() - 1);
+
+        // A browse that no longer sees a file drops it.
+        m.beginBrowse();
+        m.addTracks({track("Music/a/1.mp3", "ABBA", "Gold", "SOS", 1, 30)});
+        m.endBrowse();
+        QCOMPARE(m.trackCount(), 1);
+        m.clear();
+        QCOMPARE(m.rowCount(), 0);
+        QCOMPARE(m.currentIndex(), -1);
+    }
+
+    void onDeviceBrowsesTheSelectedDevice()
+    {
+        // The fixture folder stands in for a stick (no profile: the whole device).
+        m_devices->setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("uuid:ONDEV")},
+                                               {QStringLiteral("name"), QStringLiteral("ONDEV")},
+                                               {QStringLiteral("mountPoint"), m_dir.path()}}});
+        OnDevice &od = *m_onDevice;
+        QVERIFY(!od.isBrowsing()); // not shown: not read
+        od.setActive(true);
+        QVERIFY(od.isBrowsing());
+        QTRY_VERIFY_WITH_TIMEOUT(!od.isBrowsing(), 10000);
+        QVERIFY(od.errorString().isEmpty());
+        QCOMPARE(od.scannedDir(), QString());
+        QVERIFY(od.model()->trackCount() >= 1); // Kid A/01.flac at least
+        // Kid A/01.flac is a library file; other tests leave files the library hasn't ("loose/").
+        bool kidA = false;
+        for (int i = 0; i < od.model()->rowCount(); ++i) {
+            const QModelIndex x = od.model()->index(i);
+            const QString rel = x.data(OnDeviceModel::RelPathRole).toString();
+            if (x.data(OnDeviceModel::KindRole).toInt() != OnDeviceModel::TrackRow)
+                continue;
+            if (rel.endsWith(QStringLiteral("Kid A/01.flac"))) {
+                kidA = true;
+                QVERIFY(x.data(OnDeviceModel::InLibraryRole).toBool());
+            } else if (rel.startsWith(QStringLiteral("loose/"))) {
+                QVERIFY(!x.data(OnDeviceModel::InLibraryRole).toBool());
+            }
+        }
+        QVERIFY(kidA);
+        QCOMPARE(od.done(), od.total());
+
+        // Unmounted: nothing to show.
+        m_devices->setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("uuid:ONDEV")},
+                                               {QStringLiteral("name"), QStringLiteral("ONDEV")}}});
+        QCOMPARE(od.model()->trackCount(), 0);
+        QVERIFY(!od.isBrowsing());
+        od.setActive(false);
+        m_devices->setTestDevices({});
     }
 
     // --- USB sync (M9): selection → plan → run against a temp dir standing in for the stick ---

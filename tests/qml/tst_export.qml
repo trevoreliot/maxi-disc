@@ -192,6 +192,55 @@ TestCase {
         verify(ed.remove());
     }
 
+    // M9b: the right pane's "On Device" view, by keyboard.
+    function test_onDeviceView() {
+        Devices.setTestDevices([{ id: "uuid:T-OD", name: "ODSTICK", fsType: "vfat" }]); // not mounted
+        const win = openExport();
+        const view = win.exportView;
+        compare(OnDevice.active, false);
+        verify(findChild(view, "syncPane").visible);
+        keyClick("o");
+        compare(OnDevice.active, true);
+        tryVerify(() => findChild(view, "onDevicePane").visible);
+        verify(!findChild(view, "syncPane").visible);
+        verify(findChild(view, "onDeviceMountButton").visible);
+        compare(findChild(view, "onDeviceUnmounted").text, "ODSTICK isn't mounted.");
+
+        // Mounted (the fixture folder stands in for it): its music shows.
+        Devices.setTestDevices([{ id: "uuid:T-OD", name: "ODSTICK", fsType: "vfat", mountPoint: fixtureDir,
+                                  totalBytes: 16000000000, freeBytes: 8000000000 }]);
+        tryVerify(() => OnDevice.model.trackCount > 0 && !OnDevice.browsing, 10000);
+        verify(!findChild(view, "onDeviceMountButton").visible);
+        verify(findChild(view, "onDeviceSummary").text.indexOf(" track") > 0);
+        compare(OnDevice.model.currentIndex, 0);
+
+        // o put the keys in the list (once it had rows): j/k move, Enter folds the artist; h / l
+        // go to the browse pane and back.
+        compare(view.pane, ExportView.Selection);
+        keyClick("h");
+        compare(view.pane, ExportView.Browse);
+        keyClick("l");
+        compare(view.pane, ExportView.Selection);
+        const rows = OnDevice.model.count;
+        keyClick(Qt.Key_Return); // row 0 is an artist
+        verify(OnDevice.model.count < rows);
+        keyClick(Qt.Key_Return);
+        compare(OnDevice.model.count, rows);
+        keyClick("j");
+        compare(OnDevice.model.currentIndex, 1);
+        keyClick("k");
+        compare(OnDevice.model.currentIndex, 0);
+        if (screenshotDir !== "") {
+            wait(200);
+            grabImage(win.contentItem).save(screenshotDir + "/export-on-device.png");
+        }
+
+        // o: back to the export view.
+        keyClick("o");
+        compare(OnDevice.active, false);
+        tryVerify(() => findChild(view, "syncPane").visible);
+    }
+
     function test_screenshot() {
         if (screenshotDir === "")
             skip("set MMM_SCREENSHOT_DIR to save screenshots");

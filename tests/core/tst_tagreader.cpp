@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QDirIterator>
 #include <QFile>
+#include <QLoggingCategory>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -106,6 +107,28 @@ private:
     }
 
 private Q_SLOTS:
+    // TagLib's complaints about odd files go to the mmm.taglib category (hidden by default),
+    // not straight to stderr.
+    void tagLibMessagesAreLogged()
+    {
+        static QStringList seen;
+        seen.clear();
+        QLoggingCategory::setFilterRules(QStringLiteral("mmm.taglib.debug=true"));
+        const QtMessageHandler previous = qInstallMessageHandler([](QtMsgType, const QMessageLogContext &ctx, const QString &msg) {
+            if (ctx.category && QLatin1String(ctx.category) == QLatin1String("mmm.taglib"))
+                seen << msg;
+        });
+        const QString junk = m_dir.filePath(QStringLiteral("junk.mp3"));
+        QFile f(junk);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(QByteArray(4096, 'x'));
+        f.close();
+        QVERIFY(!mmm::TagReader::read(junk));
+        qInstallMessageHandler(previous);
+        QLoggingCategory::setFilterRules(QString());
+        QVERIFY2(!seen.isEmpty(), "TagLib said nothing about a junk MP3");
+    }
+
     void initTestCase()
     {
         QVERIFY(m_dir.isValid());

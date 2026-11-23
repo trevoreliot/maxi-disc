@@ -2,8 +2,11 @@
 #include "tagreader.h"
 
 #include <QFile>
+#include <QLoggingCategory>
 #include <QFileInfo>
 #include <QRegularExpression>
+
+#include <mutex>
 
 #include <taglib/aifffile.h>
 #include <taglib/fileref.h>
@@ -12,13 +15,26 @@
 #include <taglib/mpegfile.h>
 #include <taglib/oggflacfile.h>
 #include <taglib/opusfile.h>
+#include <taglib/tdebuglistener.h>
 #include <taglib/tpropertymap.h>
 #include <taglib/vorbisfile.h>
 #include <taglib/wavfile.h>
 
+Q_LOGGING_CATEGORY(lcTagLib, "mmm.taglib", QtWarningMsg)
+
 namespace mmm {
 
 namespace {
+
+// TagLib reports harmless oddities of real-world files on stderr; they belong in a log.
+class TagLibListener : public TagLib::DebugListener
+{
+public:
+    void printMessage(const TagLib::String &msg) override
+    {
+        qCDebug(lcTagLib).noquote() << QString::fromStdString(msg.to8Bit(true)).trimmed();
+    }
+};
 
 QString toQString(const TagLib::String &s)
 {
@@ -141,8 +157,16 @@ std::optional<double> TagReader::parseGain(const QString &text)
     return ok ? std::optional<double>(v) : std::nullopt;
 }
 
+void TagReader::routeTagLibMessages()
+{
+    static TagLibListener listener;
+    static std::once_flag once;
+    std::call_once(once, [] { TagLib::setDebugListener(&listener); });
+}
+
 std::optional<TrackTags> TagReader::read(const QString &path, QString *error)
 {
+    routeTagLibMessages();
     const QByteArray name = encodedPath(path);
     TagLib::FileRef ref(name.constData(), true, TagLib::AudioProperties::Average);
     if (ref.isNull() || !ref.file()->isValid()) {
@@ -206,6 +230,7 @@ std::optional<TrackTags> TagReader::read(const QString &path, QString *error)
 
 QList<EmbeddedPicture> TagReader::readPictures(const QString &path)
 {
+    routeTagLibMessages();
     const QByteArray name = encodedPath(path);
     TagLib::FileRef ref(name.constData(), false);
     QList<EmbeddedPicture> out;
@@ -221,6 +246,7 @@ QList<EmbeddedPicture> TagReader::readPictures(const QString &path)
 
 std::optional<EmbeddedPicture> TagReader::readCover(const QString &path)
 {
+    routeTagLibMessages();
     QList<EmbeddedPicture> pics = readPictures(path);
     if (pics.isEmpty())
         return std::nullopt;

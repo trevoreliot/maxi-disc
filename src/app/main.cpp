@@ -12,6 +12,7 @@
 #include "coverimageprovider.h"
 #include "devices.h"
 #include "library.h"
+#include "ondevice.h"
 #include "playback.h"
 #include "sync.h"
 
@@ -68,6 +69,7 @@ int main(int argc, char *argv[])
     Playback playback({.player = {}, .mpris = !parser.isSet(noMprisOpt), .persistSettings = true});
     Devices devices({.databasePath = databasePath, .monitor = !parser.isSet(noDevicesOpt)});
     Sync sync({.databasePath = databasePath, .cacheDir = {}});
+    OnDevice onDevice({.databasePath = databasePath});
     QObject::connect(&playback, &Playback::quitRequested, &app, &QCoreApplication::quit);
 
     QQmlApplicationEngine engine;

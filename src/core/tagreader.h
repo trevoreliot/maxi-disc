@@ -26,6 +26,11 @@ public:
     // (MP4 stores no picture types, so for .m4a this is always the first picture.)
     static std::optional<EmbeddedPicture> readCover(const QString &path);
 
+    // Sends TagLib's own messages ("Duplicate ID3v2 tags found", ...) to the mmm.taglib
+    // logging category (debug level: hidden unless QT_LOGGING_RULES="mmm.taglib.debug=true")
+    // instead of stderr. Called by TagReader and TagWriter; idempotent and thread-safe.
+    static void routeTagLibMessages();
+
     // --- Parsing helpers (exposed for tests) ---
     // "3", "3/12", " 03 / 12 " → {3, 12}; garbage → {0, 0}.
     static std::pair<int, int> parseNumberPair(const QString &text);

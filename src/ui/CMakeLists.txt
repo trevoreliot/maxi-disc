@@ -33,6 +33,7 @@ qt_add_qml_module(mmm_ui
         qml/ArtworkFinderDialog.qml
         qml/ProfileEditorDialog.qml
         qml/SyncPane.qml
+        qml/OnDevicePane.qml
     SOURCES
         appbridge.h appbridge.cpp
         library.h library.cpp
@@ -45,6 +46,7 @@ qt_add_qml_module(mmm_ui
         devices.h devices.cpp
         profileeditor.h profileeditor.cpp
         sync.h sync.cpp
+        ondevice.h ondevice.cpp
         theme.h theme.cpp)
 
 target_link_libraries(mmm_ui

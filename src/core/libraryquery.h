@@ -124,6 +124,9 @@ public:
     QList<PlaylistRow> playlists() const;
     // A playlist's tracks in order; entries whose file isn't in the library are skipped.
     QList<TrackRow> playlistTracks(qint64 playlistId) const;
+    // Every track's path, title, artist, album, album artist and duration (other fields
+    // empty): what the on-device browser matches device files against.
+    QList<TrackRow> trackIdentities() const;
     // Library tracks for these file paths, in the given order (unknown paths skipped).
     QList<TrackRow> tracksByPaths(const QStringList &paths) const;
 

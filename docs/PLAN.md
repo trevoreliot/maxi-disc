@@ -121,7 +121,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 ### Phase 4: USB sync
 - [x] **M8 Device detection + profiles** — Done when: detects USB mounts; per-device profile (folder layout, playable formats, transcode target); built-in profiles for USB flash drive and generic DAP. User test: plug in a thumb drive and create a profile.
 - [x] **M9 Sync engine** — Done when: sync plan (add / update / remove) shown before running; copy with progress; transcode cache; playlists written. User test: sync a playlist, change it, sync again; only the changes copy.
-- [ ] **M9b On-device browser** — Done when: the Export screen's right pane has a toggle between "Tracks to Export" and "On Device"; On Device lists the selected device's music (artist → album → tracks, sizes, free space) from M9's device scan, marks tracks not in the library, and offers Mount when unmounted; read-only. User test: plug in a thumb drive with music on it and browse what's there.
+- [x] **M9b On-device browser** — Done when: the Export screen's right pane has a toggle between "Tracks to Export" and "On Device"; On Device lists the selected device's music (artist → album → tracks, sizes, free space) from M9's device scan, marks tracks not in the library, and offers Mount when unmounted; read-only. User test: plug in a thumb drive with music on it and browse what's there.
 
 ### Phase 5: MiniDisc
 - [ ] **M10 NetMD basics** — Done when: libnetmd linked; detect the MZ-NE410; read disc TOC and titles; rename disc and tracks; udev rule documented. User test: read and retitle a scratch disc.
@@ -280,6 +280,14 @@ and the user has run the "User test". Tick the box, commit, then stop.
     `MMM_TEST_M3U=list.m3u ./build/debug/tests/tst_m3u userPlaylist`.
   - Two syncs can't run at once (one `SyncJob`); changing the selected device while syncing
     keeps the running sync (its progress stays on screen).
+- M9b notes / follow-ups:
+  - Reads the profile's music folder (whole device without a profile or if the folder is missing;
+    "Whole device" button otherwise). Tags are cached per device in `device_file_tags` (schema v6).
+  - TagLib's messages about odd files ("Duplicate ID3v2 tags found", ...) go to the `mmm.taglib`
+    logging category, hidden by default: `QT_LOGGING_RULES="mmm.taglib.debug=true"` shows them.
+  - Not done: delete from device; add a device's tracks to the library; the device's playlists;
+    cover art; search / "only not in library" filter; play a device file; marking duplicates on
+    the device; reading only while the Export screen is visible (it reads while the view is on).
 - Duplicate formats (user asked, 2026-11-22): "hide lower-quality duplicates". When an album has
   the same song in several formats (game soundtracks ship FLAC + MP3 side by side), browsing,
   playing, search and USB sync show one copy: lossless over lossy, then higher bitrate. Match on

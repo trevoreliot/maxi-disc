@@ -177,6 +177,29 @@ QStringList migrationV5()
     };
 }
 
+QStringList migrationV6()
+{
+    return {
+        QStringLiteral(R"(CREATE TABLE device_file_tags (
+            device_id     TEXT NOT NULL,
+            path_key      TEXT NOT NULL,
+            rel_path      TEXT NOT NULL,
+            size          INTEGER NOT NULL,
+            mtime_ms      INTEGER NOT NULL,
+            title         TEXT NOT NULL DEFAULT '',
+            artist        TEXT NOT NULL DEFAULT '',
+            album         TEXT NOT NULL DEFAULT '',
+            album_artist  TEXT NOT NULL DEFAULT '',
+            track_no      INTEGER NOT NULL DEFAULT 0,
+            disc_no       INTEGER NOT NULL DEFAULT 0,
+            year          INTEGER NOT NULL DEFAULT 0,
+            duration_ms   INTEGER NOT NULL DEFAULT 0,
+            codec         TEXT NOT NULL DEFAULT '',
+            bitrate_kbps  INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (device_id, path_key)))"),
+    };
+}
+
 using Migration = QStringList (*)();
 constexpr Migration kMigrations[] = {
     &migrationV1,
@@ -184,6 +207,7 @@ constexpr Migration kMigrations[] = {
     &migrationV3,
     &migrationV4,
     &migrationV5,
+    &migrationV6,
 };
 
 QVariant nullIfEmpty(const QString &s) { return s.isEmpty() ? QVariant() : QVariant(s); }
@@ -1133,6 +1157,102 @@ bool Database::putManifestEntry(const ManifestEntry &e, const QString &replacesR
     if (!q.exec())
         return rollback(q);
     return exec(QStringLiteral("RELEASE put_manifest"), error);
+}
+
+QHash<QString, DeviceTrack> Database::deviceTracks(const QString &deviceId) const
+{
+    QHash<QString, DeviceTrack> out;
+    QSqlQuery q(m_db);
+    q.setForwardOnly(true);
+    q.prepare(QStringLiteral(R"(
+        SELECT path_key, rel_path, size, mtime_ms, title, artist, album, album_artist, track_no, disc_no,
+               year, duration_ms, codec, bitrate_kbps
+        FROM device_file_tags WHERE device_id = ?)"));
+    q.addBindValue(deviceId);
+    if (!q.exec()) {
+        qCWarning(lcDb) << "deviceTracks failed:" << describe(q);
+        return out;
+    }
+    while (q.next()) {
+        DeviceTrack t;
+        t.relPath = q.value(1).toString();
+        t.size = q.value(2).toLongLong();
+        t.mtimeMs = q.value(3).toLongLong();
+        t.title = q.value(4).toString();
+        t.artist = q.value(5).toString();
+        t.album = q.value(6).toString();
+        t.albumArtist = q.value(7).toString();
+        t.trackNumber = q.value(8).toInt();
+        t.discNumber = q.value(9).toInt();
+        t.year = q.value(10).toInt();
+        t.durationMs = q.value(11).toLongLong();
+        t.codec = q.value(12).toString();
+        t.bitrateKbps = q.value(13).toInt();
+        out.insert(q.value(0).toString(), std::move(t));
+    }
+    return out;
+}
+
+bool Database::putDeviceTracks(const QString &deviceId, const QList<DeviceTrack> &tracks, QString *error)
+{
+    if (tracks.isEmpty())
+        return true;
+    if (!exec(QStringLiteral("SAVEPOINT put_device_tracks"), error))
+        return false;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(R"(
+        INSERT INTO device_file_tags (device_id, path_key, rel_path, size, mtime_ms, title, artist, album,
+                                      album_artist, track_no, disc_no, year, duration_ms, codec, bitrate_kbps)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (device_id, path_key) DO UPDATE SET
+            rel_path = excluded.rel_path, size = excluded.size, mtime_ms = excluded.mtime_ms,
+            title = excluded.title, artist = excluded.artist, album = excluded.album,
+            album_artist = excluded.album_artist, track_no = excluded.track_no, disc_no = excluded.disc_no,
+            year = excluded.year, duration_ms = excluded.duration_ms, codec = excluded.codec,
+            bitrate_kbps = excluded.bitrate_kbps)"));
+    for (const DeviceTrack &t : tracks) {
+        q.addBindValue(deviceId);
+        q.addBindValue(pathKey(t.relPath));
+        q.addBindValue(t.relPath);
+        q.addBindValue(t.size);
+        q.addBindValue(t.mtimeMs);
+        q.addBindValue(text(t.title));
+        q.addBindValue(text(t.artist));
+        q.addBindValue(text(t.album));
+        q.addBindValue(text(t.albumArtist));
+        q.addBindValue(t.trackNumber);
+        q.addBindValue(t.discNumber);
+        q.addBindValue(t.year);
+        q.addBindValue(t.durationMs);
+        q.addBindValue(text(t.codec));
+        q.addBindValue(t.bitrateKbps);
+        if (!q.exec()) {
+            if (error)
+                *error = describe(q);
+            exec(QStringLiteral("ROLLBACK TO put_device_tracks"), nullptr);
+            exec(QStringLiteral("RELEASE put_device_tracks"), nullptr);
+            return false;
+        }
+    }
+    return exec(QStringLiteral("RELEASE put_device_tracks"), error);
+}
+
+bool Database::removeDeviceTracks(const QString &deviceId, const QStringList &relPaths)
+{
+    if (relPaths.isEmpty())
+        return true;
+    if (!exec(QStringLiteral("SAVEPOINT remove_device_tracks"), nullptr))
+        return false;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM device_file_tags WHERE device_id = ? AND path_key = ?"));
+    bool ok = true;
+    for (const QString &rel : relPaths) {
+        q.addBindValue(deviceId);
+        q.addBindValue(pathKey(rel));
+        ok = q.exec() && ok;
+    }
+    exec(QStringLiteral("RELEASE remove_device_tracks"), nullptr);
+    return ok;
 }
 
 bool Database::removeManifestEntry(const QString &deviceId, const QString &relPath)

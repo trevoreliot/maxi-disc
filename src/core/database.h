@@ -124,6 +124,11 @@ public:
     bool putManifestEntry(const ManifestEntry &entry, const QString &replacesRelPath = {},
                           QString *error = nullptr);
     bool removeManifestEntry(const QString &deviceId, const QString &relPath);
+    // Tags of the audio files on a device (M9b's cache), keyed by pathKey(relPath).
+    QHash<QString, DeviceTrack> deviceTracks(const QString &deviceId) const;
+    // Inserts or replaces these rows (one transaction). The flags aren't stored.
+    bool putDeviceTracks(const QString &deviceId, const QList<DeviceTrack> &tracks, QString *error = nullptr);
+    bool removeDeviceTracks(const QString &deviceId, const QStringList &relPaths);
     // How device paths are compared: case-folded (FAT, exFAT and NTFS ignore case).
     static QString pathKey(const QString &relPath) { return relPath.toCaseFolded(); }
 

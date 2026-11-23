@@ -36,6 +36,7 @@ constexpr std::array kTextBindings{
     TextBinding{u'x', KeyRouter::ExportRemove},
     TextBinding{u'p', KeyRouter::ExportPlan},
     TextBinding{u'S', KeyRouter::ExportSync},
+    TextBinding{u'o', KeyRouter::ToggleOnDevice},
 };
 
 // Keys matched on key code + exact modifiers, in a context: outside text fields, inside

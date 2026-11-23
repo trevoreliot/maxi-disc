@@ -261,6 +261,7 @@ bool applyChanges(const QString &path, const TagChanges &c, QString *error)
 
 bool TagWriter::write(const QString &path, const TagChanges &changes, QString *error)
 {
+    TagReader::routeTagLibMessages();
     QString err;
     auto fail = [&](const QString &message) {
         if (error)
@@ -307,6 +308,7 @@ bool TagWriter::write(const QString &path, const TagChanges &changes, QString *e
 bool TagWriter::writeDeviceTags(const QString &path, const QString &tagSource, DeviceArt art,
                                 const EmbeddedPicture &cover, QString *error)
 {
+    TagReader::routeTagLibMessages();
     using namespace TagLib;
     auto fail = [&](const QString &message) {
         if (error)

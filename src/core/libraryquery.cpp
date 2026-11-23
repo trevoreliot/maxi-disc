@@ -424,6 +424,32 @@ QList<TrackRow> LibraryQuery::playlistTracks(qint64 playlistId) const
     return rows;
 }
 
+QList<TrackRow> LibraryQuery::trackIdentities() const
+{
+    QList<TrackRow> rows;
+    QSqlQuery q(m_db.connection());
+    q.setForwardOnly(true);
+    q.prepare(QStringLiteral(R"(
+        SELECT t.path, t.title, ar.name, al.title, aa.name, t.duration_ms
+        FROM tracks t
+        LEFT JOIN artists ar ON ar.id = t.artist_id
+        LEFT JOIN albums  al ON al.id = t.album_id
+        LEFT JOIN artists aa ON aa.id = al.artist_id)"));
+    if (!run(q))
+        return rows;
+    while (q.next()) {
+        TrackRow r;
+        r.path = q.value(0).toString();
+        r.title = q.value(1).toString();
+        r.artist = q.value(2).toString();
+        r.album = q.value(3).toString();
+        r.albumArtist = q.value(4).toString();
+        r.durationMs = q.value(5).toLongLong();
+        rows << std::move(r);
+    }
+    return rows;
+}
+
 QList<TrackRow> LibraryQuery::tracksByPaths(const QStringList &paths) const
 {
     QList<TrackRow> rows;
