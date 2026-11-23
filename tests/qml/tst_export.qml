@@ -313,6 +313,65 @@ TestCase {
         compare(Devices.count, 0);
     }
 
+    // M11: queueing an album for the MiniDisc and recording it, by keyboard (in-memory recorder,
+    // fake decoder).
+    function test_miniDiscRecord() {
+        Devices.setTestDevices([]);
+        MiniDisc.setTestDevices([{ id: "netmd:rec", name: "Sony MZ-NE410" }]);
+        const win = openExport();
+        const view = win.exportView;
+        tryVerify(() => MiniDisc.hasDisc, 5000);
+        MiniDisc.clearQueue();
+        MiniDisc.recordView = false;
+        const before = MiniDisc.trackCount;
+
+        // o: the record view (empty: a hint), o again: the disc.
+        keyClick("o");
+        verify(MiniDisc.recordView);
+        verify(findChild(view, "mdQueueHint").visible);
+        keyClick("o");
+        verify(!MiniDisc.recordView);
+
+        // Albums in the browse pane: Kid A is the 4th; i queues its two tracks.
+        keyClick("j"); // the browse list (the recorder is the only device)
+        compare(view.pane, ExportView.Browse);
+        view.browse.setMode(BrowsePane.Albums);
+        for (let i = 0; i < 4; ++i)
+            keyClick("j");
+        compare(view.browse.currentItem().name.indexOf("Kid A"), 0);
+        keyClick("i");
+        tryCompare(MiniDisc.queue, "count", 2);
+        verify(MiniDisc.recordView);
+        verify(findChild(view, "mdPlanError").visible); // 02.flac isn't in the fixture
+        verify(!findChild(view, "mdRecordButton").enabled);
+
+        // l into the queue, j to the missing one, x removes it.
+        keyClick("l");
+        compare(view.pane, ExportView.Selection);
+        keyClick("j");
+        compare(MiniDisc.queue.currentIndex, 1);
+        keyClick("x");
+        compare(MiniDisc.queue.count, 1);
+        verify(findChild(view, "mdRecordButton").enabled);
+        verify(findChild(view, "mdQueuedPart").visible);
+
+        // S records.
+        keyClick("S");
+        tryCompare(MiniDisc, "recording", false, 10000);
+        compare(findChild(view, "mdRecordResult").text, "Recorded 1 track.");
+        compare(MiniDisc.trackCount, before + 1);
+        if (screenshotDir !== "") {
+            wait(200);
+            grabImage(win.contentItem).save(screenshotDir + "/export-minidisc-record.png");
+        }
+
+        // X clears the list.
+        keyClick("X");
+        compare(MiniDisc.queue.count, 0);
+        MiniDisc.recordView = false;
+        MiniDisc.setTestDevices([]);
+    }
+
     function test_screenshot() {
         if (screenshotDir === "")
             skip("set MMM_SCREENSHOT_DIR to save screenshots");

@@ -92,6 +92,13 @@ netmd_error netmd_secure_get_leaf_id(netmd_dev_handle *dev, uint64_t *player_id)
 */
 netmd_error netmd_secure_send_key_data(netmd_dev_handle *dev, netmd_ekb *ekb);
 
+/* music-md-manager patches: upload progress, and the host side of the key exchange. */
+/* Called after each 64 KB of a track upload; return non-zero to stop (the upload then fails). */
+typedef int (*netmd_progress_cb)(size_t bytes_sent, size_t bytes_total, void *user_data);
+void netmd_create_nonce(unsigned char *buffer, size_t length);
+void netmd_retailmac(const unsigned char *rootkey, const unsigned char *hostnonce,
+                     const unsigned char *devnonce, unsigned char *sessionkey);
+
 /**
    Exchange a session key with the device. Needs to have a root key sent to the
    device using sendKeyData before.
@@ -152,6 +159,19 @@ netmd_error netmd_secure_send_track(netmd_dev_handle *dev,
 
                                     uint16_t *track, unsigned char *uuid,
                                     unsigned char *content_id);
+
+/* music-md-manager patch: netmd_secure_send_track with a progress callback (may be NULL). A USB
+   error during the transfer returns NETMD_USB_ERROR, a stop by the callback NETMD_ERROR. */
+netmd_error netmd_secure_send_track_ex(netmd_dev_handle *dev,
+                                       netmd_wireformat wireformat,
+                                       unsigned char discformat,
+                                       unsigned int frames,
+                                       netmd_track_packets *packets,
+                                       size_t packet_length,
+                                       unsigned char *sessionkey,
+                                       uint16_t *track, unsigned char *uuid,
+                                       unsigned char *content_id,
+                                       netmd_progress_cb progress, void *user_data);
 
 netmd_error netmd_secure_recv_track(netmd_dev_handle *dev, uint16_t track,
                                     FILE* file);

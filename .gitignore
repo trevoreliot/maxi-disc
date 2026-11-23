@@ -6,6 +6,9 @@ compile_commands.json
 .cache/
 .qmlls.ini
 
+# Debug logs (MMM_NETMD_DEBUG=1 ... 2>netmd.log): USB dumps and disc titles
+*.log
+
 # Editors / IDEs
 *.user
 *.user.*

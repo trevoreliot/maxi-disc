@@ -40,6 +40,7 @@ constexpr std::array kTextBindings{
     TextBinding{u'n', KeyRouter::RenameTrack},
     TextBinding{u'N', KeyRouter::RenameDisc},
     TextBinding{u'R', KeyRouter::RefreshDevice},
+    TextBinding{u'X', KeyRouter::ClearQueue},
 };
 
 // Keys matched on key code + exact modifiers, in a context: outside text fields, inside

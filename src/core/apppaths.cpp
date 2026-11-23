@@ -32,4 +32,10 @@ QString transcodeCacheDir()
     return QDir(base).filePath(AppInfo::name() + QStringLiteral("/transcode"));
 }
 
+QString mdRecordDir()
+{
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation);
+    return QDir(base).filePath(AppInfo::name() + QStringLiteral("/md-record"));
+}
+
 } // namespace mmm::AppPaths

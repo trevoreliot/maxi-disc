@@ -126,7 +126,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 
 ### Phase 5: MiniDisc
 - [x] **M10 NetMD basics** — Done when: libnetmd linked; detect the MZ-NE410; read disc TOC and titles; rename disc and tracks; udev rule documented. User test: read and retitle a scratch disc.
-- [ ] **M11 SP upload** — Done when: decode to 44.1 kHz 16-bit PCM via GStreamer; upload as SP; progress and cancel. User test: burn a short album in SP, then play it on the deck.
+- [x] **M11 SP upload** — Done when: decode to 44.1 kHz 16-bit PCM via GStreamer; upload as SP; progress and cancel. User test: burn a short album in SP, then play it on the deck.
 - [ ] **M12 LP2 / LP4 upload** — Done when: atracdenc encoding; mode chosen per job; disc-space estimate before burning. User test: burn in LP2 and LP4; check sound and titles.
 - [ ] **M13 (Optional, deferred) netmd-js extras** — Port device-quirk fixes only if the MZ-NE410 needs them. netmd-exploits features wait until requested.
 
@@ -302,6 +302,31 @@ and the user has run the "User test". Tick the box, commit, then stop.
     from); Enter on a recorder goes into its tracks.
   - Wipe disc / arrange tracks (and delete track) are unscheduled: likely a small milestone after
     M11 (they share track deletion and refreshing the track list with uploads).
+- M11 notes / follow-ups:
+  - Recording: the MiniDisc's "To record" list (per session, not saved) ← `i` on browse rows;
+    `MdUploadPlanner` checks fit / track limit / missing files; `NetMdManager::startUpload` runs one
+    track per worker command: `GstPcmEncoder` (S16BE 44.1 kHz stereo temp file in
+    `AppPaths::mdRecordDir()`) → `NetMdBackend::uploadTrack` (libnetmd secure session, patched for
+    64 KB progress) → title + commit → re-read the disc. A failed track stops the rest.
+  - Cancel finishes the track being recorded (NetMD can't stop an upload part-way; a track still
+    being decoded stops at once). Esc doesn't cancel (like USB sync): `S` / the button does.
+  - Not done: force-stop mid-track (would need a USB reset; risky); streaming encryption
+    (libnetmd encrypts a whole track in memory: ~650 MB for a 60-minute track); decoding the next
+    track while one uploads (worth it with slower LP encoding, M12); gapless albums as one stream
+    with track marks (each track is padded to a 2048-byte frame, up to ~12 ms); title templates
+    ("Artist - Title"); reordering the queue; groups for recorded albums.
+  - The user test (MZ-NE410) found the USB side's real problems, all in libnetmd (UPSTREAM.md
+    14–15): the recorder answers "commit track" with INTERIM while still writing; it can take
+    over 1 s to answer a poll after a commit (the 1 s libusb timeout then wedged it until a
+    replug: timeouts are 20 s now); libnetmd logged to stdout and named almost every error
+    "Unknown Error". After a USB error the backend resets the port on close and the manager
+    reopens the recorder itself, so a failed recording doesn't need a replug.
+  - Easier picking of what to send (user asked, 2026-11-22): today `i` / double-click on the
+    Export browse list adds a whole artist / album / playlist. Proposed M11b "Send music to
+    devices": an "add to device" key + button on the Library screen (artist, album page, marked
+    tracks, playlist, search results → the selected device's list, with a toast), and "add the
+    play queue" on Export (the queue as a staging area); track counts on Export browse rows.
+    Alternative the user may prefer: an artist → album → tracks column with checkboxes in Export.
 - Duplicate formats (user asked, 2026-11-22): "hide lower-quality duplicates". When an album has
   the same song in several formats (game soundtracks ship FLAC + MP3 side by side), browsing,
   playing, search and USB sync show one copy: lossless over lossy, then higher bitrate. Match on

@@ -120,6 +120,7 @@ TestCase {
             { tag: "n", key: "n", action: KeyRouter.RenameTrack },
             { tag: "N", key: "N", action: KeyRouter.RenameDisc },
             { tag: "R", key: "R", action: KeyRouter.RefreshDevice },
+            { tag: "X", key: "X", action: KeyRouter.ClearQueue },
             { tag: "unbound z", key: "z", action: -1 },
             { tag: "ctrl+j", key: Qt.Key_J, mods: Qt.ControlModifier, action: -1 },
             { tag: "alt+h", key: Qt.Key_H, mods: Qt.AltModifier, action: -1 },

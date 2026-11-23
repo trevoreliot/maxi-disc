@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "mdtypes.h"
+#include "mdupload.h"
 
 namespace mmm {
 
@@ -31,6 +32,14 @@ public:
     // Titles must already be clean (MdTitle::clean / withTitle).
     virtual NetMdError writeHeader(const QString &raw) = 0;
     virtual NetMdError writeTrackTitle(int index, const QString &title) = 0;
+
+    // Records prepared audio as a new track at the end of the disc, titles it (clean title)
+    // and commits it (M11). Blocks for about the track's length. `progress(sent, total)` after
+    // each 64 KB. `trackIndex`: the new track (0-based). Can't be stopped part-way: the recorder
+    // expects the whole track once it has started.
+    using UploadProgress = std::function<void(qint64 sent, qint64 total)>;
+    virtual NetMdError uploadTrack(const MdEncodedAudio &audio, const QString &title, const UploadProgress &progress,
+                                   int *trackIndex) = 0;
 };
 
 // Makes a backend on the worker thread (each recorder session gets its own).

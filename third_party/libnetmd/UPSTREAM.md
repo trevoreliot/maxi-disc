@@ -42,4 +42,22 @@ allow. Local changes are under the licence of the file they're in.
 12. `netmd_dev.c`: `netmd_init` checks `libusb_init` (returns `NETMD_USB_ERROR`); `netmd_clean`
     clears the static context after `libusb_exit`.
 
+13. `secure.c` / `secure.h` (M11, uploads): the track transfer goes out in 64 KB bulk writes with a
+    progress callback (`netmd_secure_send_track_ex`; was one write per ~8 MB packet, no progress)
+    and stops on a USB error (was ignored, then it waited for an answer); `netmd_create_nonce` and
+    `netmd_retailmac` (the host side of the key exchange, ported from netmdcli, GPL-2.0-or-later)
+    so the app needn't use libgcrypt itself.
+
+14. `secure.c` `netmd_recv_secure_msg`: waits through INTERIM replies for the final one (unless
+    INTERIM is expected). Found in the M11 user test: an MZ-NE410 sometimes answers "commit track"
+    with INTERIM while still writing the track; libnetmd reported "Unknown Error" (netmd-js waits).
+
+14b. `secure.c` `netmd_recv_secure_msg`: also keeps waiting through receive timeouts (up to 6 more
+    ~30 s waits) and logs unexpected statuses: a "commit track" failure in the M11 user test was
+    reported as "Unknown Error" with no detail.
+14c. `common.c`: USB control-transfer timeouts 1 s → 20 s (an MZ-NE410 busy after "commit track"
+    let the 1 s poll time out, then stopped answering until replugged), poll errors logged by name
+    and kept for `netmd_last_usb_error()` (now also set by exchanges; `netmd_set_last_usb_error`).
+15. `log.c`: logs to stderr (was stdout), so one redirect captures it with the app's log.
+
 `CMakeLists.txt` is ours (upstream has qmake only).

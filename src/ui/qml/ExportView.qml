@@ -17,7 +17,8 @@ import QtQuick.Layouts
 // removes an entry. p plans a sync, S runs the plan shown (or cancels a running sync), Esc
 // closes the plan or stops planning. o switches the right pane to "On Device" (M9b: what's on
 // the device; j/k move, Enter folds a header) and back. A NetMD recorder (M10) shows its disc
-// instead: j/k move, Enter / n rename the track, N the disc, R reads it again.
+// instead: j/k move, Enter / n rename the track, N the disc, R reads it again; i adds to its
+// "to record" list, o switches disc / to record, x / X remove / clear, S records (or cancels).
 Item {
     id: root
 
@@ -33,7 +34,7 @@ Item {
     // The right pane (the selection, or the device's music) has the keys only while it lists something.
     // The selected device is a MiniDisc recorder: the right pane shows its disc.
     readonly property bool mdSelected: Devices.currentIndex >= 0 && Devices.current.netMd === true
-    readonly property bool rightPaneHasRows: mdSelected ? MiniDisc.tracks.count > 0
+    readonly property bool rightPaneHasRows: mdSelected ? (MiniDisc.recordView ? MiniDisc.queue.count > 0 : MiniDisc.tracks.count > 0)
                                            : OnDevice.active ? OnDevice.model.count > 0
                                                              : Sync.selection.count > 0 && !syncPane.showsPlan
     readonly property int pane: (focusedPane === ExportView.DeviceList && Devices.count === 0)
@@ -102,6 +103,11 @@ Item {
     // The browse row under the cursor goes into the device's sync selection.
     function addCurrentBrowseItem() {
         const item = browsePane.currentItem();
+        if (mdSelected) {
+            if (item && !MiniDisc.recording)
+                MiniDisc.addItem(item.kind, item.id, item.name); // to the MiniDisc's "to record" list
+            return;
+        }
         if (item && Sync.state === Sync.Idle && Sync.addItem(item.kind, item.id, item.name))
             OnDevice.active = false; // show where it went
     }
@@ -135,8 +141,14 @@ Item {
                 Devices.toggleMountCurrent();
             return true;
         case KeyRouter.ToggleOnDevice:
-            if (!mdSelected)
+            if (mdSelected)
+                MiniDisc.recordView = !MiniDisc.recordView;
+            else
                 toggleOnDevice();
+            return true;
+        case KeyRouter.ClearQueue:
+            if (mdSelected && !MiniDisc.recording)
+                MiniDisc.clearQueue();
             return true;
         case KeyRouter.RenameTrack:
             if (mdSelected)
@@ -153,11 +165,22 @@ Item {
                 OnDevice.refresh();
             return true;
         case KeyRouter.ExportPlan:
+            if (mdSelected) {
+                MiniDisc.recordView = true; // the MiniDisc's plan is the "to record" view
+                return true;
+            }
             if (Sync.canPlan)
                 OnDevice.active = false; // the plan shows in the other view
             Sync.plan();
             return true;
         case KeyRouter.ExportSync: // like the button: Cancel while it runs
+            if (mdSelected) {
+                if (MiniDisc.recording)
+                    MiniDisc.cancelRecord();
+                else if (MiniDisc.record())
+                    MiniDisc.recordView = true;
+                return true;
+            }
             if (Sync.state === Sync.Planning || Sync.state === Sync.Syncing) {
                 Sync.cancel();
             } else if (Sync.canSync) {
@@ -170,6 +193,11 @@ Item {
                 addCurrentBrowseItem();
             return true;
         case KeyRouter.ExportRemove:
+            if (mdSelected) {
+                if (pane === ExportView.Selection && MiniDisc.recordView && !MiniDisc.recording)
+                    MiniDisc.removeQueued(MiniDisc.queue.currentIndex);
+                return true;
+            }
             if (pane === ExportView.Selection && Sync.state === Sync.Idle && !OnDevice.active)
                 syncPane.removeCurrent();
             return true;
@@ -177,16 +205,23 @@ Item {
         if (pane === ExportView.Selection && mdSelected) {
             switch (action) {
             case KeyRouter.MoveDown:
-                MiniDisc.tracks.move(1);
+                if (MiniDisc.recordView)
+                    MiniDisc.queue.move(1);
+                else
+                    MiniDisc.tracks.move(1);
                 return true;
             case KeyRouter.MoveUp:
-                MiniDisc.tracks.move(-1);
+                if (MiniDisc.recordView)
+                    MiniDisc.queue.move(-1);
+                else
+                    MiniDisc.tracks.move(-1);
                 return true;
             case KeyRouter.MoveLeft:
                 leaveRightPane();
                 return true;
             case KeyRouter.Activate:
-                renameMdTrack();
+                if (!MiniDisc.recordView)
+                    renameMdTrack();
                 return true;
             }
             return false;
@@ -678,15 +713,29 @@ Item {
                                 Button {
                                     objectName: "mdRenameButton"
                                     Layout.fillWidth: true
-                                    enabled: root.mdSelected && MiniDisc.hasDisc && !MiniDisc.busy
+                                    enabled: root.mdSelected && MiniDisc.hasDisc && !MiniDisc.busy && !MiniDisc.recordView
                                     text: qsTr("Rename (n)")
                                     focusPolicy: Qt.NoFocus
                                     onClicked: root.renameMdTrack()
                                 }
-                                StubButton { text: qsTr("Sync") }
+                                Button {
+                                    objectName: "mdRecordButton"
+                                    Layout.fillWidth: true
+                                    enabled: root.mdSelected && (MiniDisc.recording ? !MiniDisc.cancelling : MiniDisc.plan.canRecord === true)
+                                    highlighted: !MiniDisc.recording && MiniDisc.plan.canRecord === true
+                                    text: MiniDisc.cancelling ? qsTr("Stopping…") : MiniDisc.recording ? qsTr("Cancel (S)") : qsTr("Record (S)")
+                                    focusPolicy: Qt.NoFocus
+                                    onClicked: {
+                                        if (MiniDisc.recording) {
+                                            MiniDisc.cancelRecord();
+                                        } else if (MiniDisc.record()) {
+                                            MiniDisc.recordView = true;
+                                        }
+                                    }
+                                }
                                 Label {
                                     Layout.columnSpan: 2
-                                    text: qsTr("Recording to the disc: M11–M12")
+                                    text: qsTr("Records in SP. LP2 / LP4: M12")
                                     font.pixelSize: Theme.fontMicro
                                     color: Theme.textMuted
                                 }

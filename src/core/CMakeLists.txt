@@ -50,6 +50,9 @@ add_library(mmm_core STATIC
     netmdbackend.h libnetmdbackend.cpp
     netmdmonitor.h netmdmonitor.cpp
     netmdmanager.h netmdmanager.cpp
+    mdupload.h
+    mduploadplanner.h mduploadplanner.cpp
+    gstpcmencoder.h gstpcmencoder.cpp
     syncjob.h syncjob.cpp
     mprisservice.h mprisservice.cpp)
 target_include_directories(mmm_core PUBLIC

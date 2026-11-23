@@ -30,12 +30,18 @@
 
 static libusb_context *ctx = NULL;
 
-/* music-md-manager patch: the libusb error of the last netmd_open (0 = none). */
+/* music-md-manager patch: the libusb error of the last failed netmd_open or USB exchange
+   (0 = none). Cleared with netmd_set_last_usb_error(0). */
 static int last_usb_error = 0;
 
 int netmd_last_usb_error(void)
 {
     return last_usb_error;
+}
+
+void netmd_set_last_usb_error(int error)
+{
+    last_usb_error = error;
 }
 
 int netmd_is_known_device(uint16_t vendor, uint16_t product);

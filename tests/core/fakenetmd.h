@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <QFile>
 #include <QStringList>
 #include <QThread>
 
@@ -24,6 +25,10 @@ struct FakeRecorder
     NetMdError writeError = NetMdError::None;
     NetMdError headerReadError = NetMdError::None; // readHeader fails (a USB glitch)
     int delayMs = 0;            // per command, to test busy states
+    NetMdError uploadError = NetMdError::None;  // uploadTrack fails (disc full, unplugged)
+    int failUploadAt = -1;      // ... only for the upload with this number (0-based); -1: all
+    int uploads = 0;            // uploads attempted
+    int uploadStepMs = 0;       // per progress step of an upload (4 steps)
     QStringList calls;          // "open", "readDisc", "readHeader", "writeHeader:<raw>", ...
 
     FakeRecorder()
@@ -101,6 +106,37 @@ public:
         return m_r->writeError;
     }
 
+    NetMdError uploadTrack(const MdEncodedAudio &audio, const QString &title, const UploadProgress &progress,
+                           int *trackIndex) override
+    {
+        int stepMs = 0;
+        NetMdError error = NetMdError::None;
+        {
+            const auto l = step(QStringLiteral("uploadTrack:%1:%2").arg(title).arg(audio.bytes));
+            stepMs = m_r->uploadStepMs;
+            if (m_r->failUploadAt < 0 || m_r->failUploadAt == m_r->uploads)
+                error = m_r->uploadError;
+            ++m_r->uploads;
+        }
+        // Progress in four steps, like the real one's 64 KB pieces.
+        for (int i = 1; i <= 4; ++i) {
+            if (stepMs > 0)
+                QThread::msleep(static_cast<unsigned long>(stepMs));
+            if (progress)
+                progress(audio.bytes * i / 4, audio.bytes);
+        }
+        if (error != NetMdError::None)
+            return error;
+        std::lock_guard lock(m_r->mutex);
+        const int index = static_cast<int>(m_r->tracks.size());
+        m_r->tracks << MdTrack{index, title, audio.durationMs, MdEncoding::Sp, false, false};
+        m_r->capacity.recordedMs += audio.durationMs;
+        m_r->capacity.availableMs -= audio.durationMs;
+        if (trackIndex)
+            *trackIndex = index;
+        return NetMdError::None;
+    }
+
 private:
     // Logs the call, waits the configured delay (outside the lock), then holds the lock.
     std::unique_lock<std::mutex> step(const QString &call)
@@ -119,6 +155,47 @@ private:
     std::shared_ptr<FakeRecorder> m_r;
     bool m_open = false;
 };
+
+// "Decodes" by writing a small file (a second of silence per track), no GStreamer. Can fail
+// for a path containing "broken"; waits `delayMs` (polling cancel) to test canceling a decode.
+struct FakeEncoder final : MdAudioEncoder
+{
+    int delayMs = 0;
+    bool encode(const QString &source, MdRecordMode, const QString &destination, const std::atomic_bool &cancel,
+                MdEncodedAudio *out, QString *error) override
+    {
+        for (int waited = 0; waited < delayMs; waited += 10) {
+            if (cancel.load()) {
+                if (error)
+                    *error = kEncodeCanceled;
+                return false;
+            }
+            QThread::msleep(10);
+        }
+        if (source.contains(QLatin1String("broken"))) {
+            if (error)
+                *error = QStringLiteral("cannot decode %1").arg(source);
+            return false;
+        }
+        QFile f(destination);
+        if (!f.open(QIODevice::WriteOnly))
+            return false;
+        f.write(QByteArray(176400, '\0'));
+        f.close();
+        if (out)
+            *out = MdEncodedAudio{MdRecordMode::Sp, destination, 176400, 1000};
+        return true;
+    }
+};
+
+inline MdAudioEncoderFactory fakeEncoder(int delayMs = 0)
+{
+    return [delayMs] {
+        auto e = std::make_unique<FakeEncoder>();
+        e->delayMs = delayMs;
+        return e;
+    };
+}
 
 inline NetMdBackendFactory fakeNetMd(std::shared_ptr<FakeRecorder> recorder)
 {

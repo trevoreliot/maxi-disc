@@ -29,9 +29,12 @@
 #include "const.h"
 #include "log.h"
 
-#define NETMD_POLL_TIMEOUT 1000	/* miliseconds */
-#define NETMD_SEND_TIMEOUT 1000
-#define NETMD_RECV_TIMEOUT 1000
+/* music-md-manager patch: were 1000 ms. A recorder busy writing the disc (an MZ-NE410 after
+   "commit track") can take longer to answer a control transfer; libusb then cancels it, and the
+   recorder stops answering until it's reset or replugged. Web MiniDisc waits without a limit. */
+#define NETMD_POLL_TIMEOUT 20000	/* miliseconds */
+#define NETMD_SEND_TIMEOUT 20000
+#define NETMD_RECV_TIMEOUT 20000
 #define NETMD_RECV_TRIES 30
 
 #ifdef WIN32
@@ -52,15 +55,18 @@
 static int netmd_poll(libusb_device_handle *dev, unsigned char *buf, int tries)
 {
     int i;
+    int result;
 
     for (i = 0; i < tries; i++) {
         /* send a poll message */
         memset(buf, 0, 4);
 
-        if (libusb_control_transfer(dev, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR |
+        result = libusb_control_transfer(dev, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR |
                             LIBUSB_RECIPIENT_INTERFACE, 0x01, 0, 0, buf, 4,
-                            NETMD_POLL_TIMEOUT) < 0) {
-            netmd_log(NETMD_LOG_ERROR, "netmd_poll: libusb_control_transfer failed\n");
+                            NETMD_POLL_TIMEOUT);
+        if (result < 0) {
+            netmd_set_last_usb_error(result);
+            netmd_log(NETMD_LOG_ERROR, "netmd_poll: libusb_control_transfer failed: %s\n", libusb_error_name(result));
             return NETMDERR_USB;
         }
 
@@ -107,6 +113,7 @@ int netmd_send_message(netmd_dev_handle *devh, unsigned char *cmd,
     if (libusb_control_transfer(dev, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR |
                         LIBUSB_RECIPIENT_INTERFACE, 0x80, 0, 0, cmd, (int)cmdlen,
                         NETMD_SEND_TIMEOUT) < 0) {
+        netmd_set_last_usb_error(LIBUSB_ERROR_IO);
         netmd_log(NETMD_LOG_ERROR, "netmd_exch_message: libusb_control_transfer failed\n");
         return NETMDERR_USB;
     }
@@ -133,6 +140,7 @@ int netmd_recv_message(netmd_dev_handle *devh, unsigned char* rsp)
     if (libusb_control_transfer(dev, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR |
                         LIBUSB_RECIPIENT_INTERFACE, pollbuf[1], 0, 0, rsp, len,
                         NETMD_RECV_TIMEOUT) < 0) {
+        netmd_set_last_usb_error(LIBUSB_ERROR_IO);
         netmd_log(NETMD_LOG_ERROR, "netmd_exch_message: libusb_control_transfer failed\n");
         return NETMDERR_USB;
     }

@@ -19,4 +19,8 @@ QString artCacheDir();
 // across syncs (TranscodeCache).
 QString transcodeCacheDir();
 
+// ~/.cache/music-md-manager/md-record: decoded audio on its way to a MiniDisc (M11), deleted
+// as soon as each track is recorded.
+QString mdRecordDir();
+
 } // namespace mmm::AppPaths

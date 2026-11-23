@@ -88,6 +88,12 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     UI: `MiniDisc` QML singleton (puts recorders into Devices; follows Devices.current) + `MiniDiscPane`
     + `RenameMdDialog` (Main owns it). Keys: n / Enter rename track, N disc, R refresh. Tests use
     `tests/core/fakenetmd.h` (never USB); the UI tests construct MiniDisc with it.
+  - MiniDisc recording (M11): `MiniDisc` keeps a per-session "to record" queue (`MdQueueModel`; `i`
+    adds browse rows), `MdUploadPlanner` says if it fits; `NetMdManager::startUpload` → worker
+    `uploadOne` per track: `MdAudioEncoder` (`GstPcmEncoder`: S16BE 44.1 kHz stereo) → backend
+    `uploadTrack` (secure session, title, commit) → re-read disc. Cancel = after the current track.
+    Keys (recorder selected): `o` disc ↔ to record, `x`/`X` remove/clear, `S` record/cancel. Tests:
+    `FakeEncoder` + the fake recorder's `uploadTrack` (fakenetmd.h).
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).

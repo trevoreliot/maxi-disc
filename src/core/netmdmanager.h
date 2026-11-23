@@ -9,7 +9,10 @@
 #include <memory>
 
 #include "mdtypes.h"
+#include "mdupload.h"
 #include "netmdbackend.h"
+
+class QTemporaryDir;
 
 class QThread;
 
@@ -23,7 +26,8 @@ class NetMdWorker;
 // block for seconds, so every recorder command runs, one at a time, on one worker thread that
 // owns the backend; results come back as queued signals. A newer selection makes older results
 // stale (generation). The recorder is only held while it's selected, so other programs (Web
-// MiniDisc Pro) can use it otherwise. Uploads (M11) will run on the same worker.
+// MiniDisc Pro) can use it otherwise. Recording (M11) runs on the same worker, one track per
+// command: decode (MdAudioEncoder), upload, re-read the disc.
 class NetMdManager : public QObject
 {
     Q_OBJECT
@@ -33,7 +37,7 @@ public:
         Idle,     // nothing selected
         Opening,  // opening the recorder and reading the disc
         Ready,    // disc() is the disc (or error() says why not: no disc, no permission)
-        Writing,  // a rename is on its way
+        Writing,  // a rename or a recording is on its way
     };
     Q_ENUM(State)
 
@@ -42,6 +46,8 @@ public:
         NetMdBackendFactory backend;   // default: libnetmd
         bool monitor = true;           // false: no USB detection (tests, --no-devices)
         int pollIntervalMs = 2000;
+        MdAudioEncoderFactory encoder; // default: GstPcmEncoder (SP)
+        QString tempDir;               // for decoded audio ("" = the app's cache)
     };
 
     explicit NetMdManager(Options options, QObject *parent = nullptr);
@@ -60,6 +66,20 @@ public:
     void renameDisc(const QString &title);
     void renameTrack(int index, const QString &title);
 
+    // --- Recording (M11) ---
+    // Records `items` (titles already set) at the end of the disc, then titles the disc
+    // `discTitle` if given. False if busy or there's no disc. Progress: uploadChanged /
+    // uploadProgressChanged; uploadFinished at the end.
+    bool startUpload(const QList<MdUploadItem> &items, const QString &discTitle = {});
+    // Stops after the track being recorded (a track can't be stopped part-way); a track still
+    // being decoded stops at once.
+    void cancelUpload();
+    bool isUploading() const { return m_uploading; }
+    bool isCancelling() const { return m_uploading && m_cancelRequested; }
+    QList<MdUploadItem> uploadItems() const { return m_items; }
+    int uploadIndex() const { return m_uploadIndex; }   // the item being recorded (-1: none)
+    MdTransferProgress uploadProgress() const { return m_progress; }
+
     State state() const { return m_state; }
     bool isBusy() const { return m_state == State::Opening || m_state == State::Writing; }
     bool hasDisc() const { return m_hasDisc; }
@@ -72,6 +92,9 @@ Q_SIGNALS:
     void stateChanged();
     void discChanged();
     void errorChanged();
+    void uploadChanged();          // items' states, the current index, uploading / cancelling
+    void uploadProgressChanged();  // bytes of the current track
+    void uploadFinished(bool ok);
 
 private:
     // From the worker (queued).
@@ -81,6 +104,13 @@ private:
     void setState(State state);
     void setError(NetMdError error);
     void deviceListChanged();
+    void onUploadStep(quint64 generation, int index, int outcome, mmm::NetMdError error, const QString &message,
+                      const mmm::MdDisc &disc, bool haveDisc);
+    void onUploadProgress(quint64 generation, qint64 sent, qint64 total);
+    void onItemState(quint64 generation, int index, int state);
+    void uploadNext();
+    void finishUpload(bool ok);
+    void skipRemaining(int from);
     quint64 nextGeneration();   // also tells the worker (stale commands are skipped)
     bool needsReopen() const;   // the last error means "open the recorder again"
 
@@ -97,6 +127,18 @@ private:
     bool m_hasDisc = false;
     MdDisc m_disc;
     NetMdError m_error = NetMdError::None;
+
+    // Recording
+    std::shared_ptr<std::atomic_bool> m_cancelDecode = std::make_shared<std::atomic_bool>(false);
+    QList<MdUploadItem> m_items;
+    int m_uploadIndex = -1;
+    bool m_uploading = false;
+    bool m_cancelRequested = false;
+    bool m_titlingDisc = false;
+    bool m_uploadFailed = false;
+    QString m_discTitleAfter;
+    std::unique_ptr<QTemporaryDir> m_tempDir;
+    MdTransferProgress m_progress;
 };
 
 } // namespace mmm

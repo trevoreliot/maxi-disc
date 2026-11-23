@@ -51,6 +51,43 @@ private:
     int m_current = -1;
 };
 
+// The tracks to record (M11). Roles: number, title (as it goes on the disc), artist,
+// durationText, itemState ("pending", "decoding", "uploading", "done", "failed", "skipped"), error.
+class MdQueueModel : public QAbstractListModel
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("MiniDisc.queue is the one")
+    Q_PROPERTY(int count READ count NOTIFY countChanged FINAL)
+    Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged FINAL)
+
+public:
+    enum Role { NumberRole = Qt::UserRole + 1, TitleRole, ArtistRole, DurationTextRole, StateRole, ErrorRole };
+    using QAbstractListModel::QAbstractListModel;
+
+    int rowCount(const QModelIndex &parent = {}) const override;
+    QVariant data(const QModelIndex &index, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
+
+    int count() const { return rowCount(); }
+    int currentIndex() const { return m_current; }
+    void setCurrentIndex(int row);
+    Q_INVOKABLE void move(int delta);
+
+    const QList<mmm::MdUploadItem> &items() const { return m_items; }
+    void setItems(const QList<mmm::MdUploadItem> &items);
+    // Same rows, new states (a recording's progress): the cursor stays.
+    void updateStates(const QList<mmm::MdUploadItem> &items);
+
+Q_SIGNALS:
+    void countChanged();
+    void currentIndexChanged();
+
+private:
+    QList<mmm::MdUploadItem> m_items;
+    int m_current = -1;
+};
+
 // NetMD MiniDisc on the Export screen (QML singleton `MiniDisc`, M10): follows the selected
 // device (Devices.current); when it's a recorder, opens it and shows its disc; renames the disc
 // and its tracks. Puts the recorders it finds into the Devices list. Construct after Devices,
@@ -77,11 +114,29 @@ class MiniDisc : public QObject
     // A status line for the device list ("12 tracks", "No disc", "Reading…").
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusChanged FINAL)
 
+    // --- Recording (M11) ---
+    // The right pane shows the tracks to record (true) or the disc (false). o switches.
+    Q_PROPERTY(bool recordView READ recordView WRITE setRecordView NOTIFY recordViewChanged FINAL)
+    Q_PROPERTY(MdQueueModel *queue READ queue CONSTANT FINAL)
+    // {canRecord, error, warning, durationText, neededText, availableText, queuedFraction,
+    //  overflow, suggestedDiscTitle, pending}: can the queue go on the disc?
+    Q_PROPERTY(QVariantMap plan READ plan NOTIFY planChanged FINAL)
+    // Title the (blank) disc after the album when recording a single album to it.
+    Q_PROPERTY(bool titleDisc READ titleDisc WRITE setTitleDisc NOTIFY planChanged FINAL)
+    Q_PROPERTY(bool recording READ isRecording NOTIFY recordingChanged FINAL)
+    Q_PROPERTY(bool cancelling READ isCancelling NOTIFY recordingChanged FINAL)
+    // {trackText ("Track 2 of 8: Title"), stage, trackFraction, overallFraction, bytesText}
+    Q_PROPERTY(QVariantMap progress READ progress NOTIFY progressChanged FINAL)
+    // The last recording's outcome ("" before one): "Recorded 8 tracks.", "Canceled ...", ...
+    Q_PROPERTY(QString resultText READ resultText NOTIFY recordingChanged FINAL)
+
 public:
     struct Options
     {
         mmm::NetMdBackendFactory backend; // default: libnetmd
         bool monitor = true;              // false: no USB detection (tests, --no-devices)
+        mmm::MdAudioEncoderFactory encoder = {}; // default: GstPcmEncoder (tests: a fake)
+        QString tempDir = {};             // decoded audio ("" = the app's cache)
     };
 
     explicit MiniDisc(const Options &options, QObject *parent = nullptr);
@@ -113,6 +168,28 @@ public:
     // Test hook: these recorders instead of detected ones ({id, name}).
     Q_INVOKABLE void setTestDevices(const QVariantList &devices);
 
+    // `kind`: "artist", "album", "genre" or "playlist" (BrowsePane.currentItem): its tracks
+    // join the queue (resolved off the UI thread; tracks already queued are skipped).
+    Q_INVOKABLE void addItem(const QString &kind, int targetId, const QString &name);
+    Q_INVOKABLE void removeQueued(int row);
+    Q_INVOKABLE void clearQueue();
+    // Records the queue (done tracks of an earlier run are dropped first). False if the plan
+    // says it can't.
+    Q_INVOKABLE bool record();
+    // Stops after the track being recorded.
+    Q_INVOKABLE void cancelRecord();
+
+    bool recordView() const { return m_recordView; }
+    void setRecordView(bool on);
+    MdQueueModel *queue() const { return m_queue.get(); }
+    QVariantMap plan() const;
+    bool titleDisc() const { return m_titleDisc; }
+    void setTitleDisc(bool on);
+    bool isRecording() const { return m_manager->isUploading(); }
+    bool isCancelling() const { return m_manager->isCancelling(); }
+    QVariantMap progress() const;
+    QString resultText() const { return m_result; }
+
     mmm::NetMdManager *manager() const { return m_manager.get(); }
 
 Q_SIGNALS:
@@ -120,11 +197,21 @@ Q_SIGNALS:
     void discChanged();
     void errorChanged();
     void statusChanged();
+    void recordViewChanged();
+    void planChanged();
+    void recordingChanged();
+    void progressChanged();
 
 private:
     void followCurrentDevice();
     void publishDevices();
+    mmm::MdUploadPlan currentPlan() const;
+    QList<mmm::TrackRow> queuedTracks() const;
 
     std::unique_ptr<MdTrackModel> m_tracks;
     std::unique_ptr<mmm::NetMdManager> m_manager;
+    std::unique_ptr<MdQueueModel> m_queue;
+    bool m_recordView = false;
+    bool m_titleDisc = true;
+    QString m_result;
 };

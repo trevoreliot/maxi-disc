@@ -62,6 +62,7 @@ public:
         RenameTrack,    // Export, MiniDisc: rename the track under the cursor
         RenameDisc,     // Export, MiniDisc: rename the disc
         RefreshDevice,  // Export: read the MiniDisc (or the device) again
+        ClearQueue,     // Export, MiniDisc: empty the "to record" list
     };
     Q_ENUM(Action)
 

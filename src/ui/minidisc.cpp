@@ -2,7 +2,12 @@
 #include "minidisc.h"
 
 #include "devices.h"
+#include "library.h"
 #include "mdtitle.h"
+#include "mduploadplanner.h"
+#include "syncplanner.h"
+
+#include <QSet>
 
 #include <QJSEngine>
 
@@ -103,12 +108,108 @@ void MdTrackModel::setDisc(const mmm::MdDisc &disc)
     setCurrentIndex(0);
 }
 
+// --- MdQueueModel ---
+
+namespace {
+
+QString stateName(mmm::MdItemState s)
+{
+    switch (s) {
+    case mmm::MdItemState::Pending:
+        return QStringLiteral("pending");
+    case mmm::MdItemState::Decoding:
+        return QStringLiteral("decoding");
+    case mmm::MdItemState::Uploading:
+        return QStringLiteral("uploading");
+    case mmm::MdItemState::Done:
+        return QStringLiteral("done");
+    case mmm::MdItemState::Failed:
+        return QStringLiteral("failed");
+    case mmm::MdItemState::Skipped:
+        return QStringLiteral("skipped");
+    }
+    return {};
+}
+
+} // namespace
+
+int MdQueueModel::rowCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : static_cast<int>(m_items.size());
+}
+
+QVariant MdQueueModel::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() >= m_items.size())
+        return {};
+    const mmm::MdUploadItem &i = m_items.at(index.row());
+    switch (role) {
+    case NumberRole:
+        return index.row() + 1;
+    case TitleRole:
+        return i.title;
+    case ArtistRole:
+        return i.track.artist.isEmpty() ? i.track.albumArtist : i.track.artist;
+    case DurationTextRole:
+        return MdTrackModel::formatDuration(i.track.durationMs);
+    case StateRole:
+        return stateName(i.state);
+    case ErrorRole:
+        return i.error;
+    }
+    return {};
+}
+
+QHash<int, QByteArray> MdQueueModel::roleNames() const
+{
+    return {{NumberRole, "number"}, {TitleRole, "title"}, {ArtistRole, "artist"}, {DurationTextRole, "durationText"},
+            {StateRole, "itemState"}, {ErrorRole, "error"}};
+}
+
+void MdQueueModel::setCurrentIndex(int row)
+{
+    row = m_items.isEmpty() ? -1 : std::clamp(row, 0, static_cast<int>(m_items.size()) - 1);
+    if (row == m_current)
+        return;
+    m_current = row;
+    Q_EMIT currentIndexChanged();
+}
+
+void MdQueueModel::move(int delta)
+{
+    if (!m_items.isEmpty())
+        setCurrentIndex(std::max(0, m_current) + delta);
+}
+
+void MdQueueModel::setItems(const QList<mmm::MdUploadItem> &items)
+{
+    const int old = m_current;
+    beginResetModel();
+    m_items = items;
+    endResetModel();
+    Q_EMIT countChanged();
+    m_current = -2;
+    setCurrentIndex(old < 0 ? 0 : old);
+}
+
+void MdQueueModel::updateStates(const QList<mmm::MdUploadItem> &items)
+{
+    if (items.size() != m_items.size()) {
+        setItems(items);
+        return;
+    }
+    m_items = items;
+    if (!m_items.isEmpty())
+        Q_EMIT dataChanged(index(0), index(rowCount() - 1), {StateRole, ErrorRole});
+}
+
 // --- MiniDisc ---
 
 MiniDisc::MiniDisc(const Options &options, QObject *parent)
     : QObject(parent)
     , m_tracks(std::make_unique<MdTrackModel>())
-    , m_manager(std::make_unique<mmm::NetMdManager>(mmm::NetMdManager::Options{options.backend, options.monitor, 2000}))
+    , m_manager(std::make_unique<mmm::NetMdManager>(mmm::NetMdManager::Options{options.backend, options.monitor, 2000, options.encoder, options.tempDir}))
+    , m_queue(std::make_unique<MdQueueModel>())
 {
     Q_ASSERT_X(!s_instance, "MiniDisc", "only one MiniDisc may exist");
     Q_ASSERT_X(Devices::instance(), "MiniDisc", "construct Devices before MiniDisc");
@@ -122,6 +223,36 @@ MiniDisc::MiniDisc(const Options &options, QObject *parent)
         m_tracks->setDisc(m_manager->disc());
         Q_EMIT discChanged();
         Q_EMIT statusChanged();
+        Q_EMIT planChanged();
+    });
+    connect(m_manager.get(), &mmm::NetMdManager::uploadChanged, this, [this] {
+        if (m_manager->isUploading() || !m_manager->uploadItems().isEmpty())
+            m_queue->updateStates(m_manager->uploadItems());
+        Q_EMIT recordingChanged();
+        Q_EMIT progressChanged();
+        Q_EMIT statusChanged();
+    });
+    connect(m_manager.get(), &mmm::NetMdManager::uploadProgressChanged, this, &MiniDisc::progressChanged);
+    connect(m_manager.get(), &mmm::NetMdManager::uploadFinished, this, [this](bool ok) {
+        const QList<mmm::MdUploadItem> items = m_manager->uploadItems();
+        const auto count = [&](mmm::MdItemState s) {
+            return std::count_if(items.cbegin(), items.cend(), [s](const mmm::MdUploadItem &i) { return i.state == s; });
+        };
+        const auto done = count(mmm::MdItemState::Done);
+        if (ok)
+            m_result = done == 1 ? QStringLiteral("Recorded 1 track.") : QStringLiteral("Recorded %1 tracks.").arg(done);
+        else if (count(mmm::MdItemState::Failed) > 0)
+            m_result = QStringLiteral("Stopped after %1 of %2 tracks: %3").arg(done).arg(items.size()).arg([&] {
+                for (const mmm::MdUploadItem &i : items)
+                    if (i.state == mmm::MdItemState::Failed)
+                        return i.error;
+                return QString();
+            }());
+        else
+            m_result = QStringLiteral("Canceled: %1 of %2 tracks recorded.").arg(done).arg(items.size());
+        Q_EMIT recordingChanged();
+        Q_EMIT planChanged();
+        followCurrentDevice(); // the user may have picked another device meanwhile
     });
     connect(m_manager.get(), &mmm::NetMdManager::errorChanged, this, [this] {
         Q_EMIT errorChanged();
@@ -177,6 +308,166 @@ void MiniDisc::followCurrentDevice()
     }
 }
 
+// --- Recording ---
+
+QList<mmm::TrackRow> MiniDisc::queuedTracks() const
+{
+    QList<mmm::TrackRow> tracks;
+    for (const mmm::MdUploadItem &i : m_queue->items()) {
+        if (i.state != mmm::MdItemState::Done)
+            tracks << i.track;
+    }
+    return tracks;
+}
+
+mmm::MdUploadPlan MiniDisc::currentPlan() const
+{
+    return mmm::MdUploadPlanner::plan(m_manager->disc(), m_manager->hasDisc(), queuedTracks());
+}
+
+QVariantMap MiniDisc::plan() const
+{
+    const mmm::MdUploadPlan p = currentPlan();
+    const mmm::MdCapacity c = m_manager->disc().capacity;
+    const double total = c.valid && c.totalMs > 0 ? double(c.totalMs) : 1.0;
+    return {
+        {QStringLiteral("canRecord"), p.canRecord},
+        {QStringLiteral("error"), p.error},
+        {QStringLiteral("warning"), p.warning},
+        {QStringLiteral("durationText"), MdTrackModel::formatDuration(p.durationMs)},
+        {QStringLiteral("neededText"), MdTrackModel::formatDuration(p.neededMs)},
+        {QStringLiteral("availableText"), MdTrackModel::formatDuration(p.availableMs)},
+        {QStringLiteral("queuedFraction"), std::clamp(double(p.neededMs) / total, 0.0, 1.0)},
+        {QStringLiteral("overflow"), p.neededMs > p.availableMs},
+        {QStringLiteral("suggestedDiscTitle"), p.suggestedDiscTitle},
+        {QStringLiteral("pending"), static_cast<int>(queuedTracks().size())}, // not recorded yet
+    };
+}
+
+void MiniDisc::setRecordView(bool on)
+{
+    if (m_recordView == on)
+        return;
+    m_recordView = on;
+    Q_EMIT recordViewChanged();
+}
+
+void MiniDisc::setTitleDisc(bool on)
+{
+    if (m_titleDisc == on)
+        return;
+    m_titleDisc = on;
+    Q_EMIT planChanged();
+}
+
+QVariantMap MiniDisc::progress() const
+{
+    const QList<mmm::MdUploadItem> items = m_manager->uploadItems();
+    const int index = m_manager->uploadIndex();
+    const mmm::MdTransferProgress p = m_manager->uploadProgress();
+    const double track = p.bytesTotal > 0 ? std::clamp(double(p.bytesSent) / double(p.bytesTotal), 0.0, 1.0) : 0.0;
+    QString stage;
+    if (index >= 0 && index < items.size()) {
+        switch (items.at(index).state) {
+        case mmm::MdItemState::Decoding:
+            stage = QStringLiteral("Preparing");
+            break;
+        case mmm::MdItemState::Uploading:
+            stage = p.bytesTotal > 0 && p.bytesSent >= p.bytesTotal ? QStringLiteral("Finishing") : QStringLiteral("Recording");
+            break;
+        default:
+            break;
+        }
+    }
+    const double overall = items.isEmpty() ? 0.0 : (std::max(0, index) + track) / double(items.size());
+    return {
+        {QStringLiteral("trackText"), index >= 0 && index < items.size()
+                                          ? QStringLiteral("Track %1 of %2: %3").arg(index + 1).arg(items.size()).arg(items.at(index).title)
+                                          : QString()},
+        {QStringLiteral("stage"), m_manager->isCancelling() ? QStringLiteral("Finishing this track, then stopping") : stage},
+        {QStringLiteral("trackFraction"), track},
+        {QStringLiteral("overallFraction"), std::clamp(overall, 0.0, 1.0)},
+        {QStringLiteral("bytesText"), p.bytesTotal > 0 ? QStringLiteral("%1 of %2").arg(Devices::formatBytes(p.bytesSent),
+                                                                                         Devices::formatBytes(p.bytesTotal))
+                                                       : QString()},
+    };
+}
+
+void MiniDisc::addItem(const QString &kind, int targetId, const QString &name)
+{
+    const auto k = mmm::SyncItem::kindFrom(kind);
+    Library *library = Library::instance();
+    if (!k || targetId <= 0 || !library || isRecording())
+        return;
+    const QList<mmm::SyncItem> items{mmm::SyncItem{0, QString(), *k, targetId, name}};
+    library->runQuery([items](const mmm::LibraryQuery &q) { return mmm::SyncPlanner::resolve(q, items).tracks; })
+        .then(this, [this](const QList<mmm::TrackRow> &tracks) {
+            if (isRecording())
+                return;
+            QList<mmm::MdUploadItem> queue = m_queue->items();
+            QSet<QString> queued;
+            for (const mmm::MdUploadItem &i : std::as_const(queue))
+                queued.insert(i.track.path);
+            for (const mmm::TrackRow &t : tracks) {
+                if (queued.contains(t.path))
+                    continue;
+                queued.insert(t.path);
+                queue << mmm::MdUploadItem{t, mmm::MdUploadPlanner::titleFor(t, static_cast<int>(queue.size()) + 1),
+                                           mmm::MdItemState::Pending, {}};
+            }
+            m_queue->setItems(queue);
+            m_result.clear();
+            setRecordView(true);
+            Q_EMIT planChanged();
+            Q_EMIT recordingChanged();
+        });
+}
+
+void MiniDisc::removeQueued(int row)
+{
+    if (isRecording() || row < 0 || row >= m_queue->items().size())
+        return;
+    QList<mmm::MdUploadItem> queue = m_queue->items();
+    queue.removeAt(row);
+    m_queue->setItems(queue);
+    Q_EMIT planChanged();
+}
+
+void MiniDisc::clearQueue()
+{
+    if (isRecording())
+        return;
+    m_queue->setItems({});
+    m_result.clear();
+    Q_EMIT planChanged();
+    Q_EMIT recordingChanged();
+}
+
+bool MiniDisc::record()
+{
+    if (isRecording() || !currentPlan().canRecord)
+        return false;
+    // Tracks recorded by an earlier run are on the disc already.
+    QList<mmm::MdUploadItem> todo;
+    for (const mmm::MdUploadItem &i : m_queue->items()) {
+        if (i.state != mmm::MdItemState::Done)
+            todo << mmm::MdUploadItem{i.track, i.title, mmm::MdItemState::Pending, {}};
+    }
+    const QString discTitle = m_titleDisc ? currentPlan().suggestedDiscTitle : QString();
+    m_queue->setItems(todo);
+    m_result.clear();
+    if (!m_manager->startUpload(todo, discTitle))
+        return false;
+    setRecordView(true);
+    Q_EMIT recordingChanged();
+    return true;
+}
+
+void MiniDisc::cancelRecord()
+{
+    m_manager->cancelUpload();
+}
+
 QString MiniDisc::deviceName() const
 {
     for (const mmm::NetMdDevice &n : m_manager->devices()) {
@@ -216,6 +507,8 @@ double MiniDisc::usedFraction() const
 
 QString MiniDisc::statusText() const
 {
+    if (m_manager->isUploading())
+        return QStringLiteral("Recording %1 of %2").arg(std::max(0, m_manager->uploadIndex()) + 1).arg(m_manager->uploadItems().size());
     if (m_manager->state() == mmm::NetMdManager::State::Opening)
         return QStringLiteral("Reading…");
     switch (m_manager->error()) {

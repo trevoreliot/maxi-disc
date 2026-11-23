@@ -89,12 +89,15 @@ endforeach()
 set(MMM_SYNC_TESTS tst_syncplanner tst_artshrinker tst_transcoder tst_usbsync tst_devicebrowser)
 
 # --- NetMD MiniDisc (M10): an in-memory recorder (fakenetmd.h), never USB. ---
-foreach(t tst_mdtitle tst_netmdmanager)
+foreach(t tst_mdtitle tst_netmdmanager tst_mduploadplanner)
     qt_add_executable(${t} core/${t}.cpp core/fakenetmd.h)
     target_link_libraries(${t} PRIVATE mmm_core Qt6::Test mmm_build_flags)
     add_test(NAME ${t} COMMAND ${t})
 endforeach()
-set(MMM_NETMD_TESTS tst_mdtitle tst_netmdmanager)
+qt_add_executable(tst_gstpcmencoder core/tst_gstpcmencoder.cpp core/testmedia.h core/testmedia.cpp)
+target_link_libraries(tst_gstpcmencoder PRIVATE mmm_core PkgConfig::GST Qt6::Test mmm_build_flags)
+add_test(NAME tst_gstpcmencoder COMMAND tst_gstpcmencoder)
+set(MMM_NETMD_TESTS tst_mdtitle tst_netmdmanager tst_mduploadplanner tst_gstpcmencoder)
 
 set(MMM_ARTWORK_TESTS tst_artworksaver tst_artworkmatch tst_httpfetcher tst_musicbrainzclient tst_coverartarchiveclient tst_artworkfinder)
 

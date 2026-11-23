@@ -23,6 +23,14 @@ Only one program can hold the recorder. Close Web MiniDisc Pro (or its browser t
 music-md-manager uses it; the app shows "in use by another program" otherwise. The app only
 holds the recorder while it's selected on the Export screen.
 
+## Recording (SP)
+
+Select the recorder on the Export screen, add albums, artists, genres or playlists with `i`
+(they go to "To record"), check they fit, and press `S` (or **Record**). Each track is decoded to
+CD-quality PCM and sent to the recorder, which encodes it in SP; the disc's track list updates
+after each track. **Cancel** stops after the track being recorded: a NetMD upload can't be
+stopped part-way. Don't unplug during a recording: the track in progress is lost.
+
 ## Titles
 
 MiniDiscs store plain ASCII titles. The app replaces what a disc can't show ("Björk – Jóga"

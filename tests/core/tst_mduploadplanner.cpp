@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include <QFile>
+#include <QTemporaryDir>
+#include <QTest>
+
+#include "mduploadplanner.h"
+
+using namespace mmm;
+
+namespace {
+
+MdDisc disc(qint64 availableMs, int tracks = 0, const QString &title = {})
+{
+    MdDisc d;
+    d.title = title;
+    d.capacity = MdCapacity{4'800'000 - availableMs, 4'800'000, availableMs, true};
+    for (int i = 0; i < tracks; ++i)
+        d.tracks << MdTrack{i, QStringLiteral("t"), 1000, MdEncoding::Sp, false, false};
+    return d;
+}
+
+} // namespace
+
+class TestMdUploadPlanner : public QObject
+{
+    Q_OBJECT
+
+    QTemporaryDir m_dir;
+    QString m_file;
+
+    TrackRow track(qint64 durationMs, const QString &album = QStringLiteral("Kid A"), const QString &title = QStringLiteral("Idioteque"))
+    {
+        TrackRow t;
+        t.path = m_file;
+        t.title = title;
+        t.album = album;
+        t.durationMs = durationMs;
+        return t;
+    }
+
+private Q_SLOTS:
+    void initTestCase()
+    {
+        QVERIFY(m_dir.isValid());
+        m_file = m_dir.filePath(QStringLiteral("a.flac"));
+        QFile f(m_file);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+    }
+
+    void fits()
+    {
+        const MdUploadPlan p = MdUploadPlanner::plan(disc(600'000), true, {track(200'000), track(180'000)});
+        QVERIFY2(p.canRecord, qPrintable(p.error));
+        QCOMPARE(p.durationMs, qint64(380'000));
+        QCOMPARE(p.neededMs, qint64(380'000));
+        QCOMPARE(p.availableMs, qint64(600'000));
+        QVERIFY(!p.tight);
+        QVERIFY(p.warning.isEmpty());
+        QCOMPARE(p.suggestedDiscTitle, QStringLiteral("Kid A")); // blank, untitled, one album
+    }
+
+    void refusals()
+    {
+        QVERIFY(MdUploadPlanner::plan(disc(600'000), true, {}).error.contains(QStringLiteral("Nothing")));
+        QVERIFY(MdUploadPlanner::plan(disc(600'000), false, {track(1000)}).error.contains(QStringLiteral("No disc")));
+        const MdUploadPlan tooLong = MdUploadPlanner::plan(disc(300'000), true, {track(200'000), track(180'000)});
+        QVERIFY(!tooLong.canRecord);
+        QVERIFY(tooLong.error.contains(QStringLiteral("6:20 needed, 5:00 free")));
+        QVERIFY(MdUploadPlanner::plan(disc(4'000'000, 254), true, {track(1000), track(1000)}).error.contains(QStringLiteral("255")));
+        QVERIFY(MdUploadPlanner::plan(disc(4'000'000, 250), true, QList<TrackRow>(5, track(1000))).canRecord);
+        TrackRow gone = track(1000);
+        gone.path = m_dir.filePath(QStringLiteral("gone.flac"));
+        QVERIFY(MdUploadPlanner::plan(disc(600'000), true, {gone}).error.contains(QStringLiteral("not found")));
+    }
+
+    void warnings()
+    {
+        const MdUploadPlan tight = MdUploadPlanner::plan(disc(381'000), true, {track(200'000), track(180'000)});
+        QVERIFY(tight.canRecord);
+        QVERIFY(tight.tight);
+        QVERIFY(!tight.warning.isEmpty());
+        const MdUploadPlan unknown = MdUploadPlanner::plan(disc(600'000), true, {track(0)});
+        QVERIFY(unknown.canRecord);
+        QVERIFY(unknown.warning.contains(QStringLiteral("length")));
+    }
+
+    void discTitleSuggestion()
+    {
+        // Only for a blank untitled disc filled from one album.
+        QVERIFY(MdUploadPlanner::plan(disc(600'000, 1), true, {track(1000)}).suggestedDiscTitle.isEmpty());
+        QVERIFY(MdUploadPlanner::plan(disc(600'000, 0, QStringLiteral("Mix")), true, {track(1000)}).suggestedDiscTitle.isEmpty());
+        QVERIFY(MdUploadPlanner::plan(disc(600'000), true, {track(1000), track(1000, QStringLiteral("Amnesiac"))})
+                    .suggestedDiscTitle.isEmpty());
+        QCOMPARE(MdUploadPlanner::plan(disc(600'000), true, {track(1000, QStringLiteral("Ágætis byrjun"))}).suggestedDiscTitle,
+                 QStringLiteral("Agaetis byrjun"));
+    }
+
+    void modesAndTitles()
+    {
+        QCOMPARE(MdUploadPlanner::neededMs(100'000, MdRecordMode::Sp), qint64(100'000));
+        QCOMPARE(MdUploadPlanner::neededMs(100'001, MdRecordMode::Lp2), qint64(50'001));
+        QCOMPARE(MdUploadPlanner::neededMs(100'001, MdRecordMode::Lp4), qint64(25'001));
+        QCOMPARE(MdUploadPlanner::titleFor(track(1, {}, QStringLiteral("Jóga")), 1), QStringLiteral("Joga"));
+        TrackRow untitled = track(1, {}, {});
+        untitled.path = QStringLiteral("/m/03 Song Name.flac");
+        QCOMPARE(MdUploadPlanner::titleFor(untitled, 3), QStringLiteral("03 Song Name"));
+        untitled.path = QStringLiteral("/m/歌.flac");
+        QCOMPARE(MdUploadPlanner::titleFor(untitled, 3), QStringLiteral("Track 3"));
+    }
+};
+
+QTEST_GUILESS_MAIN(TestMdUploadPlanner)
+#include "tst_mduploadplanner.moc"

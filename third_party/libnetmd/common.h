@@ -40,5 +40,8 @@ int netmd_send_message(netmd_dev_handle *dev, unsigned char *cmd,
 */
 int netmd_recv_message(netmd_dev_handle *dev, unsigned char *rsp);
 
+/* music-md-manager patch (netmd_dev.c): remembers a USB error for netmd_last_usb_error(). */
+void netmd_set_last_usb_error(int error);
+
 
 #endif

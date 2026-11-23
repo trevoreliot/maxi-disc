@@ -34,7 +34,8 @@ public Q_SLOTS:
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
         m_onDevice = std::make_unique<OnDevice>(OnDevice::Options{.databasePath = db});
         // NetMD: an in-memory recorder; tests add it with MiniDisc.setTestDevices().
-        m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false});
+        m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false, mmm::test::fakeEncoder(),
+                                                                  m_dir.filePath(QStringLiteral("md-record"))});
     }
 
     void qmlEngineAvailable(QQmlEngine *engine)

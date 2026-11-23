@@ -114,7 +114,8 @@ private Q_SLOTS:
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
         m_onDevice = std::make_unique<OnDevice>(OnDevice::Options{.databasePath = db});
-        m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false});
+        m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false, mmm::test::fakeEncoder(),
+                                                                  m_dir.filePath(QStringLiteral("md-record"))});
         m_cacheDir = m_dir.filePath(QStringLiteral("covers"));
     }
 
@@ -756,6 +757,52 @@ private Q_SLOTS:
         md.setTestDevices({});
         m_devices->setTestDevices({});
         QCOMPARE(m_devices->count(), 0);
+    }
+
+    void miniDiscRecordsTheQueue()
+    {
+        m_devices->setTestDevices({});
+        MiniDisc &md = *m_miniDisc;
+        md.setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("netmd:rec")}}});
+        m_devices->setCurrentIndex(0);
+        QTRY_VERIFY(md.hasDisc());
+        const int before = md.trackCount();
+        const qint64 kidA = m_library->runQuery([](const mmm::LibraryQuery &q) {
+            for (const mmm::AlbumRow &a : q.albums())
+                if (a.title == QStringLiteral("Kid A"))
+                    return a.id;
+            return qint64(0);
+        }).result();
+
+        QVERIFY(!md.recordView());
+        md.addItem(QStringLiteral("album"), static_cast<int>(kidA), QStringLiteral("Kid A"));
+        QTRY_COMPARE(md.queue()->count(), 2);
+        QVERIFY(md.recordView());
+        md.addItem(QStringLiteral("album"), static_cast<int>(kidA), QStringLiteral("Kid A")); // already queued
+        QTest::qWait(100);
+        QCOMPARE(md.queue()->count(), 2);
+        // Only Kid A/01.flac exists in the fixture: the plan refuses until 02 goes.
+        QVERIFY(md.plan().value(QStringLiteral("error")).toString().contains(QStringLiteral("not found")));
+        QVERIFY(!md.record());
+        md.removeQueued(1);
+        QVERIFY2(md.plan().value(QStringLiteral("canRecord")).toBool(), qPrintable(md.plan().value(QStringLiteral("error")).toString()));
+        QCOMPARE(md.queue()->data(md.queue()->index(0), MdQueueModel::StateRole).toString(), QStringLiteral("pending"));
+
+        QSignalSpy recording(&md, &MiniDisc::recordingChanged);
+        QVERIFY(md.record());
+        QVERIFY(md.isRecording());
+        QCOMPARE(md.statusText(), QStringLiteral("Recording 1 of 1"));
+        QTRY_VERIFY(!md.isRecording());
+        QCOMPARE(md.resultText(), QStringLiteral("Recorded 1 track."));
+        QCOMPARE(md.queue()->data(md.queue()->index(0), MdQueueModel::StateRole).toString(), QStringLiteral("done"));
+        QCOMPARE(md.trackCount(), before + 1);
+        QVERIFY(!recording.isEmpty());
+        // Done tracks don't record again.
+        QVERIFY(!md.plan().value(QStringLiteral("canRecord")).toBool());
+        md.clearQueue();
+        QCOMPARE(md.queue()->count(), 0);
+        QVERIFY(md.resultText().isEmpty());
+        md.setTestDevices({});
     }
 
     // --- USB sync (M9): selection → plan → run against a temp dir standing in for the stick ---

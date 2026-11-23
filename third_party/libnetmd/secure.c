@@ -118,16 +118,40 @@ netmd_error netmd_recv_secure_msg(netmd_dev_handle *dev, unsigned char cmd,
                                   unsigned char expected_response_code)
 {
     netmd_error error;
+    int len;
+    int interims = 0;
 
-    /* recv response */
-    response->length = (size_t)netmd_recv_message(dev, response->content);
-    response->position = 0;
-
-    if (response->length < 1) {
-        return NETMD_COMMAND_FAILED_NO_RESPONSE;
+    /* recv response. music-md-manager patch: an INTERIM reply ("working on it", e.g. a commit
+       while the recorder is still writing the track to the disc) is followed by the real one:
+       wait for that, unless INTERIM is what's expected. Was reported as an unknown error. */
+    int timeouts = 0;
+    for (;;) {
+        len = netmd_recv_message(dev, response->content);
+        /* music-md-manager patch: a recorder still writing a track to the disc can take more
+           than the ~30 s one receive waits before it answers (seen with "commit track" on an
+           MZ-NE410): keep waiting, up to ~3 more minutes. */
+        if (len == NETMDERR_TIMEOUT && timeouts++ < 6) {
+            netmd_log(NETMD_LOG_ERROR, "no reply yet to secure command 0x%02x, still waiting (%d)\n", cmd, timeouts);
+            continue;
+        }
+        if (len < 1) {
+            netmd_log(NETMD_LOG_ERROR, "no reply to secure command 0x%02x (%d)\n", cmd, len);
+            return NETMD_COMMAND_FAILED_NO_RESPONSE;
+        }
+        response->length = (size_t)len;
+        response->position = 0;
+        if (response->content[0] == NETMD_STATUS_INTERIM && expected_response_code != NETMD_STATUS_INTERIM
+            && interims++ < 30) {
+            netmd_log(NETMD_LOG_VERBOSE, "interim reply to secure command 0x%02x, waiting for the final one\n", cmd);
+            continue;
+        }
+        break;
     }
 
     error = parse_netmd_return_status(response->content[0], expected_response_code);
+    if (error != NETMD_NO_ERROR)
+        netmd_log(NETMD_LOG_ERROR, "secure command 0x%02x: status 0x%02x, expected 0x%02x\n", cmd,
+                  response->content[0], expected_response_code);
     response->position = 1;
 
     netmd_check_response_bulk(response, secure_header, sizeof(secure_header), &error);
@@ -348,16 +372,25 @@ size_t netmd_get_frame_size(netmd_wireformat wireformat)
     return 0;
 }
 
-void netmd_transfer_song_packets(netmd_dev_handle *dev,
+/* music-md-manager patch: the packets go out in 64 KB bulk writes (was one write per ~8 MB
+   packet), reporting progress after each and stopping on a USB error or when `progress` returns
+   non-zero. Returns 0, a libusb error (< 0), or 1 if stopped by `progress`. */
+#define NETMD_TRANSFER_CHUNK 65536
+static int transfer_song_packets(netmd_dev_handle *dev,
                                  netmd_track_packets *packets,
-                                 size_t full_length)
+                                 size_t full_length,
+                                 netmd_progress_cb progress, void *user_data)
 {
     netmd_track_packets *p;
     unsigned char *packet, *buf;
-    size_t packet_size;
-    int error;
+    size_t packet_size, offset, total = 0, sent = 0, piece;
+    int error = 0;
     int transferred = 0;
     int first_packet = 1;
+
+    for (p = packets; p != NULL; p = p->next)
+        total += p->length;
+    total += 24;
 
     p = packets;
     while (p != NULL) {
@@ -368,6 +401,10 @@ void netmd_transfer_song_packets(netmd_dev_handle *dev,
             packet_size = p->length;
 
         packet = malloc(packet_size);
+        if (packet == NULL) {
+            error = LIBUSB_ERROR_NO_MEM;
+            break;
+        }
         buf = packet;
 
         /* build packet... */
@@ -381,22 +418,42 @@ void netmd_transfer_song_packets(netmd_dev_handle *dev,
             memcpy(buf, p->data, p->length);
         }
 
-        /* ... send it */
-        error = libusb_bulk_transfer((libusb_device_handle*)dev, 2, packet, (int)packet_size, &transferred, 80000);
-        netmd_log(NETMD_LOG_VERBOSE, "%d of %d bytes transferred, libusb error code: %d\n", transferred, packet_size, error);
+        /* ... send it, a piece at a time */
+        for (offset = 0; offset < packet_size; offset += piece) {
+            piece = packet_size - offset;
+            if (piece > NETMD_TRANSFER_CHUNK)
+                piece = NETMD_TRANSFER_CHUNK;
+            error = libusb_bulk_transfer((libusb_device_handle*)dev, 2, packet + offset, (int)piece, &transferred, 30000);
+            if (error < 0 || (size_t)transferred != piece) {
+                netmd_log(NETMD_LOG_ERROR, "bulk transfer failed: %d (%d of %d bytes)\n", error, transferred, (int)piece);
+                if (error >= 0)
+                    error = LIBUSB_ERROR_IO;
+                break;
+            }
+            sent += piece;
+            if (progress && progress(sent, total, user_data) != 0) {
+                error = 1;
+                break;
+            }
+        }
 
         /* cleanup */
         free(packet);
         buf = NULL;
 
-        if (error >= 0) {
-            p = p->next;
-            first_packet = 0;
-        }
-        else {
+        if (error != 0)
             break;
-        }
+        p = p->next;
+        first_packet = 0;
     }
+    return error;
+}
+
+void netmd_transfer_song_packets(netmd_dev_handle *dev,
+                                 netmd_track_packets *packets,
+                                 size_t full_length)
+{
+    transfer_song_packets(dev, packets, full_length, NULL, NULL);
 }
 
 netmd_error netmd_prepare_packets(unsigned char* data, size_t data_lenght,
@@ -531,6 +588,23 @@ netmd_error netmd_secure_send_track(netmd_dev_handle *dev,
                                     uint16_t *track, unsigned char *uuid,
                                     unsigned char *content_id)
 {
+    return netmd_secure_send_track_ex(dev, wireformat, discformat, frames, packets, packet_length,
+                                      sessionkey, track, uuid, content_id, NULL, NULL);
+}
+
+/* music-md-manager patch: netmd_secure_send_track with progress (see transfer_song_packets). */
+netmd_error netmd_secure_send_track_ex(netmd_dev_handle *dev,
+                                       netmd_wireformat wireformat,
+                                       unsigned char discformat,
+                                       unsigned int frames,
+                                       netmd_track_packets *packets,
+                                       size_t packet_length,
+                                       unsigned char *sessionkey,
+                                       uint16_t *track, unsigned char *uuid,
+                                       unsigned char *content_id,
+                                       netmd_progress_cb progress, void *user_data)
+{
+    int transfer_error;
     unsigned char cmdhdr[] = {0x00, 0x01, 0x00, 0x10, 0x01};
     unsigned char cmd[sizeof(cmdhdr) + 13];
     unsigned char *buf;
@@ -562,7 +636,9 @@ netmd_error netmd_secure_send_track(netmd_dev_handle *dev,
     netmd_check_response(&response, 0x00, &error);
 
     if (error == NETMD_NO_ERROR) {
-        netmd_transfer_song_packets(dev, packets, packet_length);
+        transfer_error = transfer_song_packets(dev, packets, packet_length, progress, user_data);
+        if (transfer_error != 0) /* music-md-manager patch: was ignored (then waited for an answer) */
+            return transfer_error == 1 ? NETMD_ERROR : NETMD_USB_ERROR;
 
         error = netmd_recv_secure_msg(dev, 0x28, &response, NETMD_STATUS_ACCEPTED);
         netmd_check_response_bulk(&response, cmdhdr, sizeof(cmdhdr), &error);
@@ -864,4 +940,48 @@ netmd_error netmd_secure_set_track_protection(netmd_dev_handle *dev,
     netmd_check_response_bulk(&response, cmd, sizeof(cmd), &error);
 
     return error;
+}
+
+/* music-md-manager patch: the host side of the session key exchange, from netmdcli
+   (netmdcli.c, GPL-2.0-or-later, (C) 2002, 2003 Marc Britten, (C) 2017 René Rebe), so callers
+   don't need libgcrypt themselves. */
+static void init_gcrypt(void)
+{
+    static int done = 0;
+    if (!done) {
+        gcry_check_version(NULL);
+        gcry_control(GCRYCTL_DISABLE_SECMEM, 0);
+        gcry_control(GCRYCTL_INITIALIZATION_FINISHED, 0);
+        done = 1;
+    }
+}
+
+void netmd_create_nonce(unsigned char *buffer, size_t length)
+{
+    init_gcrypt();
+    gcry_create_nonce(buffer, length);
+}
+
+void netmd_retailmac(const unsigned char *rootkey, const unsigned char *hostnonce,
+                     const unsigned char *devnonce, unsigned char *sessionkey)
+{
+    gcry_cipher_hd_t handle1;
+    gcry_cipher_hd_t handle2;
+    unsigned char des3_key[24] = { 0 };
+    unsigned char iv[8] = { 0 };
+
+    init_gcrypt();
+    gcry_cipher_open(&handle1, GCRY_CIPHER_DES, GCRY_CIPHER_MODE_ECB, 0);
+    gcry_cipher_setkey(handle1, rootkey, 8);
+    gcry_cipher_encrypt(handle1, iv, 8, hostnonce, 8);
+
+    memcpy(des3_key, rootkey, 16);
+    memcpy(des3_key + 16, rootkey, 8);
+    gcry_cipher_open(&handle2, GCRY_CIPHER_3DES, GCRY_CIPHER_MODE_CBC, 0);
+    gcry_cipher_setkey(handle2, des3_key, 24);
+    gcry_cipher_setiv(handle2, iv, 8);
+    gcry_cipher_encrypt(handle2, sessionkey, 8, devnonce, 8);
+
+    gcry_cipher_close(handle1);
+    gcry_cipher_close(handle2);
 }

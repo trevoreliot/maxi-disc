@@ -64,6 +64,7 @@ void netmd_clean(netmd_device **device_list);
 /* music-md-manager patches */
 /* The libusb error of the last netmd_open (LIBUSB_ERROR_ACCESS, LIBUSB_ERROR_BUSY, ...), 0 if none. */
 int netmd_last_usb_error(void);
+void netmd_set_last_usb_error(int error);
 /* 1 if vendor/product is a NetMD device in libnetmd's table. */
 int netmd_is_known_device(uint16_t vendor, uint16_t product);
 

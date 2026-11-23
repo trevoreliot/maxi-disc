@@ -47,43 +47,43 @@ void netmd_log_hex(netmd_loglevel level, const unsigned char* const buf, const s
 
     for (i = 0; i < len; i++)
     {
-        printf("%02x ", buf[i] & 0xff);
+        fprintf(stderr, "%02x ", buf[i] & 0xff);
         breakpoint++;
         if(!((i + 1)%16) && i)
         {
-            printf("\t\t");
+            fprintf(stderr, "\t\t");
             for(j = ((i+1) - 16); j < ((i+1)/16) * 16; j++)
             {
                 if(buf[j] < 30)
-                    printf(".");
+                    fprintf(stderr, ".");
                 else
-                    printf("%c", buf[j]);
+                    fprintf(stderr, "%c", buf[j]);
             }
-            printf("\n");
+            fprintf(stderr, "\n");
             breakpoint = 0;
         }
     }
 
     if(breakpoint == 16)
     {
-        printf("\n");
+        fprintf(stderr, "\n");
         return;
     }
 
     for(; breakpoint < 16; breakpoint++)
     {
-        printf("   ");
+        fprintf(stderr, "   ");
     }
-    printf("\t\t");
+    fprintf(stderr, "\t\t");
 
     for(j = len - (len%16); j < len; j++)
     {
         if(buf[j] < 30)
-            printf(".");
+            fprintf(stderr, ".");
         else
-            printf("%c", buf[j]);
+            fprintf(stderr, "%c", buf[j]);
     }
-    printf("\n");
+    fprintf(stderr, "\n");
 }
 
 
@@ -96,6 +96,6 @@ void netmd_log(netmd_loglevel level, const char* const fmt, ...)
     }
 
     va_start(arg, fmt);
-    vprintf(fmt, arg);
+    vfprintf(stderr, fmt, arg); /* music-md-manager patch: stderr (was stdout), with the app's log */
     va_end(arg);
 }

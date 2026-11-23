@@ -9,9 +9,13 @@
 extern "C" {
 #include <libnetmd.h>
 #include <log.h>
+#include <secure.h>
 }
 
+#include <QFile>
+
 #include <array>
+#include <vector>
 
 Q_LOGGING_CATEGORY(lcNetMd, "mmm.netmd")
 
@@ -20,6 +24,28 @@ namespace mmm {
 namespace {
 
 constexpr int kMaxTracks = 255; // the TOC's limit
+
+// Upload key material: the published constants every NetMD host uses (from linux-minidisc's
+// netmdcli, GPL-2.0-or-later; Web MiniDisc uses the same).
+constexpr std::array<unsigned char, 32> kEkbChain{0x25, 0x45, 0x06, 0x4d, 0xea, 0xca, 0x14, 0xf9, 0x96, 0xbd, 0xc8,
+                                                  0xa4, 0x06, 0xc2, 0x2b, 0x81, 0x49, 0xba, 0xf0, 0xdf, 0x26, 0x9d,
+                                                  0xb7, 0x1d, 0x49, 0xba, 0xf0, 0xdf, 0x26, 0x9d, 0xb7, 0x1d};
+constexpr std::array<unsigned char, 24> kEkbSignature{0xe8, 0xef, 0x73, 0x45, 0x8d, 0x5b, 0x8b, 0xf8,
+                                                      0xe8, 0xef, 0x73, 0x45, 0x8d, 0x5b, 0x8b, 0xf8,
+                                                      0x38, 0x5b, 0x49, 0x36, 0x7b, 0x42, 0x0c, 0x58};
+constexpr std::array<unsigned char, 16> kRootKey{0x13, 0x37, 0x13, 0x37, 0x13, 0x37, 0x13, 0x37,
+                                                 0x13, 0x37, 0x13, 0x37, 0x13, 0x37, 0x13, 0x37};
+constexpr std::array<unsigned char, 8> kKek{0x14, 0xe3, 0x83, 0x4e, 0xe2, 0xd3, 0xcc, 0xa5};
+constexpr std::array<unsigned char, 20> kContentId{0x01, 0x0F, 0x50, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x48,
+                                                   0xA2, 0x8D, 0x3E, 0x1A, 0x3B, 0x0C, 0x44, 0xAF, 0x2f, 0xa0};
+
+int uploadProgress(size_t sent, size_t total, void *user)
+{
+    const auto *progress = static_cast<const NetMdBackend::UploadProgress *>(user);
+    if (progress && *progress)
+        (*progress)(static_cast<qint64>(sent), static_cast<qint64>(total));
+    return 0; // never stop part-way (see NetMdBackend::uploadTrack)
+}
 
 QString fromDisc(const char *bytes, int length)
 {
@@ -70,14 +96,24 @@ public:
                 return NetMdError::Failed;
             }
         }
+        netmd_set_last_usb_error(0);
         return NetMdError::None;
     }
 
     void close() override
     {
         if (m_handle) {
+            // After a USB error (not an unplug) a recorder can stop answering until it's replugged:
+            // a port reset does the same, so the next open finds it working.
+            const int usb = netmd_last_usb_error();
+            if (usb != 0 && usb != LIBUSB_ERROR_NO_DEVICE) {
+                const int reset = libusb_reset_device(reinterpret_cast<libusb_device_handle *>(m_handle));
+                qCInfo(lcNetMd) << "USB error" << libusb_error_name(usb) << "earlier: reset the recorder:"
+                                << libusb_error_name(reset);
+            }
             netmd_close(m_handle);
             m_handle = nullptr;
+            netmd_set_last_usb_error(0);
         }
         if (m_list)
             netmd_clean(&m_list);
@@ -193,6 +229,124 @@ public:
         if (ok != 1)
             return NetMdError::Rejected;
         return synced < 0 ? NetMdError::Failed : NetMdError::None;
+    }
+
+    // The sequence linux-minidisc's netmdcli "send" uses: secure session, key exchange,
+    // download setup, the encrypted track, then title and commit.
+    NetMdError uploadTrack(const MdEncodedAudio &audio, const QString &title, const UploadProgress &progress,
+                           int *trackIndex) override
+    {
+        if (!m_handle)
+            return NetMdError::NotFound;
+        if (audio.mode != MdRecordMode::Sp)
+            return NetMdError::Failed;
+        // The PCM, with room after it: netmd_prepare_packets pads the last block (netmdcli
+        // allocates 2048 spare bytes too).
+        std::vector<unsigned char> data;
+        {
+            QFile f(audio.path);
+            if (!f.open(QIODevice::ReadOnly))
+                return NetMdError::Failed;
+            const qint64 size = f.size();
+            try {
+                data.assign(static_cast<size_t>(size) + 2048, 0);
+            } catch (const std::bad_alloc &) {
+                // libnetmd encrypts a whole track in memory (twice its size at the peak).
+                qCWarning(lcNetMd) << "not enough memory for a track of" << size << "bytes";
+                return NetMdError::Failed;
+            }
+            if (f.read(reinterpret_cast<char *>(data.data()), size) != size)
+                return NetMdError::Failed;
+        }
+        const size_t pcmBytes = data.size() - 2048;
+
+        // Every step is logged (mmm.netmd): which one a recorder refuses is what to look at.
+        auto check = [](const char *step, netmd_error e) {
+            if (e == NETMD_NO_ERROR)
+                qCDebug(lcNetMd) << "upload:" << step << "ok";
+            else
+                qCWarning(lcNetMd) << "upload:" << step << "failed:" << netmd_strerror(e) << "(netmd error" << int(e) << ")";
+            return e == NETMD_NO_ERROR;
+        };
+        check("leave stale session (an error is normal)", netmd_secure_leave_session(m_handle));
+        check("set track protection", netmd_secure_set_track_protection(m_handle, 0x01));
+        auto leave = [this, &check] {
+            check("forget session key", netmd_secure_session_key_forget(m_handle));
+            check("leave session", netmd_secure_leave_session(m_handle));
+        };
+        if (!check("enter session", netmd_secure_enter_session(m_handle))) {
+            netmd_secure_leave_session(m_handle);
+            return NetMdError::Rejected;
+        }
+        std::array<unsigned char, 16> key0{}, key1{};
+        std::copy_n(kEkbChain.begin(), 16, key0.begin());
+        std::copy_n(kEkbChain.begin() + 16, 16, key1.begin());
+        std::array<unsigned char, 24> signature = kEkbSignature;
+        netmd_keychain second{reinterpret_cast<char *>(key1.data()), nullptr};
+        netmd_keychain first{reinterpret_cast<char *>(key0.data()), &second};
+        netmd_ekb ekb{0x26422642, &first, 9, reinterpret_cast<char *>(signature.data())};
+        std::array<unsigned char, 8> hostNonce{}, devNonce{}, sessionKey{};
+        std::array<unsigned char, 8> kek = kKek;
+        std::array<unsigned char, 20> contentId = kContentId;
+        if (!check("send key data", netmd_secure_send_key_data(m_handle, &ekb))) {
+            leave();
+            return NetMdError::Rejected;
+        }
+        netmd_create_nonce(hostNonce.data(), hostNonce.size());
+        if (!check("session key exchange", netmd_secure_session_key_exchange(m_handle, hostNonce.data(), devNonce.data()))) {
+            leave();
+            return NetMdError::Rejected;
+        }
+        netmd_retailmac(kRootKey.data(), hostNonce.data(), devNonce.data(), sessionKey.data());
+        if (!check("setup download", netmd_secure_setup_download(m_handle, contentId.data(), kek.data(), sessionKey.data()))) {
+            leave();
+            return NetMdError::Rejected;
+        }
+
+        netmd_track_packets *packets = nullptr;
+        size_t packetCount = 0;
+        size_t frames = 0;
+        size_t packetLength = 0;
+        if (netmd_prepare_packets(data.data(), pcmBytes, &packets, &packetCount, &frames, NETMD_CHANNELS_STEREO,
+                                  &packetLength, kek.data(), NETMD_WIREFORMAT_PCM)
+            != NETMD_NO_ERROR) {
+            netmd_cleanup_packets(&packets);
+            leave();
+            return NetMdError::Failed;
+        }
+        std::vector<unsigned char>().swap(data); // the encrypted packets are all that's needed now
+
+        uint16_t track = 0;
+        std::array<unsigned char, 8> uuid{};
+        std::array<unsigned char, 20> newContentId{};
+        const netmd_error sent = netmd_secure_send_track_ex(
+            m_handle, NETMD_WIREFORMAT_PCM, NETMD_DISKFORMAT_SP_STEREO, static_cast<unsigned int>(frames), packets,
+            packetLength, sessionKey.data(), &track, uuid.data(), newContentId.data(), &uploadProgress,
+            const_cast<UploadProgress *>(&progress));
+        netmd_cleanup_packets(&packets);
+        qCDebug(lcNetMd) << "upload: new track" << track << "(" << frames << "frames," << packetLength << "bytes)";
+        if (!check("send track", sent)) {
+            leave();
+            return sent == NETMD_USB_ERROR                  ? NetMdError::Disconnected
+                : sent == NETMD_COMMAND_FAILED_REJECTED     ? NetMdError::Rejected
+                                                            : NetMdError::Failed;
+        }
+
+        // Title (a failure leaves it untitled: still commit the audio), then commit.
+        const QByteArray t = title.toLatin1().left(254);
+        netmd_cache_toc(m_handle);
+        if (netmd_set_title(m_handle, track, t.constData()) != 1)
+            qCInfo(lcNetMd) << "couldn't title the new track" << track;
+        netmd_sync_toc(m_handle);
+        const netmd_error committed = netmd_secure_commit_track(m_handle, track, sessionKey.data());
+        check("commit track", committed);
+        leave();
+        if (trackIndex)
+            *trackIndex = track;
+        // Only a refusal is "rejected" (write-protected / full); anything else is a plain failure.
+        return committed == NETMD_NO_ERROR                ? NetMdError::None
+            : committed == NETMD_COMMAND_FAILED_REJECTED  ? NetMdError::Rejected
+                                                          : NetMdError::Failed;
     }
 
 private:
