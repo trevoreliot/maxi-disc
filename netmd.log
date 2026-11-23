@@ -1,0 +1,5 @@
+QML debugging is enabled. Only use this in a safe environment.
+kf.iconthemes: Icon theme "Numix-Circle" not found.
+mmm.mpris: MPRIS service "org.mpris.MediaPlayer2.musicmdmanager"
+mmm.library: scan finished in 18 ms: 0 added, 0 updated, 0 removed, 0 failed
+qt.qpa.services: Failed to register with host portal QDBusError("org.freedesktop.portal.Error.Failed", "Could not register app ID: App info not found for 'music-md-manager'")

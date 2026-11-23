@@ -98,7 +98,10 @@ QVariant Devices::data(const QModelIndex &index, int role) const
     case ObjectPathRole: return d.objectPath;
     case Qt::DisplayRole:
     case NameRole: return d.name;
+    case NetMdRole: return d.kind == mmm::Device::Kind::NetMd;
     case DetailsRole: {
+        if (d.kind == mmm::Device::Kind::NetMd)
+            return QStringLiteral("MiniDisc recorder (NetMD)");
         QStringList parts;
         const QString vm = (d.vendor + QLatin1Char(' ') + d.model).trimmed();
         if (!vm.isEmpty() && vm != d.name)
@@ -113,6 +116,8 @@ QVariant Devices::data(const QModelIndex &index, int role) const
     case BusyRole: return d.busy;
     case ReadOnlyRole: return d.readOnly;
     case SpaceTextRole:
+        if (d.kind == mmm::Device::Kind::NetMd)
+            return QStringLiteral("NetMD");
         if (d.mounted() && d.freeBytes >= 0)
             return QStringLiteral("%1 free of %2").arg(formatBytes(d.freeBytes), formatBytes(d.totalBytes));
         if (d.mounted())
@@ -130,7 +135,7 @@ QHash<int, QByteArray> Devices::roleNames() const
         {DeviceIdRole, "deviceId"},   {ObjectPathRole, "objectPath"}, {NameRole, "name"},         {DetailsRole, "details"},
         {MountedRole, "mounted"},     {MountPointRole, "mountPoint"}, {BusyRole, "busy"},
         {ReadOnlyRole, "readOnly"},   {SpaceTextRole, "spaceText"},   {HasProfileRole, "hasProfile"},
-        {ProfileNameRole, "profileName"},
+        {ProfileNameRole, "profileName"}, {NetMdRole, "netMd"},
     };
 }
 
@@ -210,7 +215,7 @@ void Devices::toggleMountCurrent()
     if (m_current < 0 || m_current >= m_rows.size())
         return;
     const mmm::Device &d = m_rows.at(m_current).device;
-    if (d.busy)
+    if (d.busy || d.kind == mmm::Device::Kind::NetMd) // a recorder isn't mounted
         return;
     // By object path: unique even when two sticks share a filesystem UUID.
     if (d.mounted())

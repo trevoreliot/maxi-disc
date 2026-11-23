@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.25)
 project(music-md-manager
     VERSION 0.0.1
     DESCRIPTION "Music library manager with USB and NetMD MiniDisc sync"
-    LANGUAGES CXX)
+    LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,6 +47,7 @@ function(mmm_add_sanitizer_defaults target)
     endif()
 endfunction()
 
+add_subdirectory(third_party/libnetmd)
 add_subdirectory(src)
 add_subdirectory(tools/mmm-play)
 add_subdirectory(tools/mmm-tags)

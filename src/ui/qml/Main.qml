@@ -31,6 +31,7 @@ ApplicationWindow {
     readonly property alias tagEditorDialog: tagDialog
     readonly property alias artworkFinderDialog: artDialog
     readonly property alias profileEditorDialog: profileDialog
+    readonly property alias renameMdDialog: mdRenameDialog
     readonly property alias chrome: topChrome
 
     width: 1280
@@ -283,6 +284,10 @@ ApplicationWindow {
         id: artDialog
     }
 
+    RenameMdDialog {
+        id: mdRenameDialog
+    }
+
     ProfileEditorDialog {
         id: profileDialog
     }
@@ -329,6 +334,7 @@ ApplicationWindow {
                 active: screens.screenActive && root.currentScreen === Main.ExportScreen
                 onInteracted: root.paneClicked(false)
                 onEditProfileRequested: id => profileDialog.edit(id)
+                onRenameMdRequested: (disc, index) => disc ? mdRenameDialog.renameDisc() : mdRenameDialog.renameTrack(index)
             }
         }
 

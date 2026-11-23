@@ -19,7 +19,7 @@ class QJSEngine;
 //
 // Roles: deviceId (keys the profile), objectPath (this device right now), name, details ("Vendor Model · exfat"), mounted, mountPoint, busy,
 // readOnly, spaceText ("14.2 GB free of 32 GB" / "32 GB · not mounted"), hasProfile,
-// profileName.
+// profileName, netMd (a MiniDisc recorder, M10: no mount, no profile).
 class Devices : public QAbstractListModel
 {
     Q_OBJECT
@@ -51,6 +51,7 @@ public:
         SpaceTextRole,
         HasProfileRole,
         ProfileNameRole,
+        NetMdRole,
     };
 
     explicit Devices(const Options &options, QObject *parent = nullptr);

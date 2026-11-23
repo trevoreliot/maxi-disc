@@ -37,7 +37,8 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | Devices / profiles | UDisks2 (USB or SD-card volumes with a filesystem, not system disks); profiles in the library DB keyed by filesystem UUID. See `docs/decisions/0004-device-detection-and-profiles.md` |
 | USB sync | Per-device selection (playlists, albums, artists, genres) mirrored to the device; only files the app wrote (manifest) are ever replaced/moved/removed; playlists in `<musicDir>/Playlists/*.m3u8`. See `docs/decisions/0005-usb-sync-manifest-and-mirror.md` |
 | GStreamer stalls | Recover (engine thread + abandon/replace a stalled pipeline) rather than fix GStreamer internals. See `docs/decisions/0001-gstreamer-stall-recovery.md` (evidence + how to pursue upstream) |
-| Licence | GPL-3.0-or-later (Qt LGPLv3 + linux-minidisc GPL). Verify linux-minidisc is GPL-2.0-or-later before M10 |
+| Licence | GPL-3.0-or-later (Qt LGPLv3 + linux-minidisc). Verified in M10: libnetmd files are LGPL-2.1-or-later / GPL-2.0-or-later (third_party/libnetmd/UPSTREAM.md) |
+| NetMD | Vendored, patched libnetmd behind a `NetMdBackend` interface; one worker thread; the disc header parsed by the app. See `docs/decisions/0006-netmd-via-vendored-libnetmd.md` |
 
 ## Tech stack
 
@@ -124,7 +125,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - [x] **M9b On-device browser** — Done when: the Export screen's right pane has a toggle between "Tracks to Export" and "On Device"; On Device lists the selected device's music (artist → album → tracks, sizes, free space) from M9's device scan, marks tracks not in the library, and offers Mount when unmounted; read-only. User test: plug in a thumb drive with music on it and browse what's there.
 
 ### Phase 5: MiniDisc
-- [ ] **M10 NetMD basics** — Done when: libnetmd linked; detect the MZ-NE410; read disc TOC and titles; rename disc and tracks; udev rule documented. User test: read and retitle a scratch disc.
+- [x] **M10 NetMD basics** — Done when: libnetmd linked; detect the MZ-NE410; read disc TOC and titles; rename disc and tracks; udev rule documented. User test: read and retitle a scratch disc.
 - [ ] **M11 SP upload** — Done when: decode to 44.1 kHz 16-bit PCM via GStreamer; upload as SP; progress and cancel. User test: burn a short album in SP, then play it on the deck.
 - [ ] **M12 LP2 / LP4 upload** — Done when: atracdenc encoding; mode chosen per job; disc-space estimate before burning. User test: burn in LP2 and LP4; check sound and titles.
 - [ ] **M13 (Optional, deferred) netmd-js extras** — Port device-quirk fixes only if the MZ-NE410 needs them. netmd-exploits features wait until requested.
@@ -288,6 +289,19 @@ and the user has run the "User test". Tick the box, commit, then stop.
   - Not done: delete from device; add a device's tracks to the library; the device's playlists;
     cover art; search / "only not in library" filter; play a device file; marking duplicates on
     the device; reading only while the Export screen is visible (it reads while the view is on).
+- M10 notes / follow-ups:
+  - Setup + udev: `docs/netmd-setup.md`, `docs/udev/70-netmd.rules`. `MMM_NETMD_DEBUG=1` logs USB.
+  - Not done: arrange tracks (move), groups (create/rename/delete), delete track, wipe disc,
+    playback controls (netmd_play/stop...), a title-space meter (read the TOC's free title area),
+    Japanese full-width titles (the 0x1803 title table), batch retitle from library tags,
+    write-protect detection before writing (the refusal is reported after), libusb hotplug
+    instead of polling.
+  - Untested on hardware in CI by design: the user test is the check for the USB side. It found
+    one bug (patched libnetmd rejected the MZ-NE410's 46-byte capacity reply as "no disc").
+  - Export keys: l / h move between either left pane and the right pane (h returns where you came
+    from); Enter on a recorder goes into its tracks.
+  - Wipe disc / arrange tracks (and delete track) are unscheduled: likely a small milestone after
+    M11 (they share track deletion and refreshing the track list with uploads).
 - Duplicate formats (user asked, 2026-11-22): "hide lower-quality duplicates". When an album has
   the same song in several formats (game soundtracks ship FLAC + MP3 side by side), browsing,
   playing, search and USB sync show one copy: lossless over lossy, then higher bitrate. Match on

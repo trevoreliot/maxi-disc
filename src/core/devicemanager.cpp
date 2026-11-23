@@ -45,12 +45,21 @@ void DeviceManager::setDevicesForTesting(const QList<Device> &devices)
     rebuild();
 }
 
+void DeviceManager::setNetMdDevices(const QList<Device> &devices)
+{
+    if (devices == m_netMdDevices)
+        return;
+    m_netMdDevices = devices;
+    rebuild();
+}
+
 void DeviceManager::rebuild()
 {
-    const QList<Device> devices = m_testMode ? m_testDevices : m_monitor ? m_monitor->devices() : QList<Device>();
+    QList<Device> devices = m_testMode ? m_testDevices : m_monitor ? m_monitor->devices() : QList<Device>();
+    devices += m_netMdDevices;
     QList<DeviceEntry> next;
     for (const Device &d : devices) {
-        DeviceEntry e{d, m_db->isOpen() ? m_db->deviceProfile(d.id) : std::nullopt};
+        DeviceEntry e{d, m_db->isOpen() && d.kind == Device::Kind::UsbStorage ? m_db->deviceProfile(d.id) : std::nullopt};
         if (e.profile && e.profile->lastSeenName != d.name) {
             m_db->setDeviceLastSeenName(d.id, d.name);
             e.profile->lastSeenName = d.name;

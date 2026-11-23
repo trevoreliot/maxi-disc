@@ -17,6 +17,8 @@
 #include "artfinder.h"
 #include "coverimageprovider.h"
 #include "devices.h"
+#include "fakenetmd.h"
+#include "minidisc.h"
 #include "ondevice.h"
 #include "sync.h"
 #include "profileeditor.h"
@@ -74,6 +76,8 @@ private:
     std::unique_ptr<Devices> m_devices;
     std::unique_ptr<Sync> m_sync;
     std::unique_ptr<OnDevice> m_onDevice;
+    std::shared_ptr<mmm::test::FakeRecorder> m_recorder = std::make_shared<mmm::test::FakeRecorder>();
+    std::unique_ptr<MiniDisc> m_miniDisc;
     QString m_cacheDir;
 
     template<typename Model>
@@ -110,11 +114,13 @@ private Q_SLOTS:
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
         m_onDevice = std::make_unique<OnDevice>(OnDevice::Options{.databasePath = db});
+        m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false});
         m_cacheDir = m_dir.filePath(QStringLiteral("covers"));
     }
 
     void cleanupTestCase()
     {
+        m_miniDisc.reset();
         m_onDevice.reset();
         m_sync.reset();
         m_devices.reset();
@@ -691,6 +697,65 @@ private Q_SLOTS:
         QVERIFY(!od.isBrowsing());
         od.setActive(false);
         m_devices->setTestDevices({});
+    }
+
+    // --- NetMD MiniDisc (M10): the in-memory recorder ---
+    void miniDiscFollowsTheSelectedDevice()
+    {
+        m_devices->setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("uuid:STICK")},
+                                               {QStringLiteral("name"), QStringLiteral("STICK")}}});
+        MiniDisc &md = *m_miniDisc;
+        md.setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("netmd:test")},
+                                       {QStringLiteral("name"), QStringLiteral("Sony MZ-NE410")}}});
+        QCOMPARE(m_devices->count(), 2); // listed after the USB device
+        QVERIFY(!md.isSelected());
+        m_devices->setCurrentIndex(1);
+        QCOMPARE(m_devices->current().value(QStringLiteral("netMd")).toBool(), true);
+        QCOMPARE(m_devices->current().value(QStringLiteral("details")).toString(), QStringLiteral("MiniDisc recorder (NetMD)"));
+        QVERIFY(md.isSelected());
+        QCOMPARE(md.deviceName(), QStringLiteral("Sony MZ-NE410"));
+        QTRY_VERIFY(md.hasDisc());
+        QCOMPARE(md.discTitle(), QStringLiteral("Scratch"));
+        QCOMPARE(md.trackCount(), 3);
+        QCOMPARE(md.groupCount(), 1);
+        QCOMPARE(md.statusText(), QStringLiteral("3 tracks"));
+        QVERIFY(md.capacityText().contains(QStringLiteral("free of")));
+        QVERIFY(md.usedFraction() > 0.0);
+
+        MdTrackModel &t = *md.tracks();
+        QCOMPARE(t.currentIndex(), 0);
+        QCOMPARE(t.data(t.index(0), MdTrackModel::GroupTitleRole).toString(), QStringLiteral("Side A"));
+        QCOMPARE(t.data(t.index(1), MdTrackModel::InGroupRole).toBool(), true);
+        QCOMPARE(t.data(t.index(2), MdTrackModel::InGroupRole).toBool(), false);
+        QCOMPARE(t.data(t.index(1), MdTrackModel::ModeRole).toString(), QStringLiteral("LP2"));
+        QCOMPARE(t.data(t.index(2), MdTrackModel::ModeRole).toString(), QStringLiteral("LP4 mono"));
+        QCOMPARE(t.data(t.index(2), MdTrackModel::DurationTextRole).toString(), QStringLiteral("1:02:05"));
+        QCOMPARE(t.data(t.index(2), MdTrackModel::ProtectedRole).toBool(), true);
+
+        // What a title becomes; renaming writes the clean one.
+        const QVariantMap p = md.preview(QStringLiteral("Café “Live”"), false);
+        QCOMPARE(p.value(QStringLiteral("text")).toString(), QStringLiteral("Cafe \"Live\""));
+        QVERIFY(p.value(QStringLiteral("changed")).toBool());
+        t.setCurrentIndex(1);
+        md.renameTrack(1, QStringLiteral("Café “Live”"));
+        QVERIFY(md.isBusy());
+        QTRY_VERIFY(!md.isBusy());
+        QCOMPARE(t.titleAt(1), QStringLiteral("Cafe \"Live\""));
+        QCOMPARE(t.currentIndex(), 1); // a rename keeps the cursor
+        md.renameDisc(QStringLiteral("Mixtape"));
+        QTRY_VERIFY(!md.isBusy());
+        QCOMPARE(md.discTitle(), QStringLiteral("Mixtape"));
+        QCOMPARE(md.groupCount(), 1);
+        md.renameDisc(QStringLiteral("Scratch")); // put it back (shared fake)
+        QTRY_VERIFY(!md.isBusy());
+
+        // Back to the USB device: the recorder is let go.
+        m_devices->setCurrentIndex(0);
+        QVERIFY(!md.isSelected());
+        QVERIFY(!md.hasDisc());
+        md.setTestDevices({});
+        m_devices->setTestDevices({});
+        QCOMPARE(m_devices->count(), 0);
     }
 
     // --- USB sync (M9): selection → plan → run against a temp dir standing in for the stick ---

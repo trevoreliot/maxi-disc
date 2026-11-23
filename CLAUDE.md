@@ -66,8 +66,9 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     device id) ; `DeviceProfile` + `DeviceProfiles::decide` (copy or MP3) + `PathLayout::render`
     (FAT-safe paths) are what M9 syncs by (decisions/0004). UI: `Devices` QML singleton (the device
     list model; construct before the engine; tests use `.monitor = false` + `setTestDevices`),
-    `ProfileEditor` + `ProfileEditorDialog` (Main owns it). Export keys: j/k devices ↔ browse, Enter
-    = set up/edit profile, `m` mount/unmount.
+    `ProfileEditor` + `ProfileEditorDialog` (Main owns it). Export keys: j/k devices ↔ browse, l / h
+    into the right pane and back to the left pane it came from, Enter = set up/edit profile (a recorder:
+    into its tracks), `m` mount/unmount.
   - USB sync (M9): core `SyncPlanner` (`plan()` gathers DB + device scan, `diff()` is pure:
     Add/Update/Move/Remove/Forget against `device_manifest`, the files the app wrote; others are
     never touched, decisions/0005) → `UsbSync::run` (temp `.mmm-part-*` + fsync + rename, per-file
@@ -80,6 +81,13 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     artist/album/title, or artist/title ±3 s) on its own worker. UI: `OnDevice` QML singleton (reads
     only while `active`, pauses during a sync, refreshes after) + `OnDeviceModel` (artist → album → track
     rows, folding, cursor kept by key) + `OnDevicePane.qml`. `o` switches the Export right pane.
+  - NetMD (M10): vendored libnetmd (`third_party/libnetmd`, patches in its UPSTREAM.md; built without
+    our flags). Only `libnetmdbackend.cpp` includes it, behind `NetMdBackend`; `NetMdManager` runs every
+    command on one worker thread (generation drops stale results; exit waits ≤ 5 s); `NetMdMonitor`
+    polls USB (own libusb context). `MdTitle`: ASCII cleaning + the disc header ("0;Title//1-3;Group//").
+    UI: `MiniDisc` QML singleton (puts recorders into Devices; follows Devices.current) + `MiniDiscPane`
+    + `RenameMdDialog` (Main owns it). Keys: n / Enter rename track, N disc, R refresh. Tests use
+    `tests/core/fakenetmd.h` (never USB); the UI tests construct MiniDisc with it.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).

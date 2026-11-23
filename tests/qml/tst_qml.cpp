@@ -6,6 +6,8 @@
 
 #include "coverimageprovider.h"
 #include "devices.h"
+#include "fakenetmd.h"
+#include "minidisc.h"
 #include "ondevice.h"
 #include "sync.h"
 #include "fixturelibrary.h"
@@ -31,6 +33,8 @@ public Q_SLOTS:
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
         m_onDevice = std::make_unique<OnDevice>(OnDevice::Options{.databasePath = db});
+        // NetMD: an in-memory recorder; tests add it with MiniDisc.setTestDevices().
+        m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false});
     }
 
     void qmlEngineAvailable(QQmlEngine *engine)
@@ -43,6 +47,7 @@ public Q_SLOTS:
 
     void cleanupTestCase()
     {
+        m_miniDisc.reset();
         m_onDevice.reset();
         m_sync.reset();
         m_devices.reset();
@@ -57,6 +62,8 @@ private:
     std::unique_ptr<Devices> m_devices;
     std::unique_ptr<Sync> m_sync;
     std::unique_ptr<OnDevice> m_onDevice;
+    std::shared_ptr<mmm::test::FakeRecorder> m_recorder = std::make_shared<mmm::test::FakeRecorder>();
+    std::unique_ptr<MiniDisc> m_miniDisc;
 };
 
 QUICK_TEST_MAIN_WITH_SETUP(mmm_qml, Setup)

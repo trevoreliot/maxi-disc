@@ -10,12 +10,14 @@ import QtQuick.Layouts
 // right. MiniDisc arrives in M10–M12.
 //
 // Keyboard: the left column is two panes stacked: j past the last device moves into the
-// browse list, k at its top moves back up. Enter on a device sets up / edits its profile
+// browse list, k at its top moves back up. l from either moves into the right pane, h back to
+// the one it came from. Enter on a device sets up / edits its profile
 // (Main opens the dialog), m mounts / unmounts it. In the browse list i (or a double-click)
 // adds the row to the device's selection; l moves into the selection, where x / Delete
 // removes an entry. p plans a sync, S runs the plan shown (or cancels a running sync), Esc
 // closes the plan or stops planning. o switches the right pane to "On Device" (M9b: what's on
-// the device; j/k move, Enter folds a header) and back.
+// the device; j/k move, Enter folds a header) and back. A NetMD recorder (M10) shows its disc
+// instead: j/k move, Enter / n rename the track, N the disc, R reads it again.
 Item {
     id: root
 
@@ -25,9 +27,14 @@ Item {
     // The device pane while there are devices; the browse list when the last one goes. A
     // device plugged in while the user is browsing here doesn't pull the keys away.
     property int focusedPane: ExportView.Browse
+    // The left pane the right one was entered from: h goes back there.
+    property int leftPane: ExportView.DeviceList
     // With no devices, the device pane has nothing to focus: the browse list has the keys.
     // The right pane (the selection, or the device's music) has the keys only while it lists something.
-    readonly property bool rightPaneHasRows: OnDevice.active ? OnDevice.model.count > 0
+    // The selected device is a MiniDisc recorder: the right pane shows its disc.
+    readonly property bool mdSelected: Devices.currentIndex >= 0 && Devices.current.netMd === true
+    readonly property bool rightPaneHasRows: mdSelected ? MiniDisc.tracks.count > 0
+                                           : OnDevice.active ? OnDevice.model.count > 0
                                                              : Sync.selection.count > 0 && !syncPane.showsPlan
     readonly property int pane: (focusedPane === ExportView.DeviceList && Devices.count === 0)
                                 || (focusedPane === ExportView.Selection && !rightPaneHasRows)
@@ -67,9 +74,28 @@ Item {
     signal interacted()
     // Set up / edit a device's profile (Main owns the dialog).
     signal editProfileRequested(string deviceId)
+    // Rename the MiniDisc (disc) or its track `index` (Main owns the dialog).
+    signal renameMdRequested(bool disc, int index)
+
+    function renameMdTrack() {
+        if (!MiniDisc.hasDisc || MiniDisc.busy)
+            return;
+        if (MiniDisc.trackCount === 0)
+            renameMdRequested(true, -1);
+        else
+            renameMdRequested(false, Math.max(0, MiniDisc.tracks.currentIndex));
+    }
+
+    Connections {
+        target: Devices
+        // The options box follows the device: MiniDisc or USB / DAP.
+        function onCurrentChanged() {
+            optionTabs.currentIndex = root.mdSelected ? 0 : 1;
+        }
+    }
 
     function editCurrentProfile() {
-        if (Devices.currentIndex >= 0)
+        if (Devices.currentIndex >= 0 && !mdSelected)
             editProfileRequested(Devices.current.deviceId);
     }
 
@@ -80,7 +106,23 @@ Item {
             OnDevice.active = false; // show where it went
     }
 
+    // l: into the right pane (if it lists something; else false: on to the queue, if open).
+    function enterRightPane(from: int): bool {
+        if (!rightPaneHasRows)
+            return false;
+        leftPane = from;
+        focusedPane = ExportView.Selection;
+        return true;
+    }
+
+    // h: back to the left pane the right one was entered from.
+    function leaveRightPane() {
+        focusedPane = leftPane === ExportView.DeviceList && Devices.count > 0 ? ExportView.DeviceList : ExportView.Browse;
+    }
+
     function toggleOnDevice() {
+        if (pane !== ExportView.Selection)
+            leftPane = pane;
         OnDevice.active = !OnDevice.active;
         if (OnDevice.active)
             focusedPane = ExportView.Selection; // the browse list has the keys until rows arrive
@@ -93,7 +135,22 @@ Item {
                 Devices.toggleMountCurrent();
             return true;
         case KeyRouter.ToggleOnDevice:
-            toggleOnDevice();
+            if (!mdSelected)
+                toggleOnDevice();
+            return true;
+        case KeyRouter.RenameTrack:
+            if (mdSelected)
+                renameMdTrack();
+            return true;
+        case KeyRouter.RenameDisc:
+            if (mdSelected && MiniDisc.hasDisc && !MiniDisc.busy)
+                renameMdRequested(true, -1);
+            return true;
+        case KeyRouter.RefreshDevice:
+            if (mdSelected)
+                MiniDisc.refresh();
+            else if (OnDevice.active)
+                OnDevice.refresh();
             return true;
         case KeyRouter.ExportPlan:
             if (Sync.canPlan)
@@ -117,6 +174,23 @@ Item {
                 syncPane.removeCurrent();
             return true;
         }
+        if (pane === ExportView.Selection && mdSelected) {
+            switch (action) {
+            case KeyRouter.MoveDown:
+                MiniDisc.tracks.move(1);
+                return true;
+            case KeyRouter.MoveUp:
+                MiniDisc.tracks.move(-1);
+                return true;
+            case KeyRouter.MoveLeft:
+                leaveRightPane();
+                return true;
+            case KeyRouter.Activate:
+                renameMdTrack();
+                return true;
+            }
+            return false;
+        }
         if (pane === ExportView.Selection && OnDevice.active) {
             switch (action) {
             case KeyRouter.MoveDown:
@@ -126,7 +200,7 @@ Item {
                 OnDevice.model.move(-1);
                 return true;
             case KeyRouter.MoveLeft:
-                focusedPane = ExportView.Browse;
+                leaveRightPane();
                 return true;
             case KeyRouter.Activate:
                 OnDevice.model.toggle(OnDevice.model.currentIndex);
@@ -143,7 +217,7 @@ Item {
                 syncPane.moveSelection(-1);
                 return true;
             case KeyRouter.MoveLeft:
-                focusedPane = ExportView.Browse;
+                leaveRightPane();
                 return true;
             case KeyRouter.Activate:
                 return true;
@@ -162,10 +236,15 @@ Item {
                 Devices.currentIndex = Math.max(0, Devices.currentIndex - 1);
                 return true;
             case KeyRouter.Activate:
-                editCurrentProfile();
+                if (mdSelected)
+                    enterRightPane(ExportView.DeviceList); // a recorder has no profile: to its tracks
+                else
+                    editCurrentProfile();
                 return true;
             case KeyRouter.MoveLeft:
                 return true;
+            case KeyRouter.MoveRight:
+                return enterRightPane(ExportView.DeviceList);
             }
             return false;
         }
@@ -185,11 +264,7 @@ Item {
         case KeyRouter.MoveLeft:
             return true;
         case KeyRouter.MoveRight:
-            if (rightPaneHasRows) {
-                focusedPane = ExportView.Selection;
-                return true;
-            }
-            return false; // on to the queue, if open
+            return enterRightPane(ExportView.Browse);
         }
         return false;
     }
@@ -282,7 +357,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: Devices.count === 0
-                        text: qsTr("No devices detected.\nPlug in a USB drive or a DAP (NetMD recorders: M10).")
+                        text: qsTr("No devices detected.\nPlug in a USB drive, a DAP or a NetMD MiniDisc recorder.")
                         wrapMode: Text.Wrap
                         font.pixelSize: Theme.fontSmall
                         color: Theme.textMuted
@@ -310,6 +385,7 @@ Item {
                             required property bool busy
                             required property bool hasProfile
                             required property string profileName
+                            required property bool netMd
 
                             width: ListView.view.width
                             leftPadding: Theme.spaceSM
@@ -336,16 +412,19 @@ Item {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        text: deviceRow.busy ? qsTr("Working…")
-                                            : (deviceRow.hasProfile ? deviceRow.profileName : qsTr("Not set up")) + " · " + deviceRow.spaceText
+                                        text: deviceRow.netMd
+                                              ? (deviceRow.index === Devices.currentIndex && MiniDisc.statusText !== ""
+                                                 ? qsTr("MiniDisc · %1").arg(MiniDisc.statusText) : qsTr("MiniDisc recorder"))
+                                              : deviceRow.busy ? qsTr("Working…")
+                                              : (deviceRow.hasProfile ? deviceRow.profileName : qsTr("Not set up")) + " · " + deviceRow.spaceText
                                         font.pixelSize: Theme.fontSmall
-                                        color: deviceRow.hasProfile ? Theme.textSecondary : Theme.textMuted
+                                        color: deviceRow.hasProfile || deviceRow.netMd ? Theme.textSecondary : Theme.textMuted
                                         elide: Text.ElideRight
                                     }
                                 }
                                 Button {
                                     objectName: "mountButton"
-                                    visible: !deviceRow.mounted
+                                    visible: !deviceRow.mounted && !deviceRow.netMd
                                     enabled: !deviceRow.busy
                                     text: qsTr("Mount")
                                     flat: true
@@ -390,9 +469,15 @@ Item {
                 Layout.bottomMargin: Theme.spaceSM
                 spacing: Theme.spaceSM
 
+                SectionTitle {
+                    objectName: "mdTitle"
+                    visible: root.mdSelected
+                    text: qsTr("MiniDisc · %1").arg(MiniDisc.deviceName)
+                }
                 // The right pane's two views (o switches).
                 ViewTab {
                     objectName: "exportTitle"
+                    visible: !root.mdSelected
                     selected: !OnDevice.active
                     text: Sync.state === Sync.Syncing ? qsTr("Syncing to %1…").arg(Sync.planSummary.deviceName ?? "")
                         : Sync.state === Sync.Done ? qsTr("Sync finished")
@@ -402,6 +487,7 @@ Item {
                 }
                 ViewTab {
                     objectName: "onDeviceTab"
+                    visible: !root.mdSelected
                     selected: OnDevice.active
                     text: qsTr("On Device")
                     onClicked: {
@@ -412,7 +498,7 @@ Item {
                 }
                 Label {
                     objectName: "exportCount"
-                    visible: !OnDevice.active && !syncPane.showsPlan && Sync.tracks.count > 0
+                    visible: !root.mdSelected && !OnDevice.active && !syncPane.showsPlan && Sync.tracks.count > 0
                     text: qsTr("%1 tracks · %2").arg(Sync.tracks.count).arg(syncPane.formatDuration(Sync.totalDurationMs))
                     color: Theme.textMuted
                 }
@@ -421,7 +507,7 @@ Item {
                 }
                 Button {
                     objectName: "addToExportButton"
-                    visible: !OnDevice.active && Sync.state === Sync.Idle && Sync.deviceId !== ""
+                    visible: !root.mdSelected && !OnDevice.active && Sync.state === Sync.Idle && Sync.deviceId !== ""
                     enabled: browsePane.currentList.currentIndex >= 0
                     text: qsTr("Add selected (i)")
                     flat: true
@@ -430,7 +516,7 @@ Item {
                 }
                 Button {
                     objectName: "closePlanButton"
-                    visible: !OnDevice.active && (Sync.state === Sync.Ready || Sync.state === Sync.Done)
+                    visible: !root.mdSelected && !OnDevice.active && (Sync.state === Sync.Ready || Sync.state === Sync.Done)
                     text: qsTr("Close (Esc)")
                     flat: true
                     focusPolicy: Qt.NoFocus
@@ -438,12 +524,21 @@ Item {
                 }
                 Button {
                     objectName: "refreshOnDeviceButton"
-                    visible: OnDevice.active && Devices.current.mounted === true
+                    visible: !root.mdSelected && OnDevice.active && Devices.current.mounted === true
                     enabled: !OnDevice.browsing && !OnDevice.paused
                     text: qsTr("Refresh")
                     flat: true
                     focusPolicy: Qt.NoFocus
                     onClicked: OnDevice.refresh()
+                }
+                Button {
+                    objectName: "refreshMdButton"
+                    visible: root.mdSelected
+                    enabled: !MiniDisc.busy
+                    text: qsTr("Refresh (R)")
+                    flat: true
+                    focusPolicy: Qt.NoFocus
+                    onClicked: MiniDisc.refresh()
                 }
             }
 
@@ -452,7 +547,7 @@ Item {
                 Layout.fillHeight: true
                 Layout.leftMargin: Theme.spaceLG
                 Layout.rightMargin: Theme.spaceLG
-                currentIndex: OnDevice.active ? 1 : 0
+                currentIndex: root.mdSelected ? 2 : OnDevice.active ? 1 : 0
 
                 SyncPane {
                     id: syncPane
@@ -466,11 +561,22 @@ Item {
                 OnDevicePane {
                     id: onDevicePane
                     objectName: "onDevicePane"
-                    paneActive: root.active && root.pane === ExportView.Selection && OnDevice.active
+                    paneActive: root.active && root.pane === ExportView.Selection && OnDevice.active && !root.mdSelected
                     onInteracted: {
                         root.focusedPane = ExportView.Selection;
                         root.interacted();
                     }
+                }
+                MiniDiscPane {
+                    id: miniDiscPane
+                    objectName: "miniDiscPane"
+                    paneActive: root.active && root.pane === ExportView.Selection && root.mdSelected
+                    onInteracted: {
+                        root.focusedPane = ExportView.Selection;
+                        root.interacted();
+                    }
+                    onRenameTrackRequested: index => root.renameMdRequested(false, index)
+                    onRenameDiscRequested: root.renameMdRequested(true, -1)
                 }
             }
 
@@ -496,8 +602,9 @@ Item {
                     Label {
                         Layout.fillWidth: true
                         visible: Devices.currentIndex >= 0
-                        text: Devices.current.mounted ? Devices.current.mountPoint + " · " + Devices.current.spaceText
-                                                      : (Devices.current.details ?? "") + " · " + (Devices.current.spaceText ?? "")
+                        text: Devices.current.netMd ? (Devices.current.details ?? "")
+                            : Devices.current.mounted ? Devices.current.mountPoint + " · " + Devices.current.spaceText
+                            : (Devices.current.details ?? "") + " · " + (Devices.current.spaceText ?? "")
                         font.pixelSize: Theme.fontSmall
                         color: Theme.textMuted
                         elide: Text.ElideMiddle
@@ -546,7 +653,7 @@ Item {
                         TabBar {
                             id: optionTabs
                             Layout.fillWidth: true
-                            currentIndex: 1 // USB / DAP: the only devices so far
+                            currentIndex: root.mdSelected ? 0 : 1 // follows the device (Connections above)
                             TabButton {
                                 text: qsTr("MD options")
                                 focusPolicy: Qt.NoFocus
@@ -568,11 +675,18 @@ Item {
                                 rowSpacing: Theme.spaceSM
                                 StubButton { text: qsTr("Wipe disc") }
                                 StubButton { text: qsTr("Arrange tracks") }
-                                StubButton { text: qsTr("Rename") }
+                                Button {
+                                    objectName: "mdRenameButton"
+                                    Layout.fillWidth: true
+                                    enabled: root.mdSelected && MiniDisc.hasDisc && !MiniDisc.busy
+                                    text: qsTr("Rename (n)")
+                                    focusPolicy: Qt.NoFocus
+                                    onClicked: root.renameMdTrack()
+                                }
                                 StubButton { text: qsTr("Sync") }
                                 Label {
                                     Layout.columnSpan: 2
-                                    text: qsTr("NetMD support: M10–M12")
+                                    text: qsTr("Recording to the disc: M11–M12")
                                     font.pixelSize: Theme.fontMicro
                                     color: Theme.textMuted
                                 }

@@ -45,6 +45,11 @@ add_library(mmm_core STATIC
     transcodecache.h transcodecache.cpp
     usbsync.h usbsync.cpp
     devicebrowser.h devicebrowser.cpp
+    mdtypes.h
+    mdtitle.h mdtitle.cpp
+    netmdbackend.h libnetmdbackend.cpp
+    netmdmonitor.h netmdmonitor.cpp
+    netmdmanager.h netmdmanager.cpp
     syncjob.h syncjob.cpp
     mprisservice.h mprisservice.cpp)
 target_include_directories(mmm_core PUBLIC
@@ -53,7 +58,7 @@ target_include_directories(mmm_core PUBLIC
 target_link_libraries(mmm_core
     PUBLIC Qt6::Core Qt6::Sql Qt6::DBus Qt6::Network
     PRIVATE Qt6::Concurrent
-    PRIVATE PkgConfig::GST TagLib::tag mmm_build_flags)
+    PRIVATE PkgConfig::GST TagLib::tag netmd mmm_build_flags)
 
 # Publish moc metatypes so QML modules can use core types via QML_FOREIGN (e.g. PlayQueue).
 qt_extract_metatypes(mmm_core)

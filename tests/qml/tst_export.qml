@@ -214,11 +214,11 @@ TestCase {
         verify(findChild(view, "onDeviceSummary").text.indexOf(" track") > 0);
         compare(OnDevice.model.currentIndex, 0);
 
-        // o put the keys in the list (once it had rows): j/k move, Enter folds the artist; h / l
-        // go to the browse pane and back.
+        // o put the keys in the list (once it had rows): j/k move, Enter folds the artist; h goes
+        // back to where o was pressed (the device list), l in again.
         compare(view.pane, ExportView.Selection);
         keyClick("h");
-        compare(view.pane, ExportView.Browse);
+        compare(view.pane, ExportView.DeviceList);
         keyClick("l");
         compare(view.pane, ExportView.Selection);
         const rows = OnDevice.model.count;
@@ -239,6 +239,78 @@ TestCase {
         keyClick("o");
         compare(OnDevice.active, false);
         tryVerify(() => findChild(view, "syncPane").visible);
+    }
+
+    // M10: a NetMD recorder's disc, read and retitled by keyboard (the in-memory recorder).
+    function test_miniDisc() {
+        Devices.setTestDevices([]);
+        MiniDisc.setTestDevices([{ id: "netmd:qml", name: "Sony MZ-NE410" }]);
+        const win = openExport();
+        const view = win.exportView;
+        compare(Devices.count, 1);
+        compare(Devices.currentIndex, 0);
+        verify(view.mdSelected);
+        tryVerify(() => MiniDisc.hasDisc, 5000);
+        verify(findChild(view, "miniDiscPane").visible);
+        compare(findChild(view, "mdTitle").text, "MiniDisc · Sony MZ-NE410");
+        compare(findChild(view, "mdDiscTitle").text, "Scratch");
+        verify(findChild(view, "mdRenameButton").enabled);
+        verify(!findChild(view, "onDeviceTab").visible);
+
+        // l from the device list: into the track list; h: back to the devices. Enter on the
+        // recorder goes to its tracks too (it has no profile).
+        compare(view.pane, ExportView.DeviceList);
+        keyClick("l");
+        compare(view.pane, ExportView.Selection);
+        keyClick("h");
+        compare(view.pane, ExportView.DeviceList);
+        keyClick(Qt.Key_Return);
+        compare(view.pane, ExportView.Selection);
+        verify(!win.profileEditorDialog.opened);
+        // From the browse list, h goes back there.
+        keyClick("h");
+        keyClick("j");
+        compare(view.pane, ExportView.Browse);
+        keyClick("l");
+        compare(view.pane, ExportView.Selection);
+        keyClick("h");
+        compare(view.pane, ExportView.Browse);
+        keyClick("l");
+        // j moves; n renames the track, the dialog shows the clean title.
+        keyClick("j");
+        compare(MiniDisc.tracks.currentIndex, 1);
+        keyClick("n");
+        const dlg = win.renameMdDialog;
+        tryCompare(dlg, "opened", true);
+        verify(!dlg.disc);
+        compare(dlg.trackIndex, 1);
+        const field = findChild(dlg.contentItem, "mdTitleField");
+        tryVerify(() => field.activeFocus);
+        field.text = "Sigur Rós";
+        verify(findChild(dlg.contentItem, "mdTitlePreview").visible);
+        compare(findChild(dlg.contentItem, "mdTitlePreview").text, "On the disc: Sigur Ros");
+        keyClick(Qt.Key_Return);
+        tryCompare(dlg, "visible", false);
+        tryCompare(MiniDisc, "busy", false);
+        compare(MiniDisc.tracks.titleAt(1), "Sigur Ros");
+        if (screenshotDir !== "") {
+            wait(200);
+            grabImage(win.contentItem).save(screenshotDir + "/export-minidisc.png");
+        }
+
+        // N renames the disc; Esc cancels.
+        keyClick("N");
+        tryCompare(dlg, "opened", true);
+        verify(dlg.disc);
+        keyClick(Qt.Key_Escape);
+        tryCompare(dlg, "visible", false);
+        compare(MiniDisc.discTitle, "Scratch");
+
+        // Put the track back (the fake is shared).
+        MiniDisc.renameTrack(1, "");
+        tryCompare(MiniDisc, "busy", false);
+        MiniDisc.setTestDevices([]);
+        compare(Devices.count, 0);
     }
 
     function test_screenshot() {

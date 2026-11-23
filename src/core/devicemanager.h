@@ -70,6 +70,9 @@ public:
     UdisksMonitor *monitor() const { return m_monitor.get(); }
     // Test hook: shows these devices instead of detected ones (no D-Bus).
     void setDevicesForTesting(const QList<Device> &devices);
+    // NetMD recorders (M10; NetMdMonitor finds them, the UI passes them on): listed after the
+    // USB devices, kind NetMd, no profile.
+    void setNetMdDevices(const QList<Device> &devices);
 
 Q_SIGNALS:
     void devicesChanged();
@@ -86,6 +89,7 @@ private:
     std::unique_ptr<Database> m_db;
     std::unique_ptr<UdisksMonitor> m_monitor;
     QList<Device> m_testDevices;
+    QList<Device> m_netMdDevices;
     bool m_testMode = false;
     QList<DeviceEntry> m_entries;
 };

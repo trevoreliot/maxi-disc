@@ -12,6 +12,7 @@
 #include "coverimageprovider.h"
 #include "devices.h"
 #include "library.h"
+#include "minidisc.h"
 #include "ondevice.h"
 #include "playback.h"
 #include "sync.h"
@@ -70,6 +71,7 @@ int main(int argc, char *argv[])
     Devices devices({.databasePath = databasePath, .monitor = !parser.isSet(noDevicesOpt)});
     Sync sync({.databasePath = databasePath, .cacheDir = {}});
     OnDevice onDevice({.databasePath = databasePath});
+    MiniDisc miniDisc({.backend = {}, .monitor = !parser.isSet(noDevicesOpt)});
     QObject::connect(&playback, &Playback::quitRequested, &app, &QCoreApplication::quit);
 
     QQmlApplicationEngine engine;

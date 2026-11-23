@@ -59,6 +59,9 @@ public:
         ExportPlan,     // Export: plan a sync of the selected device
         ExportSync,     // Export: run the plan that's shown
         ToggleOnDevice, // Export: right pane "Tracks to Export" ↔ "On Device"
+        RenameTrack,    // Export, MiniDisc: rename the track under the cursor
+        RenameDisc,     // Export, MiniDisc: rename the disc
+        RefreshDevice,  // Export: read the MiniDisc (or the device) again
     };
     Q_ENUM(Action)
 
