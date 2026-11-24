@@ -90,6 +90,42 @@ int netmd_exch_message(netmd_dev_handle *devh, unsigned char *cmd,
     return netmd_recv_message(devh, rsp);
 }
 
+/* music-md-manager patch 17 (see common.h). */
+int netmd_exch_message_final(netmd_dev_handle *devh, unsigned char *cmd,
+                             const size_t cmdlen, unsigned char *rsp)
+{
+    int len;
+    int interims = 0;
+    int timeouts = 0;
+
+    len = netmd_send_message(devh, cmd, cmdlen);
+    if (len < 0)
+        return len;
+    for (;;) {
+        len = netmd_recv_message(devh, rsp);
+        if (len == NETMDERR_TIMEOUT && timeouts++ < 3) {
+            netmd_log(NETMD_LOG_ERROR, "no reply yet, still waiting (%d)\n", timeouts);
+            continue;
+        }
+        if (len < 1)
+            return len < 0 ? len : NETMDERR_USB;
+        if (rsp[0] == NETMD_STATUS_INTERIM && interims++ < 30) {
+            netmd_log(NETMD_LOG_VERBOSE, "interim reply, waiting for the final one\n");
+            continue;
+        }
+        break;
+    }
+    if (rsp[0] == NETMD_STATUS_ACCEPTED)
+        return len;
+    /* Still working after all that: its answer would come as the reply to the next command.
+       A timeout, so the caller starts over (reopens the device). */
+    if (rsp[0] == NETMD_STATUS_INTERIM)
+        return NETMDERR_TIMEOUT;
+    if (cmdlen >= 3)
+        netmd_log(NETMD_LOG_ERROR, "command 0x%02x 0x%02x: status 0x%02x\n", cmd[1], cmd[2], rsp[0]);
+    return rsp[0] == NETMD_STATUS_REJECTED ? NETMDERR_CMD_INVALID : NETMDERR_CMD_FAILED;
+}
+
 
 int netmd_send_message(netmd_dev_handle *devh, unsigned char *cmd,
                        const size_t cmdlen)

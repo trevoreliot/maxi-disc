@@ -43,5 +43,13 @@ int netmd_recv_message(netmd_dev_handle *dev, unsigned char *rsp);
 /* music-md-manager patch (netmd_dev.c): remembers a USB error for netmd_last_usb_error(). */
 void netmd_set_last_usb_error(int error);
 
+/* music-md-manager patch 17: sends a command and waits for its final reply, through INTERIM
+   ("working on it") replies and a few receive timeouts, like netmd-js does. Returns the reply's
+   length if the recorder ACCEPTED it, NETMDERR_CMD_INVALID if it REJECTED it (write-protected
+   disc, protected track, ...), NETMDERR_CMD_FAILED for any other status (NOT IMPLEMENTED), or a
+   negative transfer error (NETMDERR_USB, NETMDERR_TIMEOUT, NETMDERR_NOTREADY; also TIMEOUT if it
+   still answers INTERIM after 30 replies). */
+int netmd_exch_message_final(netmd_dev_handle *dev, unsigned char *cmd, const size_t cmdlen, unsigned char *rsp);
+
 
 #endif

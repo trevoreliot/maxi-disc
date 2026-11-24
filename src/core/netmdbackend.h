@@ -40,6 +40,16 @@ public:
     using UploadProgress = std::function<void(qint64 sent, qint64 total)>;
     virtual NetMdError uploadTrack(const MdEncodedAudio &audio, const QString &title, const UploadProgress &progress,
                                    int *trackIndex) = 0;
+
+    // --- Editing the disc (M12b) ---
+    // The recorder doesn't touch the groups (they're in the header): the caller rewrites it
+    // (MdTitle::headerAfterDelete / headerAfterMove). Rejected: the recorder refused
+    // (write-protected disc, ...); Disconnected: it stopped answering.
+    virtual NetMdError deleteTrack(int index) = 0;
+    // The track at `from` ends up at `to` (0-based); the ones between close up.
+    virtual NetMdError moveTrack(int from, int to) = 0;
+    // Every track and title, gone (stops playback first).
+    virtual NetMdError eraseDisc() = 0;
 };
 
 // Makes a backend on the worker thread (each recorder session gets its own).

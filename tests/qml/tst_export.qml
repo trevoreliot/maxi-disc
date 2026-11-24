@@ -392,6 +392,116 @@ TestCase {
         MiniDisc.setTestDevices([]);
     }
 
+    // M12b: editing the disc by keyboard: J / K move, v marks, d deletes (asks), D wipes (typed).
+    function test_miniDiscEdit() {
+        fakeRecorder.reset(); // the shared recorder: its starting disc
+        Devices.setTestDevices([]);
+        MiniDisc.setTestDevices([{ id: "netmd:edit", name: "Sony MZ-NE410" }]);
+        const win = openExport();
+        const view = win.exportView;
+        const dlg = win.confirmDialog;
+        tryVerify(() => MiniDisc.hasDisc && !MiniDisc.busy, 5000);
+        compare(MiniDisc.trackCount, 3); // Intro, (untitled), Outro; "Side A" = 1-2
+        MiniDisc.recordView = false;
+        verify(MiniDisc.canEdit);
+        keyClick("l");
+        compare(view.pane, ExportView.Selection);
+        compare(MiniDisc.tracks.currentIndex, 0);
+
+        // J: Intro down a place, inside its group; again: out of the group. The cursor follows.
+        keyClick("J");
+        tryCompare(MiniDisc, "busy", false);
+        compare(MiniDisc.tracks.titleAt(1), "Intro");
+        compare(MiniDisc.tracks.currentIndex, 1);
+        keyClick("J");
+        tryCompare(MiniDisc, "busy", false);
+        compare(MiniDisc.tracks.titleAt(2), "Intro");
+        compare(MiniDisc.tracks.currentIndex, 2);
+        compare(MiniDisc.groupCount, 1);
+        keyClick("J"); // the last place already: nothing
+        compare(MiniDisc.busy, false);
+        keyClick("K");
+        tryCompare(MiniDisc, "busy", false);
+        compare(MiniDisc.tracks.titleAt(1), "Intro");
+        compare(MiniDisc.tracks.currentIndex, 1);
+
+        // d asks; n keeps the track; so does Esc; so does a change of disc under the question.
+        keyClick("d");
+        tryCompare(dlg, "opened", true);
+        compare(dlg.title, "Delete track 2?");
+        compare(dlg.details.length, 1);
+        keyClick("n");
+        tryCompare(dlg, "visible", false);
+        keyClick("d");
+        tryCompare(dlg, "opened", true);
+        keyClick(Qt.Key_Escape);
+        tryCompare(dlg, "visible", false);
+        compare(win.currentScreen, Main.ExportScreen);
+        keyClick("d");
+        tryCompare(dlg, "opened", true);
+        MiniDisc.refresh(); // the disc is read again (as after a swap)
+        tryCompare(dlg, "visible", false);
+        tryCompare(MiniDisc, "busy", false);
+        compare(MiniDisc.trackCount, 3);
+
+        // v marks two; Esc clears the marks; marked again, d + Enter deletes both.
+        keyClick("v");
+        keyClick("k");
+        keyClick("v");
+        compare(MiniDisc.tracks.markedCount, 2);
+        compare(findChild(view, "mdDeleteButton").text, "Delete 2 (d)");
+        keyClick(Qt.Key_Escape);
+        compare(MiniDisc.tracks.markedCount, 0);
+        compare(win.currentScreen, Main.ExportScreen); // Esc cleared the marks, nothing else
+        keyClick("v");
+        keyClick("j");
+        keyClick("v");
+        keyClick("d");
+        tryCompare(dlg, "opened", true);
+        compare(dlg.title, "Delete 2 tracks?");
+        compare(dlg.details.length, 2);
+        if (screenshotDir !== "") {
+            wait(200);
+            grabImage(win.contentItem.parent).save(screenshotDir + "/export-minidisc-delete.png");
+        }
+        mouseClick(findChild(dlg.footer, "confirmButton")); // the button, like Enter
+        tryCompare(dlg, "visible", false);
+        tryCompare(MiniDisc, "busy", false);
+        compare(MiniDisc.trackCount, 1);
+        compare(MiniDisc.tracks.titleAt(0), "Outro");
+        compare(MiniDisc.tracks.markedCount, 0);
+        compare(MiniDisc.tracks.currentIndex, 0);
+
+        // D asks for WIPE: Enter does nothing until it's typed (any case).
+        keyClick("D");
+        tryCompare(dlg, "opened", true);
+        compare(dlg.phrase, "WIPE");
+        const field = findChild(dlg.contentItem, "confirmPhrase");
+        tryVerify(() => field.activeFocus);
+        verify(!findChild(dlg.footer, "confirmButton").enabled);
+        keyClick(Qt.Key_Return);
+        verify(dlg.opened);
+        keyClick("y"); // typed into the field, not a "yes"
+        verify(dlg.opened);
+        field.text = "";
+        for (const c of "wipe")
+            keyClick(c);
+        verify(findChild(dlg.footer, "confirmButton").enabled);
+        if (screenshotDir !== "") {
+            wait(200);
+            grabImage(win.contentItem.parent).save(screenshotDir + "/export-minidisc-wipe.png");
+        }
+        keyClick(Qt.Key_Return);
+        tryCompare(dlg, "visible", false);
+        tryCompare(MiniDisc, "busy", false);
+        compare(MiniDisc.trackCount, 0);
+        compare(MiniDisc.discTitle, "");
+        verify(MiniDisc.hasDisc);
+
+        fakeRecorder.reset();
+        MiniDisc.setTestDevices([]);
+    }
+
     function test_screenshot() {
         if (screenshotDir === "")
             skip("set MMM_SCREENSHOT_DIR to save screenshots");

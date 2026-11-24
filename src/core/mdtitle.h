@@ -47,4 +47,17 @@ QString formatHeader(const Header &header);
 // result is still over kMaxHeaderBytes: the caller must not write it.
 QString withTitle(const QString &raw, const QString &cleanTitle, bool *truncated = nullptr);
 
+// --- Groups after editing the disc (M12b) ---
+// The recorder keeps groups in the header, so it doesn't change them when tracks are deleted
+// or moved: the caller writes the header these return (when it differs).
+
+// After deleting the tracks `deleted` (0-based, as numbered before the delete; any order): ranges
+// shift up and shrink; a group whose tracks are all gone is dropped. Groups without tracks stay.
+Header headerAfterDelete(const Header &header, QList<int> deleted);
+// After moving track `from` to position `to` (the track ends up at `to`, the others close up:
+// netmd_move_track). Within its group the groups stay the same; past a group's edge the track
+// leaves it; into the middle of a group it joins it. A group of just this track goes with it
+// unless it lands inside another group (then the group is dropped).
+Header headerAfterMove(const Header &header, int from, int to);
+
 } // namespace mmm::MdTitle

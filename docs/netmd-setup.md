@@ -33,6 +33,15 @@ bundled atracdenc (built with the app; `MMM_ATRACDENC=/path/to/atracdenc` uses a
 track takes a little longer to prepare. The disc's track list updates after each track. **Cancel** stops after the track being recorded: a NetMD upload can't be
 stopped part-way. Don't unplug during a recording: the track in progress is lost.
 
+## Arranging, deleting, wiping
+
+In the disc's track list ("On disc"): `J` / `K` move the track under the cursor down / up a
+place, `v` marks tracks, `d` (or `x` / Delete, or **Delete**) deletes the marked tracks (else the
+one under the cursor) after asking (`y` / Enter yes, `n` / Esc no), and `D` (or **Wipe disc…**)
+erases the whole disc after you type `WIPE`. Esc clears the marks. The recorder keeps groups in the
+disc title and doesn't update them itself: the app rewrites them after each move or delete (a
+track moved past a group's edge leaves it; moved into a group's middle, it joins).
+
 ## Titles
 
 MiniDiscs store plain ASCII titles. The app replaces what a disc can't show ("Björk – Jóga"

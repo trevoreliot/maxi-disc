@@ -5,6 +5,7 @@
 #include <QTest>
 
 #include "fakenetmd.h"
+#include "mdtitle.h"
 #include "netmdmanager.h"
 
 using namespace mmm;
@@ -395,6 +396,260 @@ private Q_SLOTS:
         QTRY_COMPARE(manager().uploadItems().first().state, MdItemState::Uploading);
         m_manager.reset(); // the track in progress finishes on the worker; nothing hangs or leaks
         QVERIFY(m_recorder->uploads <= 2);
+    }
+
+    // --- Editing the disc (M12b). The fake, like a recorder, leaves the header alone. ---
+    QStringList titles()
+    {
+        QStringList out;
+        for (const MdTrack &t : manager().disc().tracks)
+            out << t.title;
+        return out;
+    }
+    bool finishEdit(QSignalSpy &finished)
+    {
+        if (!finished.wait(5000))
+            return false;
+        return manager().state() == State::Ready && !manager().isBusy() && manager().edit() == NetMdManager::Edit::None;
+    }
+
+    void deletesTracksTheLastFirstAndFixesGroups()
+    {
+        openRecorder();
+        m_recorder->header = QStringLiteral("0;Scratch//1-2;Side A//3;Outro//");
+        m_recorder->takeCalls();
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().deleteTracks({0, 2}));
+        QCOMPARE(manager().edit(), NetMdManager::Edit::Delete);
+        QVERIFY(manager().isBusy());
+        QVERIFY(!manager().deleteTracks({1})); // one at a time
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(finished.first().first().toBool(), true);
+        QCOMPARE(m_recorder->takeCalls(),
+                 (QStringList{QStringLiteral("readHeader"), QStringLiteral("deleteTrack:2"), QStringLiteral("deleteTrack:0"),
+                              QStringLiteral("writeHeader:0;Scratch//1;Side A//"), QStringLiteral("readDisc")}));
+        QCOMPARE(titles(), QStringList{QString()});
+        QCOMPARE(manager().disc().tracks[0].index, 0);
+        QCOMPARE(manager().disc().groups, (QList<MdGroup>{MdGroup{QStringLiteral("Side A"), 0, 0}}));
+        QCOMPARE(manager().disc().capacity.availableMs, 3'800'000 + 61'000 + 3'725'000);
+        QCOMPARE(manager().error(), NetMdError::None);
+    }
+
+    void aDeleteThatKeepsTheGroupsDoesntWriteThem()
+    {
+        openRecorder();
+        m_recorder->takeCalls();
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().deleteTracks({2}));
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(m_recorder->takeCalls(),
+                 (QStringList{QStringLiteral("readHeader"), QStringLiteral("deleteTrack:2"), QStringLiteral("readDisc")}));
+        QCOMPARE(titles(), (QStringList{QStringLiteral("Intro"), QString()}));
+    }
+
+    void aRefusedDeleteKeepsTheOnesDone()
+    {
+        openRecorder();
+        m_recorder->header = QStringLiteral("0;Scratch//1-2;Side A//3;Outro//");
+        m_recorder->takeCalls();
+        m_recorder->editError = NetMdError::Rejected;
+        m_recorder->failEditAt = 1; // the second (track 0)
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().deleteTracks({0, 2}));
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(finished.first().first().toBool(), false);
+        QCOMPARE(manager().error(), NetMdError::Rejected);
+        // Track 3 went: its group too. Then the refusal, and the disc as it is.
+        QCOMPARE(m_recorder->takeCalls(),
+                 (QStringList{QStringLiteral("readHeader"), QStringLiteral("deleteTrack:2"), QStringLiteral("deleteTrack:0"),
+                              QStringLiteral("writeHeader:0;Scratch//1-2;Side A//"), QStringLiteral("readDisc")}));
+        QCOMPARE(titles(), (QStringList{QStringLiteral("Intro"), QString()}));
+        QCOMPARE(manager().disc().groups.size(), 1);
+        QVERIFY(manager().hasDisc());
+    }
+
+    void withoutTheHeaderNothingIsDeleted()
+    {
+        openRecorder();
+        m_recorder->takeCalls();
+        m_recorder->headerReadError = NetMdError::Failed;
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().deleteTracks({0}));
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(manager().error(), NetMdError::Failed);
+        QCOMPARE(m_recorder->takeCalls(), QStringList{QStringLiteral("readHeader")});
+        QCOMPARE(titles().size(), 3);
+        QVERIFY(manager().hasDisc());
+        QVERIFY(manager().moveTrack(0, 1)); // the same for a move
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(m_recorder->takeCalls(), QStringList{QStringLiteral("readHeader")});
+    }
+
+    void movesATrackWithoutReadingTheDiscAgain()
+    {
+        openRecorder();
+        m_recorder->takeCalls();
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        // Within "Side A" (tracks 1-2): the groups stay.
+        QVERIFY(manager().moveTrack(0, 1));
+        QCOMPARE(manager().edit(), NetMdManager::Edit::Move);
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(m_recorder->takeCalls(), (QStringList{QStringLiteral("readHeader"), QStringLiteral("moveTrack:0:1")}));
+        QCOMPARE(titles(), (QStringList{QString(), QStringLiteral("Intro"), QStringLiteral("Outro")}));
+        QCOMPARE(manager().disc().tracks[1].index, 1);
+        QCOMPARE(manager().disc().tracks, m_recorder->tracks); // what a re-read would say
+        // Out of the group, past its end.
+        QVERIFY(manager().moveTrack(1, 2));
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(m_recorder->takeCalls(), (QStringList{QStringLiteral("readHeader"), QStringLiteral("moveTrack:1:2"),
+                                                       QStringLiteral("writeHeader:0;Scratch//1;Side A//")}));
+        QCOMPARE(manager().disc().groups, (QList<MdGroup>{MdGroup{QStringLiteral("Side A"), 0, 0}}));
+        QCOMPARE(manager().disc().rawHeader, QStringLiteral("0;Scratch//1;Side A//"));
+        QCOMPARE(manager().disc().tracks, m_recorder->tracks);
+        QCOMPARE(manager().disc().title, QStringLiteral("Scratch"));
+        QCOMPARE(finished.size(), 2);
+        QCOMPARE(finished.last().first().toBool(), true);
+    }
+
+    void aRefusedMoveReadsTheDisc()
+    {
+        openRecorder();
+        m_recorder->takeCalls();
+        m_recorder->editError = NetMdError::Rejected;
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().moveTrack(2, 0));
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(manager().error(), NetMdError::Rejected);
+        QCOMPARE(m_recorder->takeCalls(),
+                 (QStringList{QStringLiteral("readHeader"), QStringLiteral("moveTrack:2:0"), QStringLiteral("readDisc")}));
+        QCOMPARE(titles(), (QStringList{QStringLiteral("Intro"), QString(), QStringLiteral("Outro")}));
+    }
+
+    void aMoveWhoseGroupsWouldntFitIsRefused()
+    {
+        openRecorder();
+        // 10 tracks, group "Nine" on tracks 8-9, the header full to the byte.
+        for (int i = 3; i < 10; ++i)
+            m_recorder->tracks << MdTrack{i, QStringLiteral("T"), 1000, MdEncoding::Sp, false, false};
+        const QString tail = QStringLiteral("//8-9;Nine//");
+        m_recorder->header = QStringLiteral("0;") + QString(MdTitle::kMaxHeaderBytes - 2 - tail.size(), QLatin1Char('x')) + tail;
+        QCOMPARE(m_recorder->header.size(), MdTitle::kMaxHeaderBytes);
+        manager().refresh();
+        QTRY_COMPARE(manager().disc().tracks.size(), 10);
+        m_recorder->takeCalls();
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().moveTrack(8, 7)); // within the group: nothing to write
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(manager().error(), NetMdError::None);
+        m_recorder->takeCalls();
+        QVERIFY(manager().moveTrack(9, 8)); // into it: "8-10", a byte more than there is
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(manager().error(), NetMdError::Rejected);
+        QCOMPARE(m_recorder->takeCalls(), QStringList{QStringLiteral("readHeader")}); // not moved
+        QCOMPARE(manager().disc().tracks, m_recorder->tracks);
+    }
+
+    void aDeleteWhoseGroupsWouldntFitIsRefused()
+    {
+        openRecorder();
+        // Written without the "0;" the app writes: rewritten, it would be 2 bytes longer.
+        const QString tail = QStringLiteral("//2;G//");
+        m_recorder->header = QString(MdTitle::kMaxHeaderBytes - tail.size(), QLatin1Char('x')) + tail;
+        QCOMPARE(MdTitle::parseHeader(m_recorder->header).groups.size(), 1);
+        m_recorder->takeCalls();
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().deleteTracks({0}));
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(manager().error(), NetMdError::Rejected);
+        QCOMPARE(m_recorder->takeCalls(), QStringList{QStringLiteral("readHeader")}); // nothing deleted
+        QCOMPARE(m_recorder->tracks.size(), 3);
+    }
+
+    void aDiscThatCantBeReadAfterAnEditIsOpenedAgain()
+    {
+        openRecorder();
+        m_recorder->noDisc = true; // the erase works, reading it back doesn't
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().eraseDisc());
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(finished.first().first().toBool(), false);
+        QTRY_COMPARE(manager().state(), State::Ready);
+        QTRY_COMPARE(manager().error(), NetMdError::NoDisc); // reopened: what it says now
+        QVERIFY(!manager().hasDisc());
+        QVERIFY(manager().disc().tracks.isEmpty()); // not the list from before
+    }
+
+    void erasesTheDisc()
+    {
+        openRecorder();
+        m_recorder->takeCalls();
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().eraseDisc());
+        QCOMPARE(manager().edit(), NetMdManager::Edit::Erase);
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(m_recorder->takeCalls(), (QStringList{QStringLiteral("eraseDisc"), QStringLiteral("readDisc")}));
+        QVERIFY(manager().hasDisc());
+        QVERIFY(manager().disc().tracks.isEmpty());
+        QVERIFY(manager().disc().title.isEmpty());
+        QVERIFY(manager().disc().groups.isEmpty());
+        QCOMPARE(manager().disc().capacity.availableMs, manager().disc().capacity.totalMs);
+        // A refusal (write-protected) leaves the disc as it was.
+        m_recorder->tracks << MdTrack{0, QStringLiteral("New"), 1000, MdEncoding::Sp, false, false};
+        manager().refresh();
+        QTRY_COMPARE(manager().disc().tracks.size(), 1);
+        m_recorder->editError = NetMdError::Rejected;
+        QVERIFY(manager().eraseDisc());
+        QVERIFY(finishEdit(finished));
+        QCOMPARE(manager().error(), NetMdError::Rejected);
+        QCOMPARE(titles(), QStringList{QStringLiteral("New")});
+    }
+
+    void editsAreRefusedWhenTheyCant()
+    {
+        QVERIFY(!manager().eraseDisc()); // nothing selected
+        openRecorder();
+        QVERIFY(!manager().deleteTracks({}));
+        QVERIFY(!manager().deleteTracks({3}));
+        QVERIFY(!manager().deleteTracks({-1}));
+        QVERIFY(!manager().moveTrack(1, 1));
+        QVERIFY(!manager().moveTrack(0, 3));
+        QVERIFY(!manager().moveTrack(-1, 0));
+        // Not while recording.
+        m_recorder->uploadStepMs = 50;
+        QVERIFY(manager().startUpload(items(1)));
+        QVERIFY(!manager().canEdit());
+        QVERIFY(!manager().deleteTracks({0}));
+        QVERIFY(!manager().moveTrack(0, 1));
+        QVERIFY(!manager().eraseDisc());
+        QTRY_VERIFY(!manager().isUploading());
+        QVERIFY(manager().canEdit());
+        // No disc.
+        m_recorder->noDisc = true;
+        manager().refresh();
+        QTRY_COMPARE(manager().state(), State::Ready);
+        QVERIFY(!manager().eraseDisc());
+        QVERIFY(!manager().deleteTracks({0}));
+    }
+
+    void aRecorderThatStopsAnsweringDuringAnEditIsReopened()
+    {
+        openRecorder();
+        m_recorder->editError = NetMdError::Disconnected;
+        m_recorder->failEditAt = 0;
+        m_recorder->takeCalls();
+        QSignalSpy finished(&manager(), &NetMdManager::editFinished);
+        QVERIFY(manager().deleteTracks({1}));
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(finished.first().first().toBool(), false);
+        // Reopened (the USB port reset on close), the disc read again.
+        QTRY_VERIFY(manager().hasDisc());
+        QTRY_COMPARE(manager().state(), State::Ready);
+        QCOMPARE(manager().error(), NetMdError::None);
+        const QStringList calls = m_recorder->takeCalls();
+        QCOMPARE(calls.mid(0, 2), (QStringList{QStringLiteral("readHeader"), QStringLiteral("deleteTrack:1")}));
+        QVERIFY(calls.contains(QStringLiteral("close")));
+        QCOMPARE(calls.last(), QStringLiteral("readDisc"));
+        QCOMPARE(titles().size(), 3);
     }
 
     void unknownDevice()

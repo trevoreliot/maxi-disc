@@ -763,6 +763,84 @@ private Q_SLOTS:
         QCOMPARE(m_devices->count(), 0);
     }
 
+    // M12b: marks, and where the cursor goes after editing the disc.
+    void miniDiscEditsTheDisc()
+    {
+        m_recorder->reset(); // the shared fake: its starting disc
+        m_devices->setTestDevices({});
+        MiniDisc &md = *m_miniDisc;
+        md.setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("netmd:edit")}}});
+        m_devices->setCurrentIndex(0);
+        QTRY_VERIFY(md.hasDisc());
+        QVERIFY(md.canEdit());
+        MdTrackModel &t = *md.tracks();
+        QSignalSpy editable(&md, &MiniDisc::editableChanged);
+        QSignalSpy marks(&t, &MdTrackModel::marksChanged);
+
+        // Marks: what d deletes; without any, the cursor's track.
+        t.setCurrentIndex(2);
+        QCOMPARE(t.deleteRows(), QList<int>{2});
+        t.toggleMark(1);
+        t.toggleMark(0);
+        QCOMPARE(t.markedCount(), 2);
+        QCOMPARE(t.data(t.index(1), MdTrackModel::MarkedRole).toBool(), true);
+        QCOMPARE(t.deleteRows(), (QList<int>{0, 1}));
+        t.toggleMark(0);
+        QCOMPARE(t.deleteRows(), QList<int>{1});
+        t.toggleMark(7); // no such row
+        QCOMPARE(marks.size(), 3);
+        // A rename (same rows) keeps them.
+        md.renameTrack(2, QStringLiteral("Outro"));
+        QTRY_VERIFY(!md.isBusy());
+        QCOMPARE(t.markedCount(), 1);
+        t.clearMarks();
+        QCOMPARE(t.markedCount(), 0);
+        QVERIFY(t.deleteRows() == QList<int>{2});
+
+        // Moves: the cursor follows the track; none past the ends.
+        QVERIFY(!md.moveTrack(1)); // the last already
+        QVERIFY(md.moveTrack(-1));
+        QVERIFY(!md.canEdit());
+        QVERIFY(editable.size() >= 1);
+        QCOMPARE(md.busyText(), QStringLiteral("Moving the track…"));
+        QTRY_VERIFY(md.canEdit());
+        QCOMPARE(t.titleAt(1), QStringLiteral("Outro"));
+        QCOMPARE(t.currentIndex(), 1);
+        // A refused one: the cursor stays where it was.
+        m_recorder->editError = mmm::NetMdError::Rejected;
+        QVERIFY(md.moveTrack(-1));
+        QTRY_VERIFY(md.canEdit());
+        QCOMPARE(t.currentIndex(), 1);
+        QVERIFY(!md.errorString().isEmpty());
+        m_recorder->editError = mmm::NetMdError::None;
+        t.setCurrentIndex(0);
+        QVERIFY(!md.moveTrack(-1)); // the first already
+
+        // Delete the marked ones: the marks go, the cursor lands where the first was.
+        t.toggleMark(1);
+        t.toggleMark(2);
+        QVERIFY(md.deleteTracks());
+        QCOMPARE(md.busyText(), QStringLiteral("Deleting…"));
+        QTRY_VERIFY(md.canEdit());
+        QCOMPARE(md.trackCount(), 1);
+        QCOMPARE(t.titleAt(0), QStringLiteral("Intro"));
+        QCOMPARE(t.markedCount(), 0);
+        QCOMPARE(t.currentIndex(), 0);
+
+        // Wipe: nothing left, nothing to delete.
+        QVERIFY(md.eraseDisc());
+        QCOMPARE(md.busyText(), QStringLiteral("Erasing the disc…"));
+        QTRY_VERIFY(md.canEdit());
+        QCOMPARE(md.trackCount(), 0);
+        QCOMPARE(md.statusText(), QStringLiteral("Blank disc"));
+        QVERIFY(t.deleteRows().isEmpty());
+        QVERIFY(!md.deleteTracks());
+        QVERIFY(md.canEdit()); // a blank disc can still be wiped (a title)
+
+        m_recorder->reset();
+        md.setTestDevices({});
+    }
+
     void miniDiscRecordsTheQueue()
     {
         m_devices->setTestDevices({});

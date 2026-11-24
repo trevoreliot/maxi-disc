@@ -9,7 +9,8 @@ import QtQuick.Layouts
 // capacity, tracks with groups) and the tracks to record onto it (M11: the queue, whether it
 // fits, the recording's progress), switched with o; or why there's no disc.
 // Keyboard (via ExportView): j/k move, n / Enter rename (disc view), x / X remove / clear
-// (record view), S record / cancel, R re-reads.
+// (record view), S record / cancel, R re-reads. M12b (disc view): v marks, d / x deletes (asks),
+// J / K move the track, D wipes the disc (asks), Esc clears the marks.
 Item {
     id: root
 
@@ -231,6 +232,7 @@ Item {
                         required property bool protectedTrack
                         required property string groupTitle
                         required property bool inGroup
+                        required property bool marked
 
                         width: ListView.view.width
 
@@ -251,6 +253,7 @@ Item {
                             topPadding: 3
                             bottomPadding: 3
                             current: entry.index === MiniDisc.tracks.currentIndex
+                            marked: entry.marked
                             paneActive: root.paneActive && !MiniDisc.recordView
                             onClicked: {
                                 MiniDisc.tracks.currentIndex = entry.index;

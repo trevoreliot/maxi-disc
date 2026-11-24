@@ -4,6 +4,9 @@
 #include <QHash>
 #include <QRegularExpression>
 
+#include <algorithm>
+#include <optional>
+
 namespace mmm {
 
 QString describe(NetMdError e)
@@ -180,6 +183,74 @@ QString withTitle(const QString &raw, const QString &cleanTitle, bool *truncated
     }
     if (truncated)
         *truncated = cut;
+    return out;
+}
+
+Header headerAfterDelete(const Header &header, QList<int> deleted)
+{
+    std::sort(deleted.begin(), deleted.end());
+    deleted.erase(std::unique(deleted.begin(), deleted.end()), deleted.end());
+    deleted.removeIf([](int i) { return i < 0; });
+    if (deleted.isEmpty())
+        return header;
+    // How many deleted tracks come before `track`.
+    const auto before = [&](int track) {
+        return static_cast<int>(std::lower_bound(deleted.cbegin(), deleted.cend(), track) - deleted.cbegin());
+    };
+    const auto gone = [&](int track) { return std::binary_search(deleted.cbegin(), deleted.cend(), track); };
+    Header out;
+    out.title = header.title;
+    for (const MdGroup &g : header.groups) {
+        if (g.first < 0 || g.last < g.first) {
+            out.groups << g; // no tracks: nothing to shift
+            continue;
+        }
+        int first = g.first;
+        while (first <= g.last && gone(first))
+            ++first;
+        if (first > g.last)
+            continue; // every track of it is gone
+        int last = g.last;
+        while (gone(last))
+            --last;
+        out.groups << MdGroup{g.title, first - before(first), last - before(last)};
+    }
+    return out;
+}
+
+Header headerAfterMove(const Header &header, int from, int to)
+{
+    if (from == to || from < 0 || to < 0)
+        return header;
+    // Within one group: the same tracks stay in it.
+    for (const MdGroup &g : header.groups) {
+        if (g.contains(from) && g.contains(to))
+            return header;
+    }
+    // Out of its group (if any), then in at `to`.
+    std::optional<MdGroup> alone; // a group of just this track
+    for (const MdGroup &g : header.groups) {
+        if (g.first == from && g.last == from)
+            alone = g;
+    }
+    Header out = headerAfterDelete(header, {from});
+    bool joined = false;
+    for (MdGroup &g : out.groups) {
+        if (g.first < 0 || g.last < g.first)
+            continue;
+        if (to <= g.first) {
+            ++g.first;
+            ++g.last;
+        } else if (to <= g.last) {
+            ++g.last; // lands inside it
+            joined = true;
+        }
+    }
+    if (alone && !joined) {
+        // Keep the groups in disc order: before the first group that starts after it.
+        auto at = std::find_if(out.groups.begin(), out.groups.end(), [&](const MdGroup &g) { return g.first > to; });
+        out.groups.insert(at, MdGroup{alone->title, to, to});
+    }
     return out;
 }
 

@@ -36,6 +36,7 @@ qt_add_qml_module(mmm_ui
         qml/OnDevicePane.qml
         qml/MiniDiscPane.qml
         qml/RenameMdDialog.qml
+        qml/ConfirmDialog.qml
         qml/Toast.qml
         qml/SendToDeviceButton.qml
     SOURCES

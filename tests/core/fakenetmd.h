@@ -30,13 +30,29 @@ struct FakeRecorder
     int uploads = 0;            // uploads attempted
     QList<MdRecordMode> uploadModes; // the mode of each upload attempted
     int uploadStepMs = 0;       // per progress step of an upload (4 steps)
+    NetMdError editError = NetMdError::None; // deleteTrack / moveTrack / eraseDisc fail (M12b)
+    int failEditAt = -1;        // ... only the edit with this number (0-based); -1: all
+    int edits = 0;              // edits attempted
     QStringList calls;          // "open", "readDisc", "readHeader", "writeHeader:<raw>", ...
 
-    FakeRecorder()
+    FakeRecorder() { tracks = startTracks(); }
+    static QList<MdTrack> startTracks()
     {
-        tracks = {MdTrack{0, QStringLiteral("Intro"), 61'000, MdEncoding::Sp, false, false},
-                  MdTrack{1, QString(), 245'500, MdEncoding::Lp2, false, false},
-                  MdTrack{2, QStringLiteral("Outro"), 3'725'000, MdEncoding::Lp4, true, true}};
+        return {MdTrack{0, QStringLiteral("Intro"), 61'000, MdEncoding::Sp, false, false},
+                MdTrack{1, QString(), 245'500, MdEncoding::Lp2, false, false},
+                MdTrack{2, QStringLiteral("Outro"), 3'725'000, MdEncoding::Lp4, true, true}};
+    }
+    // The disc it starts with, no errors (tests sharing one recorder put it back).
+    void reset()
+    {
+        std::lock_guard lock(mutex);
+        header = QStringLiteral("0;Scratch//1-2;Side A//");
+        tracks = startTracks();
+        capacity = MdCapacity{1'000'000, 4'800'000, 3'800'000, true};
+        noDisc = false;
+        openError = writeError = headerReadError = uploadError = editError = NetMdError::None;
+        failUploadAt = failEditAt = -1;
+        delayMs = uploadStepMs = 0;
     }
     QStringList takeCalls()
     {
@@ -143,7 +159,58 @@ public:
         return NetMdError::None;
     }
 
+    // Like a recorder: the tracks change, the header (groups) doesn't.
+    NetMdError deleteTrack(int index) override
+    {
+        const auto l = step(QStringLiteral("deleteTrack:%1").arg(index));
+        if (const NetMdError e = editFails(); e != NetMdError::None)
+            return e;
+        if (index < 0 || index >= m_r->tracks.size())
+            return NetMdError::Rejected;
+        const qint64 ms = m_r->tracks.at(index).durationMs;
+        m_r->tracks.removeAt(index);
+        renumber();
+        m_r->capacity.recordedMs -= ms;
+        m_r->capacity.availableMs += ms;
+        return NetMdError::None;
+    }
+    NetMdError moveTrack(int from, int to) override
+    {
+        const auto l = step(QStringLiteral("moveTrack:%1:%2").arg(from).arg(to));
+        if (const NetMdError e = editFails(); e != NetMdError::None)
+            return e;
+        if (from < 0 || from >= m_r->tracks.size() || to < 0 || to >= m_r->tracks.size())
+            return NetMdError::Rejected;
+        m_r->tracks.move(from, to);
+        renumber();
+        return NetMdError::None;
+    }
+    NetMdError eraseDisc() override
+    {
+        const auto l = step(QStringLiteral("eraseDisc"));
+        if (const NetMdError e = editFails(); e != NetMdError::None)
+            return e;
+        m_r->tracks.clear();
+        m_r->header.clear();
+        m_r->capacity.recordedMs = 0;
+        m_r->capacity.availableMs = m_r->capacity.totalMs;
+        return NetMdError::None;
+    }
+
 private:
+    // Under the lock.
+    NetMdError editFails()
+    {
+        const bool fails = m_r->failEditAt < 0 || m_r->failEditAt == m_r->edits;
+        ++m_r->edits;
+        return fails ? m_r->editError : NetMdError::None;
+    }
+    void renumber()
+    {
+        for (int i = 0; i < m_r->tracks.size(); ++i)
+            m_r->tracks[i].index = i;
+    }
+
     // Logs the call, waits the configured delay (outside the lock), then holds the lock.
     std::unique_lock<std::mutex> step(const QString &call)
     {

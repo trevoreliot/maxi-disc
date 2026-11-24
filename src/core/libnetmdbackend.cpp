@@ -356,7 +356,55 @@ public:
                                                           : NetMdError::Failed;
     }
 
+    NetMdError deleteTrack(int index) override
+    {
+        if (!m_handle)
+            return NetMdError::NotFound;
+        if (index < 0 || index > 0xffff)
+            return NetMdError::Failed;
+        const int r = netmd_delete_track(m_handle, static_cast<uint16_t>(index));
+        qCDebug(lcNetMd) << "delete track" << index << "->" << r;
+        return editResult(r);
+    }
+
+    NetMdError moveTrack(int from, int to) override
+    {
+        if (!m_handle)
+            return NetMdError::NotFound;
+        if (from < 0 || from > 0xffff || to < 0 || to > 0xffff)
+            return NetMdError::Failed;
+        const int r = netmd_move_track(m_handle, static_cast<uint16_t>(from), static_cast<uint16_t>(to));
+        qCDebug(lcNetMd) << "move track" << from << "->" << to << ":" << r;
+        return editResult(r);
+    }
+
+    NetMdError eraseDisc() override
+    {
+        if (!m_handle)
+            return NetMdError::NotFound;
+        netmd_stop(m_handle); // like Web MiniDisc: a playing deck may refuse (refused if stopped: fine)
+        const int r = netmd_erase_disc(m_handle);
+        qCDebug(lcNetMd) << "erase disc ->" << r;
+        return editResult(r);
+    }
+
 private:
+    // libnetmd patch 17's results: > 0 done, NETMDERR_CMD_INVALID refused, NETMDERR_CMD_FAILED
+    // not supported, else the transfer failed (the recorder stopped answering).
+    static NetMdError editResult(int r)
+    {
+        if (r > 0)
+            return NetMdError::None;
+        switch (r) {
+        case NETMDERR_CMD_INVALID:
+            return NetMdError::Rejected;
+        case NETMDERR_CMD_FAILED:
+            return NetMdError::Failed;
+        default:
+            return NetMdError::Disconnected;
+        }
+    }
+
     netmd_device *m_list = nullptr;
     netmd_dev_handle *m_handle = nullptr;
 };

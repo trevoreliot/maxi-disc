@@ -130,7 +130,8 @@ int netmd_set_group_title(netmd_dev_handle* dev, minidisc* md, unsigned int grou
    @param dev pointer to device returned by netmd_open
    @param start Zero based index of track to move
    @param finish Zero based track to make it
-   @return 0 for fail 1 for success
+   @return 1 for success, else a negative NETMDERR_* (music-md-manager patch 17: was 0;
+           NETMDERR_CMD_INVALID if the recorder refused)
 */
 int netmd_move_track(netmd_dev_handle* dev, const uint16_t start, const uint16_t finish);
 
@@ -195,7 +196,13 @@ int netmd_move_group(netmd_dev_handle* dev, minidisc* md, const uint16_t track, 
 */
 int netmd_delete_group(netmd_dev_handle* dev, minidisc* md, const unsigned int group);
 
+/* music-md-manager patch 17: the reply's length if done, else a negative NETMDERR_*
+   (NETMDERR_CMD_INVALID: the recorder refused). Was the length of any reply. */
 int netmd_delete_track(netmd_dev_handle* dev, const uint16_t track);
+
+/* music-md-manager patch 17: erases the whole disc (tracks and titles). 1 if done, else a
+   negative NETMDERR_* (NETMDERR_CMD_INVALID: refused, e.g. write-protected). */
+int netmd_erase_disc(netmd_dev_handle* dev);
 
 /**
    Writes atrac file to device

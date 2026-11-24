@@ -65,6 +65,10 @@ public:
         ClearQueue,     // Export, MiniDisc: empty the "to record" list
         SendQueueToDevice, // anywhere: send the play queue to the selected device
         CycleRecordMode,   // Export, MiniDisc: SP → LP2 → LP4
+        DeleteMdTracks,    // Export, MiniDisc: delete the marked tracks (or the cursor's), after asking
+        EraseMd,           // Export, MiniDisc: wipe the disc, after asking
+        MoveMdTrackDown,   // Export, MiniDisc: move the cursor's track down a place
+        MoveMdTrackUp,     // Export, MiniDisc: ... up
     };
     Q_ENUM(Action)
 

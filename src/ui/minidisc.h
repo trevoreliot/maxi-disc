@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QSet>
 #include <QVariantMap>
 #include <QtQmlIntegration/qqmlintegration.h>
 
@@ -15,7 +16,7 @@ class QJSEngine;
 
 // The disc's tracks (M10). Roles: number (1-based), title, durationText ("3:45"), mode ("SP",
 // "LP2", "LP4", "SP mono"), protectedTrack, groupTitle (set on the first track of a group),
-// inGroup. currentIndex is the keyboard cursor.
+// inGroup, marked (M12b: `v`, what `d` deletes). currentIndex is the keyboard cursor.
 class MdTrackModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -23,9 +24,10 @@ class MdTrackModel : public QAbstractListModel
     QML_UNCREATABLE("MiniDisc.tracks is the one")
     Q_PROPERTY(int count READ count NOTIFY countChanged FINAL)
     Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged FINAL)
+    Q_PROPERTY(int markedCount READ markedCount NOTIFY marksChanged FINAL)
 
 public:
-    enum Role { NumberRole = Qt::UserRole + 1, TitleRole, DurationTextRole, ModeRole, ProtectedRole, GroupTitleRole, InGroupRole };
+    enum Role { NumberRole = Qt::UserRole + 1, TitleRole, DurationTextRole, ModeRole, ProtectedRole, GroupTitleRole, InGroupRole, MarkedRole };
     using QAbstractListModel::QAbstractListModel;
 
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -39,6 +41,15 @@ public:
     // The title of row `row` ("" if untitled or out of range).
     Q_INVOKABLE QString titleAt(int row) const;
 
+    // Marks (M12b), like the Library's album page: `v` toggles the cursor row's.
+    int markedCount() const { return static_cast<int>(m_marked.size()); }
+    Q_INVOKABLE void toggleMark(int row);
+    Q_INVOKABLE void clearMarks();
+    QList<int> markedRows() const; // ascending
+    // What a delete takes: the marked rows, else the cursor row (ascending; empty: none).
+    Q_INVOKABLE QList<int> deleteRows() const;
+
+    // A different track list (count) drops the marks; the same one (a rename) keeps them.
     void setDisc(const mmm::MdDisc &disc);
 
     static QString formatDuration(qint64 ms);
@@ -46,10 +57,12 @@ public:
 Q_SIGNALS:
     void countChanged();
     void currentIndexChanged();
+    void marksChanged();
 
 private:
     mmm::MdDisc m_disc;
     int m_current = -1;
+    QSet<int> m_marked;
 };
 
 // The tracks to record (M11). Roles: number, title (as it goes on the disc), artist,
@@ -132,6 +145,8 @@ class MiniDisc : public QObject
     Q_PROPERTY(QString recordModeName READ recordModeName NOTIFY recordModeChanged FINAL)
     Q_PROPERTY(bool lpAvailable READ lpAvailable CONSTANT FINAL)
     Q_PROPERTY(QString lpUnavailableReason READ lpUnavailableReason CONSTANT FINAL)
+    // M12b: can the disc be edited now (a disc, not busy, not recording)?
+    Q_PROPERTY(bool canEdit READ canEdit NOTIFY editableChanged FINAL)
     // {trackText ("Track 2 of 8: Title"), stage, trackFraction, overallFraction, bytesText}
     Q_PROPERTY(QVariantMap progress READ progress NOTIFY progressChanged FINAL)
     // The last recording's outcome ("" before one): "Recorded 8 tracks.", "Canceled ...", ...
@@ -191,6 +206,14 @@ public:
     // SP → LP2 → LP4 → SP (`M`); LP is skipped when atracdenc isn't there.
     Q_INVOKABLE void cycleRecordMode();
 
+    // --- Editing the disc (M12b); false if it can't start (see canEdit) ---
+    bool canEdit() const { return m_manager->canEdit(); }
+    // Deletes the marked tracks, else the one under the cursor.
+    Q_INVOKABLE bool deleteTracks();
+    // Moves the cursor's track down (+1) or up (-1) a place; the cursor goes with it.
+    Q_INVOKABLE bool moveTrack(int delta);
+    Q_INVOKABLE bool eraseDisc();
+
     int recordMode() const { return static_cast<int>(m_recordMode); }
     void setRecordMode(int mode);
     QString recordModeName() const { return mmm::mdModeName(m_recordMode); }
@@ -220,6 +243,7 @@ Q_SIGNALS:
     void planChanged();
     void recordingChanged();
     void progressChanged();
+    void editableChanged();
 
 private:
     void followCurrentDevice();
@@ -237,4 +261,6 @@ private:
     bool m_lpAvailable = false;
     QString m_lpReason;
     QString m_result;
+    int m_cursorAfterEdit = -1; // where the cursor goes when the edit on its way is done
+    int m_cursorIfFailed = -1;  // ... or if it failed
 };

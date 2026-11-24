@@ -124,6 +124,71 @@ private Q_SLOTS:
         QVERIFY(longHeader.endsWith(QStringLiteral("//1-3;Side A//")));
     }
 
+    // Headers in the disc's own form ("2-4;G" = tracks 2..4, 1-based); indices 0-based.
+    void groupsAfterDelete_data()
+    {
+        QTest::addColumn<QString>("header");
+        QTest::addColumn<QList<int>>("deleted");
+        QTest::addColumn<QString>("expected");
+        const QString gh = QStringLiteral("0;D//2-4;G//6;H//"); // G = 1..3, H = 5
+        QTest::newRow("before both") << gh << QList<int>{0} << QStringLiteral("0;D//1-3;G//5;H//");
+        QTest::newRow("after both") << gh << QList<int>{6} << gh;
+        QTest::newRow("group's first") << gh << QList<int>{1} << QStringLiteral("0;D//2-3;G//5;H//");
+        QTest::newRow("group's middle") << gh << QList<int>{2} << QStringLiteral("0;D//2-3;G//5;H//");
+        QTest::newRow("group's last") << gh << QList<int>{3} << QStringLiteral("0;D//2-3;G//5;H//");
+        QTest::newRow("a whole group") << gh << QList<int>{1, 2, 3} << QStringLiteral("0;D//3;H//");
+        QTest::newRow("a one-track group") << gh << QList<int>{5} << QStringLiteral("0;D//2-4;G//");
+        QTest::newRow("unsorted, twice, negative") << gh << QList<int>{3, 0, 5, 3, -1} << QStringLiteral("0;D//1-2;G//");
+        QTest::newRow("everything") << gh << QList<int>{0, 1, 2, 3, 4, 5} << QStringLiteral("D");
+        QTest::newRow("empty group kept") << QStringLiteral("0;D//2-3;G//;E//") << QList<int>{0}
+                                          << QStringLiteral("0;D//1-2;G//;E//");
+        QTest::newRow("no groups") << QStringLiteral("Title") << QList<int>{0} << QStringLiteral("Title");
+        QTest::newRow("nothing") << gh << QList<int>{} << gh;
+    }
+    void groupsAfterDelete()
+    {
+        QFETCH(QString, header);
+        QFETCH(QList<int>, deleted);
+        QFETCH(QString, expected);
+        QCOMPARE(formatHeader(headerAfterDelete(MdTitle::parseHeader(header), deleted)), expected);
+    }
+
+    void groupsAfterMove_data()
+    {
+        QTest::addColumn<QString>("header");
+        QTest::addColumn<int>("from");
+        QTest::addColumn<int>("to");
+        QTest::addColumn<QString>("expected");
+        const QString g = QStringLiteral("0;D//2-4;G//"); // G = 1..3 of 6 tracks
+        QTest::newRow("within: first to last") << g << 1 << 3 << g;
+        QTest::newRow("within: up one") << g << 2 << 1 << g;
+        QTest::newRow("first, up and out") << g << 1 << 0 << QStringLiteral("0;D//3-4;G//");
+        QTest::newRow("last, down and out") << g << 3 << 4 << QStringLiteral("0;D//2-3;G//");
+        QTest::newRow("down into it") << g << 0 << 1 << QStringLiteral("0;D//1-4;G//");
+        QTest::newRow("up into it") << g << 4 << 3 << QStringLiteral("0;D//2-5;G//");
+        QTest::newRow("down past it") << g << 0 << 5 << QStringLiteral("0;D//1-3;G//");
+        QTest::newRow("up past it") << g << 5 << 0 << QStringLiteral("0;D//3-5;G//");
+        QTest::newRow("same place") << g << 2 << 2 << g;
+        const QString gh = QStringLiteral("0;D//1-2;G//3-4;H//"); // G = 0..1, H = 2..3
+        QTest::newRow("out of one, into the next") << gh << 1 << 2 << QStringLiteral("0;D//1;G//2-4;H//");
+        QTest::newRow("back again") << gh << 2 << 1 << QStringLiteral("0;D//1-3;G//4;H//");
+        QTest::newRow("a group of one goes along") << QStringLiteral("0;D//2;G//") << 1 << 2 << QStringLiteral("0;D//3;G//");
+        QTest::newRow("... up too") << QStringLiteral("0;D//2;G//") << 1 << 0 << QStringLiteral("0;D//1;G//");
+        QTest::newRow("... in disc order") << QStringLiteral("0;D//1-2;H//4;G//") << 3 << 2
+                                           << QStringLiteral("0;D//1-2;H//3;G//");
+        QTest::newRow("... but not into another") << QStringLiteral("0;D//2;G//3-5;H//") << 1 << 2
+                                                  << QStringLiteral("0;D//2-5;H//");
+        QTest::newRow("no groups") << QStringLiteral("Title") << 0 << 3 << QStringLiteral("Title");
+    }
+    void groupsAfterMove()
+    {
+        QFETCH(QString, header);
+        QFETCH(int, from);
+        QFETCH(int, to);
+        QFETCH(QString, expected);
+        QCOMPARE(formatHeader(headerAfterMove(MdTitle::parseHeader(header), from, to)), expected);
+    }
+
     void errorsAreDescribed()
     {
         QVERIFY(describe(NetMdError::None).isEmpty());

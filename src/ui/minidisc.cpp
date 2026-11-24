@@ -64,6 +64,8 @@ QVariant MdTrackModel::data(const QModelIndex &index, int role) const
         return QString();
     case InGroupRole:
         return std::any_of(m_disc.groups.cbegin(), m_disc.groups.cend(), [&](const mmm::MdGroup &g) { return g.contains(t.index); });
+    case MarkedRole:
+        return m_marked.contains(index.row());
     }
     return {};
 }
@@ -71,7 +73,8 @@ QVariant MdTrackModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> MdTrackModel::roleNames() const
 {
     return {{NumberRole, "number"}, {TitleRole, "title"}, {DurationTextRole, "durationText"}, {ModeRole, "mode"},
-            {ProtectedRole, "protectedTrack"}, {GroupTitleRole, "groupTitle"}, {InGroupRole, "inGroup"}};
+            {ProtectedRole, "protectedTrack"}, {GroupTitleRole, "groupTitle"}, {InGroupRole, "inGroup"},
+            {MarkedRole, "marked"}};
 }
 
 void MdTrackModel::setCurrentIndex(int row)
@@ -94,6 +97,43 @@ QString MdTrackModel::titleAt(int row) const
     return row >= 0 && row < m_disc.tracks.size() ? m_disc.tracks.at(row).title : QString();
 }
 
+void MdTrackModel::toggleMark(int row)
+{
+    if (row < 0 || row >= m_disc.tracks.size())
+        return;
+    if (!m_marked.remove(row))
+        m_marked.insert(row);
+    Q_EMIT dataChanged(index(row), index(row), {MarkedRole});
+    Q_EMIT marksChanged();
+}
+
+void MdTrackModel::clearMarks()
+{
+    if (m_marked.isEmpty())
+        return;
+    const QList<int> rows = markedRows();
+    m_marked.clear();
+    for (const int row : rows)
+        Q_EMIT dataChanged(index(row), index(row), {MarkedRole});
+    Q_EMIT marksChanged();
+}
+
+QList<int> MdTrackModel::markedRows() const
+{
+    QList<int> rows(m_marked.cbegin(), m_marked.cend());
+    std::sort(rows.begin(), rows.end());
+    return rows;
+}
+
+QList<int> MdTrackModel::deleteRows() const
+{
+    if (!m_marked.isEmpty())
+        return markedRows();
+    if (m_current >= 0 && m_current < m_disc.tracks.size())
+        return {m_current};
+    return {};
+}
+
 void MdTrackModel::setDisc(const mmm::MdDisc &disc)
 {
     const bool sameTracks = disc.tracks.size() == m_disc.tracks.size();
@@ -105,8 +145,12 @@ void MdTrackModel::setDisc(const mmm::MdDisc &disc)
     }
     beginResetModel();
     m_disc = disc;
+    const bool hadMarks = !m_marked.isEmpty();
+    m_marked.clear();
     endResetModel();
     Q_EMIT countChanged();
+    if (hadMarks)
+        Q_EMIT marksChanged();
     m_current = -2;
     setCurrentIndex(0);
 }
@@ -221,12 +265,21 @@ MiniDisc::MiniDisc(const Options &options, QObject *parent)
     connect(m_manager.get(), &mmm::NetMdManager::stateChanged, this, [this] {
         Q_EMIT stateChanged();
         Q_EMIT statusChanged();
+        Q_EMIT editableChanged();
     });
     connect(m_manager.get(), &mmm::NetMdManager::discChanged, this, [this] {
         m_tracks->setDisc(m_manager->disc());
         Q_EMIT discChanged();
         Q_EMIT statusChanged();
         Q_EMIT planChanged();
+        Q_EMIT editableChanged();
+    });
+    connect(m_manager.get(), &mmm::NetMdManager::editFinished, this, [this](bool ok) {
+        // The rows the marks were on aren't the same tracks any more.
+        m_tracks->clearMarks();
+        if (const int cursor = ok ? m_cursorAfterEdit : m_cursorIfFailed; cursor >= 0)
+            m_tracks->setCurrentIndex(cursor);
+        m_cursorAfterEdit = m_cursorIfFailed = -1;
     });
     connect(m_manager.get(), &mmm::NetMdManager::uploadChanged, this, [this] {
         if (m_manager->isUploading() || !m_manager->uploadItems().isEmpty())
@@ -234,6 +287,7 @@ MiniDisc::MiniDisc(const Options &options, QObject *parent)
         Q_EMIT recordingChanged();
         Q_EMIT progressChanged();
         Q_EMIT statusChanged();
+        Q_EMIT editableChanged();
     });
     connect(m_manager.get(), &mmm::NetMdManager::uploadProgressChanged, this, &MiniDisc::progressChanged);
     connect(m_manager.get(), &mmm::NetMdManager::uploadFinished, this, [this](bool ok) {
@@ -555,6 +609,16 @@ QString MiniDisc::busyText() const
     case mmm::NetMdManager::State::Opening:
         return QStringLiteral("Reading the disc…");
     case mmm::NetMdManager::State::Writing:
+        switch (m_manager->edit()) {
+        case mmm::NetMdManager::Edit::Delete:
+            return QStringLiteral("Deleting…");
+        case mmm::NetMdManager::Edit::Move:
+            return QStringLiteral("Moving the track…");
+        case mmm::NetMdManager::Edit::Erase:
+            return QStringLiteral("Erasing the disc…");
+        case mmm::NetMdManager::Edit::None:
+            break;
+        }
         return QStringLiteral("Writing the title…");
     default:
         return {};
@@ -609,6 +673,37 @@ QString MiniDisc::statusText() const
 void MiniDisc::refresh()
 {
     m_manager->refresh();
+}
+
+bool MiniDisc::deleteTracks()
+{
+    const QList<int> rows = m_tracks->deleteRows();
+    if (rows.isEmpty() || !m_manager->deleteTracks(rows))
+        return false;
+    // Then: the track that took the first deleted one's place (or the new last one); if it
+    // was refused, the cursor stays.
+    m_cursorAfterEdit = rows.first();
+    m_cursorIfFailed = m_tracks->currentIndex();
+    return true;
+}
+
+bool MiniDisc::moveTrack(int delta)
+{
+    const int from = m_tracks->currentIndex();
+    const int to = from + delta;
+    if (from < 0 || !m_manager->moveTrack(from, to))
+        return false;
+    m_cursorAfterEdit = to; // the cursor goes with the track
+    m_cursorIfFailed = from;
+    return true;
+}
+
+bool MiniDisc::eraseDisc()
+{
+    if (!m_manager->eraseDisc())
+        return false;
+    m_cursorAfterEdit = m_cursorIfFailed = -1;
+    return true;
 }
 
 void MiniDisc::renameDisc(const QString &title)

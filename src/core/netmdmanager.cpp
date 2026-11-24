@@ -15,7 +15,9 @@
 #include <QMetaObject>
 #include <QThread>
 
+#include <algorithm>
 #include <atomic>
+#include <functional>
 
 Q_DECLARE_LOGGING_CATEGORY(lcNetMd)
 
@@ -150,6 +152,103 @@ public:
         Q_EMIT trackWritten(generation, error, index, after);
     }
 
+    // --- Editing (M12b) ---
+    void deleteTracks(quint64 generation, QList<int> indices)
+    {
+        if (stale(generation))
+            return;
+        if (!m_backend) {
+            Q_EMIT edited(generation, NetMdError::NotFound, {}, false);
+            return;
+        }
+        // The groups as they are now (another program may have changed them): without them
+        // they couldn't be kept right, so nothing is deleted.
+        QString raw;
+        if (const NetMdError e = m_backend->readHeader(&raw); e != NetMdError::None) {
+            Q_EMIT edited(generation, e, {}, false);
+            return;
+        }
+        // The last first: the others keep their numbers.
+        std::sort(indices.begin(), indices.end(), std::greater<>());
+        indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+        // The groups as they'll be must fit (written in our form, which can be longer than the
+        // recorder's): else nothing is deleted.
+        {
+            const MdTitle::Header before = MdTitle::parseHeader(raw);
+            const MdTitle::Header after = MdTitle::headerAfterDelete(before, indices);
+            if (after != before && MdTitle::formatHeader(after).toLatin1().size() > MdTitle::kMaxHeaderBytes) {
+                Q_EMIT edited(generation, NetMdError::Rejected, {}, false);
+                return;
+            }
+        }
+        QList<int> deleted;
+        NetMdError error = NetMdError::None;
+        for (const int index : std::as_const(indices)) {
+            error = m_backend->deleteTrack(index);
+            if (error != NetMdError::None)
+                break;
+            deleted << index;
+        }
+        if (!deleted.isEmpty() && error != NetMdError::Disconnected) {
+            const MdTitle::Header before = MdTitle::parseHeader(raw);
+            const MdTitle::Header after = MdTitle::headerAfterDelete(before, deleted);
+            if (after != before) {
+                const NetMdError e = m_backend->writeHeader(MdTitle::formatHeader(after));
+                if (error == NetMdError::None)
+                    error = e;
+            }
+        }
+        reportEdit(generation, error);
+    }
+
+    // `disc`: the manager's, to move the track in when it's done.
+    void moveTrack(quint64 generation, int from, int to, MdDisc disc)
+    {
+        if (stale(generation))
+            return;
+        if (!m_backend) {
+            Q_EMIT edited(generation, NetMdError::NotFound, {}, false);
+            return;
+        }
+        QString raw;
+        if (const NetMdError e = m_backend->readHeader(&raw); e != NetMdError::None) {
+            Q_EMIT edited(generation, e, {}, false);
+            return;
+        }
+        const MdTitle::Header before = MdTitle::parseHeader(raw);
+        const MdTitle::Header after = MdTitle::headerAfterMove(before, from, to);
+        const bool groupsChange = after != before;
+        const QString next = groupsChange ? MdTitle::formatHeader(after) : raw;
+        if (groupsChange && next.toLatin1().size() > MdTitle::kMaxHeaderBytes) {
+            // The new group numbers wouldn't fit the header: don't move it.
+            Q_EMIT edited(generation, NetMdError::Rejected, {}, false);
+            return;
+        }
+        NetMdError error = m_backend->moveTrack(from, to);
+        if (error == NetMdError::None && groupsChange)
+            error = m_backend->writeHeader(next);
+        if (error != NetMdError::None || from < 0 || to < 0 || from >= disc.tracks.size() || to >= disc.tracks.size()) {
+            reportEdit(generation, error);
+            return;
+        }
+        disc.tracks.move(from, to);
+        for (int i = 0; i < disc.tracks.size(); ++i)
+            disc.tracks[i].index = i;
+        disc.rawHeader = next;
+        Q_EMIT edited(generation, NetMdError::None, disc, true);
+    }
+
+    void eraseDisc(quint64 generation)
+    {
+        if (stale(generation))
+            return;
+        if (!m_backend) {
+            Q_EMIT edited(generation, NetMdError::NotFound, {}, false);
+            return;
+        }
+        reportEdit(generation, m_backend->eraseDisc());
+    }
+
     void close()
     {
         if (m_backend)
@@ -165,8 +264,20 @@ Q_SIGNALS:
     void itemState(quint64 generation, int index, int state);
     void headerWritten(quint64 generation, mmm::NetMdError error, const QString &rawHeader);
     void trackWritten(quint64 generation, mmm::NetMdError error, int index, const QString &title);
+    void edited(quint64 generation, mmm::NetMdError error, const mmm::MdDisc &disc, bool haveDisc);
 
 private:
+    // After an edit (done or not): what's on the disc now, unless the recorder's gone.
+    void reportEdit(quint64 generation, NetMdError error)
+    {
+        MdDisc disc;
+        const NetMdError read = error == NetMdError::Disconnected ? error : m_backend->readDisc(&disc);
+        const bool haveDisc = read == NetMdError::None;
+        // Can't read what's on it after an edit: the list shown may be wrong (track numbers too),
+        // so start over: the manager reopens the recorder.
+        Q_EMIT edited(generation, haveDisc ? error : NetMdError::Disconnected, disc, haveDisc);
+    }
+
     NetMdBackendFactory m_factory;
     MdAudioEncoderFactory m_encoder;
     std::shared_ptr<std::atomic<quint64>> m_current;
@@ -196,6 +307,7 @@ NetMdManager::NetMdManager(Options options, QObject *parent)
     connect(m_worker, &NetMdWorker::uploadStep, this, &NetMdManager::onUploadStep, Qt::QueuedConnection);
     connect(m_worker, &NetMdWorker::uploadProgress, this, &NetMdManager::onUploadProgress, Qt::QueuedConnection);
     connect(m_worker, &NetMdWorker::itemState, this, &NetMdManager::onItemState, Qt::QueuedConnection);
+    connect(m_worker, &NetMdWorker::edited, this, &NetMdManager::onEdited, Qt::QueuedConnection);
     m_thread->start();
     if (m_options.monitor) {
         m_monitor = std::make_unique<NetMdMonitor>(m_options.pollIntervalMs);
@@ -260,6 +372,7 @@ void NetMdManager::deviceListChanged()
         if (!present) {
             nextGeneration();
             QMetaObject::invokeMethod(m_worker, [w = m_worker] { w->close(); }, Qt::QueuedConnection);
+            m_edit = Edit::None;
             m_hasDisc = false;
             m_disc = {};
             if (m_uploading) {
@@ -291,6 +404,7 @@ void NetMdManager::select(const QString &deviceId)
         return;
     m_selected = deviceId;
     const quint64 generation = nextGeneration();
+    m_edit = Edit::None; // one on its way is for the old selection
     m_hasDisc = false;
     m_disc = {};
     setError(NetMdError::None);
@@ -357,6 +471,67 @@ void NetMdManager::renameTrack(int index, const QString &title)
     setState(State::Writing);
     QMetaObject::invokeMethod(m_worker, [w = m_worker, generation, index, clean] { w->writeTrackTitle(generation, index, clean); },
                               Qt::QueuedConnection);
+}
+
+template<typename Command>
+void NetMdManager::startEdit(Edit edit, Command command)
+{
+    const quint64 generation = nextGeneration();
+    m_edit = edit;
+    setError(NetMdError::None);
+    setState(State::Writing);
+    QMetaObject::invokeMethod(m_worker, [w = m_worker, generation, command] { command(w, generation); }, Qt::QueuedConnection);
+}
+
+bool NetMdManager::deleteTracks(const QList<int> &indices)
+{
+    const auto onDisc = [&](int i) { return i >= 0 && i < m_disc.tracks.size(); };
+    if (!canEdit() || indices.isEmpty() || !std::all_of(indices.cbegin(), indices.cend(), onDisc))
+        return false;
+    startEdit(Edit::Delete, [indices](NetMdWorker *w, quint64 generation) { w->deleteTracks(generation, indices); });
+    return true;
+}
+
+bool NetMdManager::moveTrack(int from, int to)
+{
+    const int n = static_cast<int>(m_disc.tracks.size());
+    if (!canEdit() || from == to || from < 0 || to < 0 || from >= n || to >= n)
+        return false;
+    startEdit(Edit::Move, [from, to, disc = m_disc](NetMdWorker *w, quint64 generation) { w->moveTrack(generation, from, to, disc); });
+    return true;
+}
+
+bool NetMdManager::eraseDisc()
+{
+    if (!canEdit())
+        return false;
+    startEdit(Edit::Erase, [](NetMdWorker *w, quint64 generation) { w->eraseDisc(generation); });
+    return true;
+}
+
+void NetMdManager::onEdited(quint64 generation, NetMdError error, const MdDisc &disc, bool haveDisc)
+{
+    if (generation != m_generation)
+        return;
+    m_edit = Edit::None;
+    const bool discChanges = haveDisc || error == NetMdError::Disconnected;
+    if (haveDisc) {
+        m_disc = disc;
+        const MdTitle::Header h = MdTitle::parseHeader(disc.rawHeader);
+        m_disc.title = h.title;
+        m_disc.groups = h.groups;
+    } else if (error == NetMdError::Disconnected) {
+        m_hasDisc = false; // what's shown is gone
+        m_disc = {};
+    }
+    setError(error);
+    setState(State::Ready);
+    if (discChanges)
+        Q_EMIT discChanged();
+    Q_EMIT editFinished(error == NetMdError::None);
+    // Stopped answering (still plugged in): open it again (resets its USB port first).
+    if (error == NetMdError::Disconnected && !m_selected.isEmpty())
+        refresh();
 }
 
 void NetMdManager::onOpened(quint64 generation, NetMdError error, const MdDisc &disc)

@@ -99,6 +99,12 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     atracdenc → the RIFF data chunk = raw ATRAC3 frames, 384 / 192 bytes); `makeDefaultMdEncoder()` picks
     by mode; `mdWireSpec()` = wire/disc formats (static_asserted in LibNetMdBackend). UI: `MiniDisc.recordMode`
     (QSettings; tests pass `persistSettings = false`), `M` cycles. `tst_atracencoder` runs the real binary.
+  - Disc editing (M12b): `NetMdBackend::deleteTrack` / `moveTrack` / `eraseDisc` (libnetmd patch 17);
+    `NetMdManager::deleteTracks` / `moveTrack` / `eraseDisc` on the worker rewrite the groups via
+    `MdTitle::headerAfterDelete` / `headerAfterMove` (the recorder doesn't). UI: `MdTrackModel` marks,
+    `MiniDisc.deleteTracks()` / `moveTrack(±1)` / `eraseDisc()`, `ConfirmDialog` (Main owns it; ExportView
+    asks via `confirmRequested`). Keys (disc view): `v` mark, `d` / `x` delete, `J` / `K` move, `D` wipe.
+    QML tests put the shared fake back with `fakeRecorder.reset()`.
   - Send to device (M11b): `SendToDevice` (QML singleton; construct after Devices, Playback, Sync,
     MiniDisc; its constructor has no default argument so QML uses `create()`) → `MiniDisc::addItems` /
     `Sync::addItems` (counts via `DeviceAddResult`) → `notice` → `Toast` in Main. USB selections take

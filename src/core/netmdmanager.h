@@ -81,6 +81,21 @@ public:
     MdRecordMode uploadMode() const { return m_uploadMode; } // the recording's mode (fixed per run)
     MdTransferProgress uploadProgress() const { return m_progress; }
 
+    // --- Editing the disc (M12b) ---
+    // One at a time, not while busy or recording; editFinished(ok) after each. The groups (in
+    // the disc header) follow the tracks: the header is read fresh and rewritten if they change.
+    enum class Edit { None, Delete, Move, Erase };
+    bool canEdit() const { return m_hasDisc && !isBusy() && !m_uploading; }
+    // Deletes these tracks (0-based, any order), the last first so the others keep their
+    // numbers. If the recorder refuses one, the ones done stay done (the disc is read again).
+    bool deleteTracks(const QList<int> &indices);
+    // The track at `from` ends up at `to`. The disc isn't read again (that takes seconds):
+    // the list is moved here, like the recorder did.
+    bool moveTrack(int from, int to);
+    // Every track and title.
+    bool eraseDisc();
+    Edit edit() const { return m_edit; } // the edit on its way (None: none)
+
     State state() const { return m_state; }
     bool isBusy() const { return m_state == State::Opening || m_state == State::Writing; }
     bool hasDisc() const { return m_hasDisc; }
@@ -96,12 +111,16 @@ Q_SIGNALS:
     void uploadChanged();          // items' states, the current index, uploading / cancelling
     void uploadProgressChanged();  // bytes of the current track
     void uploadFinished(bool ok);
+    void editFinished(bool ok);    // after discChanged (if the disc changed)
 
 private:
     // From the worker (queued).
     void onOpened(quint64 generation, mmm::NetMdError error, const mmm::MdDisc &disc);
     void onHeaderWritten(quint64 generation, mmm::NetMdError error, const QString &rawHeader);
     void onTrackWritten(quint64 generation, mmm::NetMdError error, int index, const QString &title);
+    void onEdited(quint64 generation, mmm::NetMdError error, const mmm::MdDisc &disc, bool haveDisc);
+    template<typename Command>
+    void startEdit(Edit edit, Command command);
     void setState(State state);
     void setError(NetMdError error);
     void deviceListChanged();
@@ -137,6 +156,7 @@ private:
     MdRecordMode m_uploadMode = MdRecordMode::Sp;
     bool m_cancelRequested = false;
     bool m_titlingDisc = false;
+    Edit m_edit = Edit::None;
     bool m_uploadFailed = false;
     QString m_discTitleAfter;
     std::unique_ptr<QTemporaryDir> m_tempDir;

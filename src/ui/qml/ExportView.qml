@@ -78,6 +78,47 @@ Item {
     // Rename the MiniDisc (disc) or its track `index` (Main owns the dialog).
     signal renameMdRequested(bool disc, int index)
 
+    // Ask before something that can't be undone (Main owns the ConfirmDialog; see its ask()).
+    signal confirmRequested(var options)
+
+    // M12b: `d` / x / Delete / the button: the marked tracks, else the cursor's.
+    function askDeleteMdTracks() {
+        if (!MiniDisc.canEdit || MiniDisc.recordView)
+            return;
+        const rows = MiniDisc.tracks.deleteRows();
+        if (rows.length === 0)
+            return;
+        const line = r => String(r + 1).padStart(2, "0") + "  " + (MiniDisc.tracks.titleAt(r) || qsTr("Untitled"));
+        const shown = rows.slice(0, 6).map(line);
+        if (rows.length > 6)
+            shown.push(qsTr("… and %1 more").arg(rows.length - 6));
+        confirmRequested({
+            title: rows.length === 1 ? qsTr("Delete track %1?").arg(rows[0] + 1) : qsTr("Delete %1 tracks?").arg(rows.length),
+            message: rows.length === 1 ? qsTr("It goes from the MiniDisc for good.") : qsTr("They go from the MiniDisc for good."),
+            details: shown,
+            confirmText: qsTr("Delete"),
+            action: () => MiniDisc.deleteTracks()
+        });
+    }
+
+    // `D` / the button: the whole disc, after typing WIPE.
+    function askEraseMd() {
+        if (!MiniDisc.canEdit)
+            return;
+        const n = MiniDisc.trackCount;
+        const disc = MiniDisc.discTitle !== "" ? qsTr("“%1”").arg(MiniDisc.discTitle) : qsTr("the disc");
+        confirmRequested({
+            title: qsTr("Wipe the disc?"),
+            message: (n === 0 ? qsTr("Erases the title of %1.").arg(disc)
+                      : n === 1 ? qsTr("Erases the track and the title of %1.").arg(disc)
+                      : qsTr("Erases all %1 tracks and the title of %2.").arg(n).arg(disc))
+                     + " " + qsTr("It can't be undone."),
+            confirmText: qsTr("Wipe disc"),
+            phrase: "WIPE",
+            action: () => MiniDisc.eraseDisc()
+        });
+    }
+
     function renameMdTrack() {
         if (!MiniDisc.hasDisc || MiniDisc.busy)
             return;
@@ -201,11 +242,34 @@ Item {
             if (mdSelected) {
                 if (pane === ExportView.Selection && MiniDisc.recordView && !MiniDisc.recording)
                     MiniDisc.removeQueued(MiniDisc.queue.currentIndex);
+                else if (pane === ExportView.Selection && !MiniDisc.recordView)
+                    askDeleteMdTracks(); // the disc's tracks: asks first
                 return true;
             }
             if (pane === ExportView.Selection && Sync.state === Sync.Idle && !OnDevice.active)
                 syncPane.removeCurrent();
             return true;
+        }
+        // M12b: editing the disc (the "On disc" list).
+        if (mdSelected) {
+            switch (action) {
+            case KeyRouter.EraseMd:
+                askEraseMd();
+                return true;
+            case KeyRouter.DeleteMdTracks:
+                if (pane === ExportView.Selection)
+                    askDeleteMdTracks();
+                return true;
+            case KeyRouter.MoveMdTrackDown:
+            case KeyRouter.MoveMdTrackUp:
+                if (pane === ExportView.Selection && !MiniDisc.recordView)
+                    MiniDisc.moveTrack(action === KeyRouter.MoveMdTrackDown ? 1 : -1);
+                return true;
+            case KeyRouter.ToggleMark:
+                if (pane === ExportView.Selection && !MiniDisc.recordView)
+                    MiniDisc.tracks.toggleMark(MiniDisc.tracks.currentIndex);
+                return true;
+            }
         }
         if (pane === ExportView.Selection && mdSelected) {
             switch (action) {
@@ -312,6 +376,10 @@ Item {
     // Esc: closes the plan or result, stops planning. A running sync is only stopped on
     // purpose (Cancel / S): Esc leaves the screen and the sync goes on.
     function back(): bool {
+        if (mdSelected && !MiniDisc.recordView && MiniDisc.tracks.markedCount > 0) {
+            MiniDisc.tracks.clearMarks();
+            return true;
+        }
         if (OnDevice.active)
             return false;
         if (Sync.state === Sync.Ready || Sync.state === Sync.Done) {
@@ -325,13 +393,6 @@ Item {
         return false;
     }
 
-    // A device action that isn't built yet: visibly inert.
-    component StubButton: Button {
-        enabled: false
-        opacity: 0.45
-        focusPolicy: Qt.NoFocus
-        Layout.fillWidth: true
-    }
     component ViewTab: Button {
         property bool selected: false
         flat: !selected
@@ -713,8 +774,27 @@ Item {
                                 columns: 2
                                 columnSpacing: Theme.spaceSM
                                 rowSpacing: Theme.spaceSM
-                                StubButton { text: qsTr("Wipe disc") }
-                                StubButton { text: qsTr("Arrange tracks") }
+                                Button {
+                                    objectName: "mdDeleteButton"
+                                    Layout.fillWidth: true
+                                    enabled: root.mdSelected && MiniDisc.canEdit && !MiniDisc.recordView && MiniDisc.trackCount > 0
+                                    text: MiniDisc.tracks.markedCount > 0 ? qsTr("Delete %1 (d)").arg(MiniDisc.tracks.markedCount)
+                                                                          : qsTr("Delete (d)")
+                                    focusPolicy: Qt.NoFocus
+                                    onClicked: root.askDeleteMdTracks()
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 600
+                                    ToolTip.text: qsTr("The marked tracks (v), else the one under the cursor. J / K move a track.")
+                                }
+                                Button {
+                                    objectName: "mdWipeButton"
+                                    Layout.fillWidth: true
+                                    enabled: root.mdSelected && MiniDisc.canEdit
+                                    text: qsTr("Wipe disc… (D)")
+                                    palette.buttonText: Theme.errorText
+                                    focusPolicy: Qt.NoFocus
+                                    onClicked: root.askEraseMd()
+                                }
                                 Button {
                                     objectName: "mdRenameButton"
                                     Layout.fillWidth: true

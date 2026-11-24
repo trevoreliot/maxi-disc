@@ -63,5 +63,11 @@ allow. Local changes are under the licence of the file they're in.
     (`rsp[19..20]`; was `data[19..20]`, past the end of the caller's 8-byte buffer) and copies no
     more than the reply holds. Found in the M12 user test: every track's SP/LP2/LP4 read as
     unknown (the reply was right: `… 00 08 80 07 00 04 01 10 90 00`, 0x90 = SP, 0x92 = LP2).
+17. Disc editing (M12b): `common.c` `netmd_exch_message_final` sends a command and waits for its
+    final reply (through INTERIM replies and up to 3 receive timeouts, like netmd-js), then maps the
+    status (ACCEPTED → length, REJECTED → `NETMDERR_CMD_INVALID`, others → `NETMDERR_CMD_FAILED`).
+    `libnetmd.c`: `netmd_delete_track` and `netmd_move_track` use it (a refusal used to count as
+    done; `netmd_move_track` returns the negative error instead of 0); new `netmd_erase_disc`
+    (netmd-js `eraseDisc`: `18 40 ff 00 00`).
 
 `CMakeLists.txt` is ours (upstream has qmake only).

@@ -17,6 +17,24 @@
 
 // Gives the QML tests a real (fixture) Library and the cover image provider.
 // QML can save screenshots of views to $MMM_SCREENSHOT_DIR (context property `screenshotDir`).
+// `fakeRecorder` in the tests: puts the shared in-memory recorder back (after wiping it, say).
+class FakeRecorderControl : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit FakeRecorderControl(std::shared_ptr<mmm::test::FakeRecorder> recorder) : m_recorder(std::move(recorder)) {}
+    Q_INVOKABLE void reset() { m_recorder->reset(); }
+    Q_INVOKABLE void setHeader(const QString &raw)
+    {
+        std::lock_guard lock(m_recorder->mutex);
+        m_recorder->header = raw;
+    }
+
+private:
+    std::shared_ptr<mmm::test::FakeRecorder> m_recorder;
+};
+
 class Setup : public QObject
 {
     Q_OBJECT
@@ -46,6 +64,7 @@ public Q_SLOTS:
         engine->rootContext()->setContextProperty(QStringLiteral("screenshotDir"),
                                                   qEnvironmentVariable("MMM_SCREENSHOT_DIR"));
         engine->rootContext()->setContextProperty(QStringLiteral("fixtureDir"), m_dir.path());
+        engine->rootContext()->setContextProperty(QStringLiteral("fakeRecorder"), &m_recorderControl);
     }
 
     void cleanupTestCase()
@@ -67,6 +86,7 @@ private:
     std::unique_ptr<Sync> m_sync;
     std::unique_ptr<OnDevice> m_onDevice;
     std::shared_ptr<mmm::test::FakeRecorder> m_recorder = std::make_shared<mmm::test::FakeRecorder>();
+    FakeRecorderControl m_recorderControl{m_recorder};
     std::unique_ptr<MiniDisc> m_miniDisc;
     std::unique_ptr<SendToDevice> m_send;
 };

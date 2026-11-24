@@ -217,12 +217,14 @@ int netmd_move_track(netmd_dev_handle* dev, const uint16_t start, const uint16_t
     buf = request + 14;
     netmd_copy_word_to_buffer(&buf, finish, 0);
 
-    ret = netmd_exch_message(dev, request, 16, reply);
+    /* music-md-manager patch 17: waits for the final reply and checks its status; a failure
+       is the negative NETMDERR_* (was 0, and a refusal counted as done). */
+    ret = netmd_exch_message_final(dev, request, 16, reply);
 
     if(ret < 0)
     {
-        fprintf(stderr, "bad ret code, returning early\n");
-        return 0;
+        netmd_log(NETMD_LOG_ERROR, "move track %u -> %u failed (%d)\n", start, finish, ret);
+        return ret;
     }
 
     return 1;
@@ -1111,9 +1113,21 @@ int netmd_delete_track(netmd_dev_handle* dev, const uint16_t track)
 
     buf = request + 9;
     netmd_copy_word_to_buffer(&buf, track, 0);
-    ret = netmd_exch_message(dev, request, 11, reply);
+    /* music-md-manager patch 17: waits for the final reply and checks its status. */
+    ret = netmd_exch_message_final(dev, request, 11, reply);
 
     return ret;
+}
+
+/* music-md-manager patch 17: erases every track and the disc title (netmd-js eraseDisc:
+   18 40 ff 00 00, answered 18 40 00 00 00). 1 if done, else a negative NETMDERR_*. */
+int netmd_erase_disc(netmd_dev_handle* dev)
+{
+    unsigned char request[] = {0x00, 0x18, 0x40, 0xff, 0x00, 0x00};
+    unsigned char reply[255];
+    int ret = netmd_exch_message_final(dev, request, sizeof(request), reply);
+
+    return ret < 0 ? ret : 1;
 }
 
 void netmd_clean_disc_info(minidisc *md)

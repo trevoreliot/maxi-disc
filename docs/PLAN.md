@@ -129,6 +129,8 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - [x] **M11 SP upload** — Done when: decode to 44.1 kHz 16-bit PCM via GStreamer; upload as SP; progress and cancel. User test: burn a short album in SP, then play it on the deck.
 - [x] **M11b Send music to devices** — Done when: `i` on the Library screen sends what's under the cursor to the device selected on Export (browse row = artist / genre / album / playlist; grid = album; album page = marked tracks, else the cursor track; playlist page / search = cursor track); `I` sends the play queue from any screen; "Send to <device>" buttons on the album page (marked, else the album), playlist page (the playlist), search results and the queue panel, disabled with the reason when no device can take it; USB selections take single tracks; a toast says what every send did (Export's own adds too). User test: with the MZ-NE410 selected, send an artist, an album, one song and 3 marked songs from Library and the play queue with `I`; the toasts' counts match "To record", no duplicates. On a USB stick: send a playlist and 2 marked tracks, remove one with `x`, restart: the selection is kept.
 - [x] **M12 LP2 / LP4 upload** — Done when: atracdenc encoding; mode chosen per job; disc-space estimate before burning. User test: burn in LP2 and LP4; check sound and titles.
+- [x] **M12b MiniDisc track management** — Done when: delete tracks (the marked ones, else the cursor's), move tracks (`J` / `K`) and wipe the disc, on the recorder's worker; the disc's groups (in the disc title) stay consistent after deletes and moves; deleting asks first (`y` / Enter), wiping needs `WIPE` typed; refusals (write-protected) and partial deletes are reported and the disc re-read. User test: on a scratch disc with a group (e.g. made in Web MiniDisc): move tracks within, out of and into the group (check the groups on the deck), cancel a delete, delete one track and 2–3 marked tracks, wipe the disc (the deck shows it blank, full time free).
+- [ ] **M12c Encode while uploading** — Done when: the next track is decoded / encoded while the current one uploads (LP encoding no longer adds to the recording time); cancel and a failed track still stop cleanly. User test: record 4+ tracks in LP2; it takes about the upload time alone; cancel one run part-way.
 - [ ] **M13 (Optional, deferred) netmd-js extras** — Port device-quirk fixes only if the MZ-NE410 needs them. netmd-exploits features wait until requested.
 
 ### Phase 6: Online services (depend only on M5; may be pulled earlier)
@@ -301,8 +303,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
     one bug (patched libnetmd rejected the MZ-NE410's 46-byte capacity reply as "no disc").
   - Export keys: l / h move between either left pane and the right pane (h returns where you came
     from); Enter on a recorder goes into its tracks.
-  - Wipe disc / arrange tracks (and delete track) are unscheduled: likely a small milestone after
-    M11 (they share track deletion and refreshing the track list with uploads).
+  - Wipe disc / arrange tracks (and delete track): became M12b.
 - M11 notes / follow-ups:
   - Recording: the MiniDisc's "To record" list (per session, not saved) ← `i` on browse rows;
     `MdUploadPlanner` checks fit / track limit / missing files; `NetMdManager::startUpload` runs one
@@ -336,6 +337,18 @@ and the user has run the "User test". Tick the box, commit, then stop.
     set MMM_ATRACDENC); a single track over ~3 hours makes a > 2 GB temporary WAV.
   - atracdenc's RIFF header undercounts its frames (the encoder's delay frames follow): trusting it
     would cut ~46 ms off every track's end, so the data is read to the end of the file.
+- M12b notes / follow-ups:
+  - libnetmd patch 17: delete / move / erase wait for the final reply (through INTERIM) and read
+    its status (a refusal used to count as done); `netmd_erase_disc` is new (netmd-js's command).
+    Like netmd-js / Web MiniDisc, no cache / sync TOC around them; the header write (groups) is.
+  - `MdTitle::headerAfterDelete` / `headerAfterMove` (pure, tested) keep the groups right; the worker
+    reads the header fresh first (nothing is deleted or moved without it) and writes it only if the
+    groups change. A group of one goes with its track (unless into another group); a group whose
+    tracks are all deleted goes. A move whose new group numbers wouldn't fit 255 bytes is refused.
+  - A move doesn't re-read the disc (the list is moved in place: a full read takes seconds per `J`);
+    delete and wipe do (free time changes). `J` presses while one is on its way are dropped.
+  - Not done: group editing (create / rename / delete / move a group), moving several marked tracks
+    at once, undo, drag-and-drop reordering, a "protected track" warning before deleting one.
 - M11b notes / follow-ups:
   - `SendToDevice` (QML singleton) is the one entry point: it routes to `MiniDisc::addItems`
     (per-session "To record") or `Sync::addItems` (persistent USB selection, one transaction via
