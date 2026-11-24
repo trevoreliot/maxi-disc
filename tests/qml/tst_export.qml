@@ -147,15 +147,17 @@ TestCase {
         verify(view.browse.currentItem() !== null);
         compare(view.browse.currentItem().kind, "album");
         keyClick("i");
-        compare(Sync.selection.count, 1);
+        tryCompare(Sync.selection, "count", 1);
         tryVerify(() => Sync.tracks.count > 0);
+        tryVerify(() => win.toast.text.startsWith("Added ") && win.toast.text.endsWith(" to SYNCSTICK")); // M11b
         verify(findChild(view, "exportCount").visible);
         verify(!findChild(view, "selectionHint").visible);
         keyClick("i"); // the same album again: still one entry
+        tryCompare(win.toast, "text", "Already on SYNCSTICK's list" + (Sync.tracks.count > 1 ? " (" + Sync.tracks.count + " tracks)" : ""));
         compare(Sync.selection.count, 1);
         keyClick("j");
         keyClick("i");
-        compare(Sync.selection.count, 2);
+        tryCompare(Sync.selection, "count", 2);
 
         // l: into the selection; x removes the entry under the cursor; h: back.
         keyClick("l");
@@ -341,6 +343,7 @@ TestCase {
         compare(view.browse.currentItem().name.indexOf("Kid A"), 0);
         keyClick("i");
         tryCompare(MiniDisc.queue, "count", 2);
+        tryCompare(win.toast, "text", "Added 2 tracks to Sony MZ-NE410");
         verify(MiniDisc.recordView);
         verify(findChild(view, "mdPlanError").visible); // 02.flac isn't in the fixture
         verify(!findChild(view, "mdRecordButton").enabled);

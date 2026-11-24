@@ -28,6 +28,8 @@ Item {
     property int albumYear: 0
     property string albumCoverUrl
     property bool albumFromGrid: false
+    // The browse mode last applied (applySelection: the same choice again changes nothing).
+    property int appliedMode: -1
     // Open playlist (0 = none).
     property int playlistId: 0
     property string playlistName
@@ -122,6 +124,34 @@ Item {
         return model && cursor >= 0 && cursor < model.count ? model.get(cursor).albumId : 0;
     }
 
+    // `i`: what's under the cursor (or marked) goes to the device selected on the Export screen.
+    function sendToDevice() {
+        if (focusedPane === LibraryView.Browse) {
+            const item = browsePane.currentItem();
+            if (item)
+                SendToDevice.sendItem(item.kind, item.id, item.name);
+            else
+                SendToDevice.sendItems([]);
+            return;
+        }
+        switch (content) {
+        case LibraryView.Grid: {
+            const id = albumGrid.currentAlbumId();
+            SendToDevice.sendItems(id > 0 ? [{ kind: "album", id: id, name: albumGrid.currentAlbumName() }] : []);
+            break;
+        }
+        case LibraryView.Album:
+            albumView.sendToDevice(false);
+            break;
+        case LibraryView.Playlist:
+            playlistView.sendCurrentToDevice();
+            break;
+        case LibraryView.Search:
+            searchView.sendCurrentToDevice();
+            break;
+        }
+    }
+
     function closeAlbum() {
         albumId = 0;
         albumFromGrid = false;
@@ -132,25 +162,35 @@ Item {
             focusedPane = LibraryView.Content;
     }
 
+    // The browse pane's choice. The same choice again (l back into the content, or j then k
+    // before the live preview fires) changes nothing: an open album stays open where it was.
     function applySelection(mode: int, entry: var) {
+        const sameMode = mode === appliedMode;
+        appliedMode = mode;
         switch (mode) {
         case BrowsePane.Artists:
+            if (sameMode && genreId === 0 && artistId === (entry ? entry.artistId : 0) && filterLabel === (entry ? entry.name : ""))
+                return;
             artistId = entry ? entry.artistId : 0;
             genreId = 0;
             filterLabel = entry ? entry.name : "";
             closeAlbum();
             break;
         case BrowsePane.Genres:
+            if (sameMode && artistId === 0 && genreId === (entry ? entry.genreId : 0) && filterLabel === (entry ? entry.name : ""))
+                return;
             genreId = entry ? entry.genreId : 0;
             artistId = 0;
             filterLabel = entry ? entry.name : "";
             closeAlbum();
             break;
         case BrowsePane.Albums:
-            if (entry)
+            if (entry && entry.albumId !== albumId)
                 openAlbum(entry.albumId, entry.title, entry.artist, entry.year, entry.coverUrl, false);
             break;
         case BrowsePane.Playlists:
+            if (sameMode && albumId === 0 && playlistId === (entry ? entry.playlistId : 0))
+                return;
             closeAlbum();
             if (browsePane.mode !== BrowsePane.Playlists)
                 browsePane.setMode(BrowsePane.Playlists); // e.g. right after an import
@@ -205,6 +245,9 @@ Item {
         case KeyRouter.ToggleMark:
             if (!inBrowse && content === LibraryView.Album)
                 albumView.toggleMarked();
+            return true;
+        case KeyRouter.AddToDevice:
+            sendToDevice();
             return true;
         case KeyRouter.Activate:
             if (inBrowse) {

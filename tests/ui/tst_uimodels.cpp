@@ -19,6 +19,7 @@
 #include "devices.h"
 #include "fakenetmd.h"
 #include "minidisc.h"
+#include "sendtodevice.h"
 #include "ondevice.h"
 #include "sync.h"
 #include "profileeditor.h"
@@ -78,6 +79,7 @@ private:
     std::unique_ptr<OnDevice> m_onDevice;
     std::shared_ptr<mmm::test::FakeRecorder> m_recorder = std::make_shared<mmm::test::FakeRecorder>();
     std::unique_ptr<MiniDisc> m_miniDisc;
+    std::unique_ptr<SendToDevice> m_send;
     QString m_cacheDir;
 
     template<typename Model>
@@ -116,11 +118,13 @@ private Q_SLOTS:
         m_onDevice = std::make_unique<OnDevice>(OnDevice::Options{.databasePath = db});
         m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false, mmm::test::fakeEncoder(),
                                                                   m_dir.filePath(QStringLiteral("md-record"))});
+        m_send = std::make_unique<SendToDevice>(nullptr);
         m_cacheDir = m_dir.filePath(QStringLiteral("covers"));
     }
 
     void cleanupTestCase()
     {
+        m_send.reset();
         m_miniDisc.reset();
         m_onDevice.reset();
         m_sync.reset();
@@ -897,6 +901,141 @@ private Q_SLOTS:
         QVERIFY(!s.canPlan());
         m_devices->setTestDevices({});
         QCOMPARE(s.deviceId(), QString());
+    }
+
+    // --- Send to device (M11b): one entry point for the MiniDisc queue and the USB selection ---
+    void sendToDevice()
+    {
+        SendToDevice &send = *m_send;
+        QSignalSpy notices(&send, &SendToDevice::notice);
+        auto lastNotice = [&] { return notices.isEmpty() ? QString() : notices.last().at(0).toString(); };
+        auto lastIsError = [&] { return !notices.isEmpty() && notices.last().at(1).toBool(); };
+        const qint64 kidA = m_library->runQuery([](const mmm::LibraryQuery &q) {
+            for (const mmm::AlbumRow &a : q.albums())
+                if (a.title == QStringLiteral("Kid A"))
+                    return a.id;
+            return qint64(0);
+        }).result();
+        const QList<mmm::TrackRow> kidATracks =
+            m_library->runQuery([kidA](const mmm::LibraryQuery &q) { return q.albumTracks(kidA); }).result();
+        QCOMPARE(kidATracks.size(), 2);
+
+        // Nothing selected.
+        m_devices->setTestDevices({});
+        QVERIFY(!send.canSend());
+        QCOMPARE(send.disabledReason(), QStringLiteral("Select a device on the Export screen first"));
+        send.sendItem(QStringLiteral("album"), static_cast<int>(kidA), QStringLiteral("Kid A"));
+        QCOMPARE(lastNotice(), send.disabledReason());
+        QVERIFY(lastIsError());
+
+        // A USB device: set up first.
+        m_devices->setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("uuid:SEND")},
+                                               {QStringLiteral("name"), QStringLiteral("SEND")}}});
+        QVERIFY(!send.canSend());
+        QCOMPARE(send.disabledReason(), QStringLiteral("Set up SEND on the Export screen first"));
+        mmm::DeviceProfile p = *mmm::DeviceProfiles::builtIn(QStringLiteral("usb-flash"));
+        p.deviceId = QStringLiteral("uuid:SEND");
+        p.name = QStringLiteral("Send stick");
+        QVERIFY(m_devices->manager()->saveProfile(p));
+        QTRY_VERIFY(send.canSend());
+        QCOMPARE(send.targetName(), QStringLiteral("SEND"));
+
+        send.sendItem(QStringLiteral("album"), static_cast<int>(kidA), QStringLiteral("Kid A"));
+        QTRY_COMPARE(lastNotice(), QStringLiteral("Added 2 tracks to SEND"));
+        QVERIFY(!lastIsError());
+        QCOMPARE(m_sync->selection()->count(), 1);
+        // One of its tracks again (a new entry, but no new track); then nothing at all.
+        notices.clear();
+        send.sendItems({QVariantMap{{QStringLiteral("kind"), QStringLiteral("track")},
+                                    {QStringLiteral("id"), kidATracks[1].id},
+                                    {QStringLiteral("name"), kidATracks[1].title}}});
+        QTRY_COMPARE(lastNotice(), QStringLiteral("Already on SEND's list"));
+        QCOMPARE(m_sync->selection()->count(), 1); // covered by the album: not stored again
+        // A track from another album: its own entry. A track that left the library: not stored.
+        const QList<mmm::TrackRow> others = m_library->runQuery([kidA](const mmm::LibraryQuery &q) {
+            for (const mmm::AlbumRow &a : q.albums())
+                if (a.id != kidA)
+                    return q.albumTracks(a.id);
+            return QList<mmm::TrackRow>();
+        }).result();
+        QVERIFY(!others.isEmpty());
+        notices.clear();
+        send.sendItems({QVariantMap{{QStringLiteral("kind"), QStringLiteral("track")},
+                                    {QStringLiteral("id"), others[0].id},
+                                    {QStringLiteral("name"), others[0].title}},
+                        QVariantMap{{QStringLiteral("kind"), QStringLiteral("track")},
+                                    {QStringLiteral("id"), 999999},
+                                    {QStringLiteral("name"), QStringLiteral("Gone")}}});
+        QTRY_COMPARE(lastNotice(), QStringLiteral("Added 1 track to SEND · 1 no longer in the library"));
+        QCOMPARE(m_sync->selection()->count(), 2);
+        QCOMPARE(m_sync->selection()->data(m_sync->selection()->index(1), SyncSelectionModel::KindRole).toString(),
+                 QStringLiteral("Track"));
+        QTRY_COMPARE(m_sync->tracks()->count(), 3);
+        // The album again: the entry is there already.
+        send.sendItem(QStringLiteral("album"), static_cast<int>(kidA), QStringLiteral("Kid A"));
+        QTRY_COMPARE(lastNotice(), QStringLiteral("Already on SEND's list (2 tracks)"));
+        QCOMPARE(m_sync->selection()->count(), 2);
+        send.sendItems({});
+        QCOMPARE(lastNotice(), QStringLiteral("Nothing selected to send"));
+        QVERIFY(lastIsError());
+        send.sendQueue(); // no Playback in this test: nothing queued
+        QCOMPARE(lastNotice(), QStringLiteral("The play queue is empty"));
+        for (int i = m_sync->selection()->count() - 1; i >= 0; --i)
+            m_sync->removeAt(i);
+        QVERIFY(m_devices->manager()->deleteProfile(QStringLiteral("uuid:SEND")));
+
+        // A MiniDisc recorder: its "To record" list.
+        MiniDisc &md = *m_miniDisc;
+        md.setTestDevices({QVariantMap{{QStringLiteral("id"), QStringLiteral("netmd:send")},
+                                       {QStringLiteral("name"), QStringLiteral("MZ-TEST")}}});
+        m_devices->setCurrentIndex(1);
+        QVERIFY(md.isSelected());
+        QTRY_VERIFY(send.canSend());
+        QCOMPARE(send.targetName(), QStringLiteral("MZ-TEST"));
+        notices.clear();
+        send.sendItems({QVariantMap{{QStringLiteral("kind"), QStringLiteral("track")},
+                                    {QStringLiteral("id"), kidATracks[0].id},
+                                    {QStringLiteral("name"), kidATracks[0].title}}});
+        QTRY_COMPARE(lastNotice(), QStringLiteral("Added 1 track to MZ-TEST"));
+        QCOMPARE(md.queue()->count(), 1);
+        QVERIFY(md.recordView());
+        send.sendItem(QStringLiteral("album"), static_cast<int>(kidA), QStringLiteral("Kid A"));
+        QTRY_COMPARE(lastNotice(), QStringLiteral("Added 1 track to MZ-TEST · 1 already there"));
+        send.sendItem(QStringLiteral("album"), static_cast<int>(kidA), QStringLiteral("Kid A"));
+        QTRY_COMPARE(lastNotice(), QStringLiteral("Already on MZ-TEST's list (2 tracks)"));
+        QCOMPARE(md.queue()->count(), 2);
+        md.clearQueue();
+        md.setRecordView(false);
+        md.setTestDevices({});
+        m_devices->setTestDevices({});
+
+        // The rest of the wording.
+        DeviceAddResult r;
+        r.deviceName = QStringLiteral("D");
+        r.added = 3;
+        r.skipped = 1;
+        r.missing = 1;
+        bool error = true;
+        QCOMPARE(SendToDevice::noticeText(r, &error), QStringLiteral("Added 3 tracks to D · 1 already there · 1 no longer in the library"));
+        QVERIFY(!error);
+        r = {};
+        r.deviceName = QStringLiteral("D");
+        r.skipped = 2;
+        r.missing = 1;
+        QCOMPARE(SendToDevice::noticeText(r, &error), QStringLiteral("Already on D's list (2 tracks) · 1 no longer in the library"));
+        r = {};
+        r.deviceName = QStringLiteral("D");
+        r.alreadyItems = 1; // an empty playlist sent again
+        QCOMPARE(SendToDevice::noticeText(r, &error), QStringLiteral("Already on D's list"));
+        QVERIFY(!error);
+        r = {};
+        r.deviceName = QStringLiteral("D");
+        r.insertedItems = 1;
+        QCOMPARE(SendToDevice::noticeText(r, &error), QStringLiteral("Added to D (no tracks yet)"));
+        r.insertedItems = 0;
+        r.missing = 2;
+        QCOMPARE(SendToDevice::noticeText(r, &error), QStringLiteral("Not in the library any more"));
+        QVERIFY(error);
     }
 
     // --- Artwork finder (M7) ---

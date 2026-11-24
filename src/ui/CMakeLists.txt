@@ -36,6 +36,8 @@ qt_add_qml_module(mmm_ui
         qml/OnDevicePane.qml
         qml/MiniDiscPane.qml
         qml/RenameMdDialog.qml
+        qml/Toast.qml
+        qml/SendToDeviceButton.qml
     SOURCES
         appbridge.h appbridge.cpp
         library.h library.cpp
@@ -50,6 +52,7 @@ qt_add_qml_module(mmm_ui
         sync.h sync.cpp
         ondevice.h ondevice.cpp
         minidisc.h minidisc.cpp
+        sendtodevice.h sendtodevice.cpp
         theme.h theme.cpp)
 
 target_link_libraries(mmm_ui

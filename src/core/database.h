@@ -117,6 +117,9 @@ public:
     QList<SyncItem> syncItems(const QString &deviceId) const; // in the order added
     // Adds an entry to the device's selection; adding one that's there already returns its id.
     std::optional<qint64> addSyncItem(const SyncItem &item, QString *error = nullptr);
+    // Adds these entries to `deviceId` in one SAVEPOINT (all or none; ones already there keep
+    // their place). Returns how many were new.
+    std::optional<int> addSyncItems(const QString &deviceId, const QList<SyncItem> &items, QString *error = nullptr);
     bool removeSyncItem(qint64 id);
     QList<ManifestEntry> manifest(const QString &deviceId) const; // by path
     // Records a file written to the device, replacing the row at `replacesRelPath` too (a

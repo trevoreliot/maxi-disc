@@ -14,13 +14,15 @@ QString SyncItem::toString(Kind k)
         return QStringLiteral("artist");
     case Kind::Genre:
         return QStringLiteral("genre");
+    case Kind::Track:
+        return QStringLiteral("track");
     }
     return {};
 }
 
 std::optional<SyncItem::Kind> SyncItem::kindFrom(const QString &s)
 {
-    for (Kind k : {Kind::Playlist, Kind::Album, Kind::Artist, Kind::Genre}) {
+    for (Kind k : {Kind::Playlist, Kind::Album, Kind::Artist, Kind::Genre, Kind::Track}) {
         if (s == toString(k))
             return k;
     }

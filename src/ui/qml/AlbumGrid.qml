@@ -57,6 +57,13 @@ GridView {
         return currentItem ? (currentItem as AlbumTile).albumId : 0;
     }
 
+    function currentAlbumName(): string {
+        if (!currentItem)
+            return "";
+        const tile = currentItem as AlbumTile;
+        return tile.artist ? tile.title + " – " + tile.artist : tile.title;
+    }
+
     function activateCurrent() {
         if (currentItem)
             (currentItem as AlbumTile).open();

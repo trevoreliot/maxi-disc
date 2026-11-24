@@ -176,6 +176,15 @@ ResolvedSelection SyncPlanner::resolve(const LibraryQuery &query, const QList<Sy
     QHash<qint64, QString> playlistNames;
     for (const PlaylistRow &p : query.playlists())
         playlistNames.insert(p.id, p.name);
+    // Single tracks: one query for all of them.
+    QList<qint64> trackIds;
+    for (const SyncItem &item : items) {
+        if (item.kind == SyncItem::Kind::Track)
+            trackIds << item.targetId;
+    }
+    QHash<qint64, TrackRow> singles;
+    for (const TrackRow &t : query.tracksByIds(trackIds))
+        singles.insert(t.id, t);
     for (const SyncItem &item : items) {
         QList<TrackRow> tracks;
         bool exists = true;
@@ -195,6 +204,10 @@ ResolvedSelection SyncPlanner::resolve(const LibraryQuery &query, const QList<Sy
             break;
         case SyncItem::Kind::Genre:
             tracks = query.genreTracks(item.targetId);
+            break;
+        case SyncItem::Kind::Track:
+            if (const auto it = singles.constFind(item.targetId); it != singles.cend())
+                tracks << *it;
             break;
         }
         if (!exists || (tracks.isEmpty() && item.kind != SyncItem::Kind::Playlist))

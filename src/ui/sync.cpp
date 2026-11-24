@@ -20,6 +20,8 @@ QString kindLabel(mmm::SyncItem::Kind k)
         return QStringLiteral("Artist");
     case mmm::SyncItem::Kind::Genre:
         return QStringLiteral("Genre");
+    case mmm::SyncItem::Kind::Track:
+        return QStringLiteral("Track");
     }
     return {};
 }
@@ -503,6 +505,91 @@ bool Sync::addItem(const QString &kind, int targetId, const QString &name)
         return false;
     }
     return true;
+}
+
+void Sync::addItems(const QList<mmm::SyncItem> &items, const DeviceAddCallback &done)
+{
+    const QString deviceId = m_deviceId;
+    const QVariantMap current = Devices::instance()->current();
+    const QString name = current.value(QStringLiteral("name")).toString();
+    auto report = [done, name](DeviceAddResult r) {
+        r.deviceName = name;
+        if (done)
+            done(r);
+    };
+    if (deviceId.isEmpty() || current.value(QStringLiteral("deviceId")).toString() != deviceId) {
+        report(DeviceAddResult::failed(QStringLiteral("Select a device on the Export screen first")));
+        return;
+    }
+    if (m_state == Syncing) {
+        report(DeviceAddResult::failed(QStringLiteral("Wait for %1 to finish syncing").arg(name)));
+        return;
+    }
+    Library *library = Library::instance();
+    if (items.isEmpty() || !library) {
+        report(DeviceAddResult::failed(QStringLiteral("Nothing to add")));
+        return;
+    }
+    // Resolve first: entries that are gone aren't stored, and a single track the selection
+    // already covers (its album, say) isn't stored again. Temporary ids key the per-entry counts.
+    const QList<mmm::SyncItem> before = m_selection->items();
+    QList<mmm::SyncItem> incoming = items;
+    for (qsizetype i = 0; i < incoming.size(); ++i)
+        incoming[i].id = -(i + 1);
+    library
+        ->runQuery([before, incoming](const mmm::LibraryQuery &q) {
+            return std::pair{mmm::SyncPlanner::resolve(q, before), mmm::SyncPlanner::resolve(q, incoming)};
+        })
+        .then(this, [this, report, deviceId, before, incoming, name](
+                        const std::pair<mmm::ResolvedSelection, mmm::ResolvedSelection> &r) {
+            if (m_state == Syncing && m_deviceId == deviceId) {
+                report(DeviceAddResult::failed(QStringLiteral("Wait for %1 to finish syncing").arg(name)));
+                return;
+            }
+            QSet<QString> had;
+            for (const mmm::TrackRow &t : r.first.tracks)
+                had.insert(t.path);
+            QSet<std::pair<int, qint64>> existing;
+            for (const mmm::SyncItem &i : before)
+                existing.insert({static_cast<int>(i.kind), i.targetId});
+            QSet<qint64> playlists;
+            for (const mmm::ResolvedPlaylist &p : r.second.playlists)
+                playlists.insert(p.id);
+            QHash<qint64, QString> trackPaths;
+            for (const mmm::TrackRow &t : r.second.tracks)
+                trackPaths.insert(t.id, t.path);
+
+            DeviceAddResult out;
+            QList<mmm::SyncItem> store;
+            for (mmm::SyncItem item : incoming) {
+                const int count = r.second.trackCounts.value(item.id);
+                const bool isPlaylist = item.kind == mmm::SyncItem::Kind::Playlist;
+                if (existing.contains({static_cast<int>(item.kind), item.targetId})) {
+                    ++out.alreadyItems;
+                    continue;
+                }
+                if (isPlaylist ? !playlists.contains(item.targetId) : count == 0) {
+                    ++out.missing;
+                    continue;
+                }
+                if (item.kind == mmm::SyncItem::Kind::Track && had.contains(trackPaths.value(item.targetId)))
+                    continue; // covered by what's selected
+                item.id = 0;
+                store << item;
+            }
+            for (const mmm::TrackRow &t : r.second.tracks)
+                ++(had.contains(t.path) ? out.skipped : out.added);
+            if (!store.isEmpty()) {
+                QString error;
+                const std::optional<int> inserted = Devices::instance()->manager()->addSyncItems(deviceId, store, &error);
+                if (!inserted) {
+                    report(DeviceAddResult::failed(QStringLiteral("Couldn't add to %1: %2").arg(name, error)));
+                    return;
+                }
+                out.insertedItems = *inserted;
+            }
+            report(out);
+        });
 }
 
 void Sync::removeAt(int row)

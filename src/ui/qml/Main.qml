@@ -33,6 +33,7 @@ ApplicationWindow {
     readonly property alias profileEditorDialog: profileDialog
     readonly property alias renameMdDialog: mdRenameDialog
     readonly property alias chrome: topChrome
+    readonly property alias toast: toast
 
     width: 1280
     height: 800
@@ -154,6 +155,9 @@ ApplicationWindow {
         case KeyRouter.Skip:
         case KeyRouter.Retry:
             return; // artwork finder only
+        case KeyRouter.SendQueueToDevice:
+            SendToDevice.sendQueue();
+            return;
         }
 
         if (queueFocused) {
@@ -345,6 +349,22 @@ ApplicationWindow {
             visible: root.queueOpen
             paneActive: root.queueFocused
             onInteracted: root.paneClicked(true)
+        }
+    }
+
+    // What a "send to device" did (M11b).
+    Toast {
+        id: toast
+        z: 100
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.spaceMD
+    }
+
+    Connections {
+        target: SendToDevice
+        function onNotice(text: string, isError: bool) {
+            toast.show(text, isError);
         }
     }
 }

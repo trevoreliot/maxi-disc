@@ -157,6 +157,51 @@ private Q_SLOTS:
         QVERIFY(m_db.manifest(e.deviceId).isEmpty());
     }
 
+    // M11b: single tracks as sync items, added in batches.
+    void singleTracksAndBatchAdd()
+    {
+        const QString device = QStringLiteral("uuid:PICKS");
+        const LibraryQuery query(m_db);
+        const QList<TrackRow> picked = query.tracksByPaths({m_c, m_a});
+        QCOMPARE(picked.size(), 2);
+        const qint64 post = [&] {
+            for (const AlbumRow &a : query.albums())
+                if (a.title == QStringLiteral("Post"))
+                    return a.id;
+            return qint64(0);
+        }();
+        const QList<SyncItem> batch{
+            SyncItem{0, device, SyncItem::Kind::Track, picked[0].id, QStringLiteral("Army of Me")},
+            SyncItem{0, device, SyncItem::Kind::Track, picked[1].id, QStringLiteral("Hells Bells")},
+        };
+        QCOMPARE(m_db.addSyncItems(device, batch), std::optional<int>(2));
+        // Again, plus one new entry: only that one is new; the others keep their place.
+        QCOMPARE(m_db.addSyncItems(device, batch + QList<SyncItem>{SyncItem{0, device, SyncItem::Kind::Album, post, QStringLiteral("Post")}}),
+                 std::optional<int>(1));
+        QCOMPARE(m_db.addSyncItems(device, {}), std::optional<int>(0));
+        QVERIFY(!m_db.addSyncItems(QString(), batch));
+        QList<SyncItem> items = m_db.syncItems(device);
+        QCOMPARE(items.size(), 3);
+        QCOMPARE(items[0].kind, SyncItem::Kind::Track);
+        QCOMPARE(items[0].targetId, picked[0].id);
+        QCOMPARE(items[2].kind, SyncItem::Kind::Album);
+        QCOMPARE(SyncItem::kindFrom(QStringLiteral("track")), std::optional<SyncItem::Kind>(SyncItem::Kind::Track));
+
+        // Resolved in order; Post's only track is already there (deduped by path); a track
+        // that left the library is "missing".
+        items << SyncItem{99, device, SyncItem::Kind::Track, 999999, QStringLiteral("Gone")};
+        const ResolvedSelection r = SyncPlanner::resolve(query, items);
+        QCOMPARE(r.tracks.size(), 2);
+        QCOMPARE(r.tracks[0].path, m_c);
+        QCOMPARE(r.tracks[1].path, m_a);
+        QCOMPARE(r.missing, QStringList{QStringLiteral("Gone")});
+        QCOMPARE(r.trackCounts.value(items[0].id), 1);
+        QCOMPARE(r.trackCounts.value(items[2].id), 1);
+        QCOMPARE(r.trackCounts.value(99), 0);
+        for (const SyncItem &i : m_db.syncItems(device))
+            QVERIFY(m_db.removeSyncItem(i.id));
+    }
+
     void notMountedOrReadOnly()
     {
         Device unmounted = m_device;

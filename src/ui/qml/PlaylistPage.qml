@@ -29,6 +29,16 @@ Pane {
         list.positionViewAtIndex(list.currentIndex, ListView.Contain);
     }
 
+    // `i`: the track under the cursor.
+    function sendCurrentToDevice() {
+        if (list.currentIndex < 0 || list.currentIndex >= tracks.count) {
+            SendToDevice.sendItems([]);
+            return;
+        }
+        const t = tracks.get(list.currentIndex);
+        SendToDevice.sendItem("track", t.trackId, t.artist ? t.title + " – " + t.artist : t.title);
+    }
+
     function activateCurrent() {
         if (list.currentIndex >= 0)
             Playback.playFromModel(tracks, list.currentIndex);
@@ -126,6 +136,13 @@ Pane {
                     text: qsTr("Add to queue")
                     enabled: tracks.count > 0
                     onClicked: Playback.enqueueFromModel(tracks, false)
+                }
+                SendToDeviceButton {
+                    objectName: "sendPlaylistButton"
+                    text: qsTr("Send to %1").arg(SendToDevice.targetName)
+                    hint: qsTr("The whole playlist (i sends the track under the cursor)")
+                    canTrigger: root.playlistId > 0
+                    onTriggered: SendToDevice.sendItem("playlist", root.playlistId, root.playlistName)
                 }
                 Button {
                     focusPolicy: Qt.NoFocus

@@ -100,16 +100,17 @@ Item {
             editProfileRequested(Devices.current.deviceId);
     }
 
-    // The browse row under the cursor goes into the device's sync selection.
+    // i / double-click / the Add button: the browse row goes to the selected device (the
+    // MiniDisc's "to record" list or the USB selection); SendToDevice's toast says how many tracks.
     function addCurrentBrowseItem() {
         const item = browsePane.currentItem();
-        if (mdSelected) {
-            if (item && !MiniDisc.recording)
-                MiniDisc.addItem(item.kind, item.id, item.name); // to the MiniDisc's "to record" list
+        if (!item) {
+            SendToDevice.sendItems([]);
             return;
         }
-        if (item && Sync.state === Sync.Idle && Sync.addItem(item.kind, item.id, item.name))
+        if (!mdSelected && SendToDevice.canSend)
             OnDevice.active = false; // show where it went
+        SendToDevice.sendItem(item.kind, item.id, item.name);
     }
 
     // l: into the right pane (if it lists something; else false: on to the queue, if open).
@@ -188,7 +189,7 @@ Item {
                 Sync.run();
             }
             return true;
-        case KeyRouter.ExportAdd:
+        case KeyRouter.AddToDevice:
             if (pane === ExportView.Browse)
                 addCurrentBrowseItem();
             return true;

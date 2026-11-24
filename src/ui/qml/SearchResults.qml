@@ -25,6 +25,16 @@ Pane {
         list.positionViewAtIndex(list.currentIndex, ListView.Contain);
     }
 
+    // `i` / the button: the track under the cursor.
+    function sendCurrentToDevice() {
+        if (list.currentIndex < 0 || list.currentIndex >= results.count) {
+            SendToDevice.sendItems([]);
+            return;
+        }
+        const t = results.get(list.currentIndex);
+        SendToDevice.sendItem("track", t.trackId, t.artist ? t.title + " – " + t.artist : t.title);
+    }
+
     function activateCurrent() {
         if (list.currentIndex >= 0)
             Playback.playFromModel(results, list.currentIndex);
@@ -48,16 +58,28 @@ Pane {
         anchors.fill: parent
         spacing: 0
 
-        Label {
+        RowLayout {
             Layout.fillWidth: true
             Layout.margins: 12
-            text: results.loading && results.count === 0 ? qsTr("Searching…")
-                : results.count === 0 ? qsTr("No matches")
-                : results.count >= results.searchLimit ? qsTr("First %1 matches").arg(results.count)
-                : results.count === 1 ? qsTr("1 match")
-                : qsTr("%1 matches").arg(results.count)
-            font.pixelSize: Theme.fontSmall
-            color: Theme.textMuted
+
+            Label {
+                Layout.fillWidth: true
+                text: results.loading && results.count === 0 ? qsTr("Searching…")
+                    : results.count === 0 ? qsTr("No matches")
+                    : results.count >= results.searchLimit ? qsTr("First %1 matches").arg(results.count)
+                    : results.count === 1 ? qsTr("1 match")
+                    : qsTr("%1 matches").arg(results.count)
+                font.pixelSize: Theme.fontSmall
+                color: Theme.textMuted
+            }
+            SendToDeviceButton {
+                objectName: "sendSearchButton"
+                flat: true
+                text: qsTr("Send to %1").arg(SendToDevice.targetName)
+                hint: qsTr("The track under the cursor (i)")
+                canTrigger: list.currentIndex >= 0 && list.currentIndex < results.count
+                onTriggered: root.sendCurrentToDevice()
+            }
         }
 
         ListView {

@@ -20,15 +20,15 @@ namespace mmm {
 // library, resolved to tracks when a sync is planned (so later additions come along).
 struct SyncItem
 {
-    enum class Kind { Playlist, Album, Artist, Genre };
+    enum class Kind { Playlist, Album, Artist, Genre, Track }; // Track: one library track (M11b)
     qint64 id = 0;         // device_sync_items.id
     QString deviceId;
     Kind kind = Kind::Album;
-    qint64 targetId = 0;   // playlist / album / artist / genre id
+    qint64 targetId = 0;   // playlist / album / artist / genre / track id
     QString name;          // as shown when it was added (kept if the target disappears)
     friend bool operator==(const SyncItem &, const SyncItem &) = default;
 
-    static QString toString(Kind k);              // "playlist", "album", "artist", "genre"
+    static QString toString(Kind k);              // "playlist", "album", "artist", "genre", "track"
     static std::optional<Kind> kindFrom(const QString &s);
 };
 

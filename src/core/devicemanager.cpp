@@ -144,6 +144,19 @@ bool DeviceManager::addSyncItem(const SyncItem &item, QString *error)
     return true;
 }
 
+std::optional<int> DeviceManager::addSyncItems(const QString &deviceId, const QList<SyncItem> &items, QString *error)
+{
+    if (!m_db->isOpen()) {
+        if (error)
+            *error = QStringLiteral("the database isn't open");
+        return std::nullopt;
+    }
+    const std::optional<int> added = m_db->addSyncItems(deviceId, items, error);
+    if (added && *added > 0)
+        Q_EMIT syncItemsChanged(deviceId);
+    return added;
+}
+
 bool DeviceManager::removeSyncItem(const QString &deviceId, qint64 itemId)
 {
     if (!m_db->isOpen() || !m_db->removeSyncItem(itemId))

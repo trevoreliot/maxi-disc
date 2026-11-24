@@ -40,6 +40,9 @@ Pane {
         case KeyRouter.Activate:
             activateCurrent();
             return true;
+        case KeyRouter.AddToDevice:
+            SendToDevice.sendQueueTrack(list.currentIndex);
+            return true;
         }
         return false;
     }
@@ -90,6 +93,15 @@ Pane {
                                                  .arg(AppBridge.formatDuration(Playback.queue.totalDurationMs))
                 font.bold: true
                 elide: Text.ElideRight
+            }
+            SendToDeviceButton {
+                objectName: "sendQueueButton"
+                flat: true
+                text: qsTr("Send")
+                disabledText: qsTr("Send")
+                hint: qsTr("Send the queue to %1 (I)").arg(SendToDevice.targetName)
+                canTrigger: Playback.queue.count > 0
+                onTriggered: SendToDevice.sendQueue()
             }
             ToolButton {
                 text: qsTr("Save…")

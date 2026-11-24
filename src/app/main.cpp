@@ -15,6 +15,7 @@
 #include "minidisc.h"
 #include "ondevice.h"
 #include "playback.h"
+#include "sendtodevice.h"
 #include "sync.h"
 
 int main(int argc, char *argv[])
@@ -72,6 +73,7 @@ int main(int argc, char *argv[])
     Sync sync({.databasePath = databasePath, .cacheDir = {}});
     OnDevice onDevice({.databasePath = databasePath});
     MiniDisc miniDisc({.backend = {}, .monitor = !parser.isSet(noDevicesOpt)});
+    SendToDevice sendToDevice(nullptr);
     QObject::connect(&playback, &Playback::quitRequested, &app, &QCoreApplication::quit);
 
     QQmlApplicationEngine engine;

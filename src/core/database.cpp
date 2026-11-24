@@ -1059,6 +1059,42 @@ std::optional<qint64> Database::addSyncItem(const SyncItem &item, QString *error
     return id;
 }
 
+std::optional<int> Database::addSyncItems(const QString &deviceId, const QList<SyncItem> &items, QString *error)
+{
+    if (deviceId.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("a sync item needs a device and a target");
+        return std::nullopt;
+    }
+    if (!exec(QStringLiteral("SAVEPOINT add_sync_items"), error))
+        return std::nullopt;
+    auto fail = [&](const QSqlQuery &q) -> std::optional<int> {
+        if (error)
+            *error = describe(q);
+        exec(QStringLiteral("ROLLBACK TO add_sync_items"), nullptr);
+        exec(QStringLiteral("RELEASE add_sync_items"), nullptr);
+        return std::nullopt;
+    };
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("INSERT INTO device_sync_items (device_id, kind, target_id, name) VALUES (?, ?, ?, ?) "
+                             "ON CONFLICT (device_id, kind, target_id) DO NOTHING"));
+    int added = 0;
+    for (const SyncItem &item : items) {
+        if (item.targetId <= 0)
+            continue;
+        q.addBindValue(deviceId);
+        q.addBindValue(SyncItem::toString(item.kind));
+        q.addBindValue(item.targetId);
+        q.addBindValue(text(item.name));
+        if (!q.exec())
+            return fail(q);
+        added += q.numRowsAffected() > 0 ? 1 : 0;
+    }
+    if (!exec(QStringLiteral("RELEASE add_sync_items"), error))
+        return std::nullopt;
+    return added;
+}
+
 bool Database::removeSyncItem(qint64 id)
 {
     QSqlQuery q(m_db);

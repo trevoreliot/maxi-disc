@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "devicemanager.h"
+#include "sendtodevice.h"
 #include "syncjob.h"
 #include "syncplanner.h"
 
@@ -161,6 +162,8 @@ public:
 
     // `kind`: "playlist", "album", "artist" or "genre" (BrowsePane modes map onto these).
     Q_INVOKABLE bool addItem(const QString &kind, int targetId, const QString &name);
+    // Several entries in one go (M11b, SendToDevice); `done` gets the counts in tracks.
+    void addItems(const QList<mmm::SyncItem> &items, const DeviceAddCallback &done = {});
     Q_INVOKABLE void removeAt(int row);
     Q_INVOKABLE void plan();
     Q_INVOKABLE void run();

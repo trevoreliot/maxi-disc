@@ -94,6 +94,11 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     `uploadTrack` (secure session, title, commit) → re-read disc. Cancel = after the current track.
     Keys (recorder selected): `o` disc ↔ to record, `x`/`X` remove/clear, `S` record/cancel. Tests:
     `FakeEncoder` + the fake recorder's `uploadTrack` (fakenetmd.h).
+  - Send to device (M11b): `SendToDevice` (QML singleton; construct after Devices, Playback, Sync,
+    MiniDisc; its constructor has no default argument so QML uses `create()`) → `MiniDisc::addItems` /
+    `Sync::addItems` (counts via `DeviceAddResult`) → `notice` → `Toast` in Main. USB selections take
+    `SyncItem::Kind::Track`. Keys: `i` (`AddToDevice`) on Library and Export, `I` the play queue
+    (anywhere); `SendToDeviceButton` shows the disabled reason as its tooltip.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).

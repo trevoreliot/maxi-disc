@@ -107,6 +107,24 @@ Pane {
         }
         interacted();
     }
+    // A track as a SendToDevice entry.
+    function trackItem(row: int): var {
+        const t = tracks.get(row);
+        return { kind: "track", id: t.trackId, name: t.artist ? t.title + " – " + t.artist : t.title };
+    }
+    // `i`: the marked tracks, else the cursor track. The button (`wholeAlbum`): marked, else
+    // the album (as an album entry: a USB stick then follows the album as it changes).
+    function sendToDevice(wholeAlbum: bool) {
+        if (markedRows.length > 0) {
+            SendToDevice.sendItems(Array.from(markedRows).map(r => trackItem(r)));
+        } else if (wholeAlbum) {
+            if (albumId > 0)
+                SendToDevice.sendItem("album", albumId, shownArtist ? shownTitle + " – " + shownArtist : shownTitle);
+        } else {
+            SendToDevice.sendItems(list.currentIndex >= 0 && list.currentIndex < tracks.count ? [trackItem(list.currentIndex)] : []);
+        }
+    }
+
     // `e`: the marked tracks, else the cursor track. `E` / the button: marked, else all.
     function editTags(all: bool) {
         const rows = markedRows.length > 0 ? Array.from(markedRows)
@@ -241,6 +259,14 @@ Pane {
                         focusPolicy: Qt.NoFocus
                         enabled: tracks.count > 0
                         onClicked: Playback.enqueueFromModel(tracks, false)
+                    }
+                    SendToDeviceButton {
+                        objectName: "sendAlbumButton"
+                        text: root.markedRows.length > 0 ? qsTr("Send %1 to %2").arg(root.markedRows.length).arg(SendToDevice.targetName)
+                                                         : qsTr("Send to %1").arg(SendToDevice.targetName)
+                        hint: root.markedRows.length > 0 ? qsTr("The marked tracks (i)") : qsTr("The whole album (i sends the track under the cursor)")
+                        canTrigger: tracks.count > 0
+                        onTriggered: root.sendToDevice(true)
                     }
                     Button {
                         objectName: "editTagsButton"

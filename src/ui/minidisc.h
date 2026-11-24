@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "netmdmanager.h"
+#include "sendtodevice.h"
 
 class QQmlEngine;
 class QJSEngine;
@@ -171,6 +172,8 @@ public:
     // `kind`: "artist", "album", "genre" or "playlist" (BrowsePane.currentItem): its tracks
     // join the queue (resolved off the UI thread; tracks already queued are skipped).
     Q_INVOKABLE void addItem(const QString &kind, int targetId, const QString &name);
+    // The same for several entries (M11b, SendToDevice); `done` gets the counts.
+    void addItems(const QList<mmm::SyncItem> &items, const DeviceAddCallback &done = {});
     Q_INVOKABLE void removeQueued(int row);
     Q_INVOKABLE void clearQueue();
     // Records the queue (done tracks of an earlier run are dropped first). False if the plan

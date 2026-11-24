@@ -396,30 +396,63 @@ QVariantMap MiniDisc::progress() const
 void MiniDisc::addItem(const QString &kind, int targetId, const QString &name)
 {
     const auto k = mmm::SyncItem::kindFrom(kind);
-    Library *library = Library::instance();
-    if (!k || targetId <= 0 || !library || isRecording())
+    if (!k || targetId <= 0)
         return;
-    const QList<mmm::SyncItem> items{mmm::SyncItem{0, QString(), *k, targetId, name}};
-    library->runQuery([items](const mmm::LibraryQuery &q) { return mmm::SyncPlanner::resolve(q, items).tracks; })
-        .then(this, [this](const QList<mmm::TrackRow> &tracks) {
-            if (isRecording())
+    addItems({mmm::SyncItem{0, QString(), *k, targetId, name}});
+}
+
+void MiniDisc::addItems(const QList<mmm::SyncItem> &items, const DeviceAddCallback &done)
+{
+    Library *library = Library::instance();
+    const QString name = deviceName();
+    auto report = [done, name](DeviceAddResult r) {
+        r.deviceName = name;
+        if (done)
+            done(r);
+    };
+    if (!library || items.isEmpty()) {
+        report(DeviceAddResult::failed(QStringLiteral("Nothing to add")));
+        return;
+    }
+    if (isRecording()) {
+        report(DeviceAddResult::failed(QStringLiteral("Wait for %1 to finish recording").arg(name)));
+        return;
+    }
+    library->runQuery([items](const mmm::LibraryQuery &q) { return mmm::SyncPlanner::resolve(q, items); })
+        .then(this, [this, report, name](const mmm::ResolvedSelection &resolved) {
+            if (isRecording()) {
+                report(DeviceAddResult::failed(QStringLiteral("Wait for %1 to finish recording").arg(name)));
                 return;
-            QList<mmm::MdUploadItem> queue = m_queue->items();
+            }
+            DeviceAddResult r;
+            r.missing = static_cast<int>(resolved.missing.size());
+            // Tracks the last run recorded make way (like record() does): they can go on again.
+            QList<mmm::MdUploadItem> queue;
+            for (const mmm::MdUploadItem &i : m_queue->items()) {
+                if (i.state != mmm::MdItemState::Done)
+                    queue << i;
+            }
             QSet<QString> queued;
             for (const mmm::MdUploadItem &i : std::as_const(queue))
                 queued.insert(i.track.path);
-            for (const mmm::TrackRow &t : tracks) {
-                if (queued.contains(t.path))
+            for (const mmm::TrackRow &t : resolved.tracks) {
+                if (queued.contains(t.path)) {
+                    ++r.skipped;
                     continue;
+                }
                 queued.insert(t.path);
+                ++r.added;
                 queue << mmm::MdUploadItem{t, mmm::MdUploadPlanner::titleFor(t, static_cast<int>(queue.size()) + 1),
                                            mmm::MdItemState::Pending, {}};
             }
-            m_queue->setItems(queue);
-            m_result.clear();
-            setRecordView(true);
-            Q_EMIT planChanged();
-            Q_EMIT recordingChanged();
+            if (r.added > 0) {
+                m_queue->setItems(queue);
+                m_result.clear();
+                setRecordView(true);
+                Q_EMIT planChanged();
+                Q_EMIT recordingChanged();
+            }
+            report(r);
         });
 }
 

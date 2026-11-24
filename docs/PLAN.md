@@ -127,6 +127,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 ### Phase 5: MiniDisc
 - [x] **M10 NetMD basics** — Done when: libnetmd linked; detect the MZ-NE410; read disc TOC and titles; rename disc and tracks; udev rule documented. User test: read and retitle a scratch disc.
 - [x] **M11 SP upload** — Done when: decode to 44.1 kHz 16-bit PCM via GStreamer; upload as SP; progress and cancel. User test: burn a short album in SP, then play it on the deck.
+- [x] **M11b Send music to devices** — Done when: `i` on the Library screen sends what's under the cursor to the device selected on Export (browse row = artist / genre / album / playlist; grid = album; album page = marked tracks, else the cursor track; playlist page / search = cursor track); `I` sends the play queue from any screen; "Send to <device>" buttons on the album page (marked, else the album), playlist page (the playlist), search results and the queue panel, disabled with the reason when no device can take it; USB selections take single tracks; a toast says what every send did (Export's own adds too). User test: with the MZ-NE410 selected, send an artist, an album, one song and 3 marked songs from Library and the play queue with `I`; the toasts' counts match "To record", no duplicates. On a USB stick: send a playlist and 2 marked tracks, remove one with `x`, restart: the selection is kept.
 - [ ] **M12 LP2 / LP4 upload** — Done when: atracdenc encoding; mode chosen per job; disc-space estimate before burning. User test: burn in LP2 and LP4; check sound and titles.
 - [ ] **M13 (Optional, deferred) netmd-js extras** — Port device-quirk fixes only if the MZ-NE410 needs them. netmd-exploits features wait until requested.
 
@@ -321,12 +322,19 @@ and the user has run the "User test". Tick the box, commit, then stop.
     replug: timeouts are 20 s now); libnetmd logged to stdout and named almost every error
     "Unknown Error". After a USB error the backend resets the port on close and the manager
     reopens the recorder itself, so a failed recording doesn't need a replug.
-  - Easier picking of what to send (user asked, 2026-11-22): today `i` / double-click on the
-    Export browse list adds a whole artist / album / playlist. Proposed M11b "Send music to
-    devices": an "add to device" key + button on the Library screen (artist, album page, marked
-    tracks, playlist, search results → the selected device's list, with a toast), and "add the
-    play queue" on Export (the queue as a staging area); track counts on Export browse rows.
-    Alternative the user may prefer: an artist → album → tracks column with checkboxes in Export.
+  - Easier picking of what to send (user asked, 2026-11-22): became M11b.
+- M11b notes / follow-ups:
+  - `SendToDevice` (QML singleton) is the one entry point: it routes to `MiniDisc::addItems`
+    (per-session "To record") or `Sync::addItems` (persistent USB selection, one transaction via
+    `DeviceManager::addSyncItems`) and reports counts in tracks for the toast. Single tracks are
+    `SyncItem::Kind::Track` rows (kind "track": no migration).
+  - USB adds resolve before storing: gone entries aren't stored, and a single track the selection
+    already covers (its album) isn't stored again. Sends run one at a time, in order. Sending to a
+    MiniDisc after a recording drops the done tracks first (like Record does).
+  - `i` on the album page = the cursor track (like `e`); the whole album is the header button or
+    `i` on the grid / browse row. A playlist sent from its page stays a playlist (its m3u is written).
+  - Not done: marking on the playlist page and in search results (then `i` / the button would send
+    the marked ones); track counts on Export browse rows; an artist → album → tracks picker in Export.
 - Duplicate formats (user asked, 2026-11-22): "hide lower-quality duplicates". When an album has
   the same song in several formats (game soundtracks ship FLAC + MP3 side by side), browsing,
   playing, search and USB sync show one copy: lossless over lossy, then higher bitrate. Match on

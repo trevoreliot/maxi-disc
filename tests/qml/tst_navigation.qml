@@ -110,6 +110,34 @@ TestCase {
         Playback.enqueueFromModel(lib.albumPage.tracksModel, false, 0);
         compare(Playback.queue.count, 3);
 
+        // h to the artists and l back: the album stays open, the cursor where it was.
+        act(win, KeyRouter.MoveDown);
+        compare(lib.albumPage.currentIndex, 1);
+        act(win, KeyRouter.MoveLeft);
+        compare(lib.focusedPane, LibraryView.Browse);
+        act(win, KeyRouter.MoveRight);
+        compare(lib.focusedPane, LibraryView.Content);
+        compare(lib.content, LibraryView.Album);
+        compare(lib.albumTitle, "Kid A");
+        verify(lib.albumFromGrid);
+        compare(lib.albumPage.currentIndex, 1);
+        // Another artist (j, then the live preview or l) does leave the album.
+        act(win, KeyRouter.MoveLeft);
+        act(win, KeyRouter.MoveUp);
+        act(win, KeyRouter.MoveRight);
+        compare(lib.content, LibraryView.Grid);
+        verify(lib.filterLabel !== "Radiohead");
+        while (lib.focusedPane !== LibraryView.Browse)
+            act(win, KeyRouter.MoveLeft); // h walks the grid to its left edge first
+        act(win, KeyRouter.MoveDown);
+        act(win, KeyRouter.MoveRight);
+        compare(lib.filterLabel, "Radiohead");
+        tryCompare(lib.grid, "count", 2);
+        lib.grid.currentIndex = 1;
+        act(win, KeyRouter.Activate);
+        compare(lib.albumTitle, "Kid A");
+        act(win, KeyRouter.MoveUp);
+
         // q opens and focuses the queue, cursor on the playing track; j, Enter jumps.
         act(win, KeyRouter.ToggleQueue);
         verify(win.queueOpen && win.queueFocused);
@@ -153,6 +181,12 @@ TestCase {
         compare(lib.content, LibraryView.Album);
         compare(lib.focusedPane, LibraryView.Content);
         verify(!lib.albumFromGrid);
+        const opened = lib.albumId;
+        act(win, KeyRouter.MoveLeft); // h, l: the same album, still open
+        act(win, KeyRouter.MoveRight);
+        compare(lib.content, LibraryView.Album);
+        compare(lib.albumId, opened);
+        compare(lib.focusedPane, LibraryView.Content);
         act(win, KeyRouter.Back); // not from the grid: straight back to the menu
         compare(win.currentScreen, Main.MenuScreen);
     }

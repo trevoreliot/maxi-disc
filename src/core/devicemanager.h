@@ -61,6 +61,8 @@ public:
     QList<SyncItem> syncItems(const QString &deviceId) const;
     // Adds an entry (adding one that's there already is fine); returns false on failure.
     bool addSyncItem(const SyncItem &item, QString *error = nullptr);
+    // Adds several in one transaction; returns how many were new (nullopt on failure).
+    std::optional<int> addSyncItems(const QString &deviceId, const QList<SyncItem> &items, QString *error = nullptr);
     bool removeSyncItem(const QString &deviceId, qint64 itemId);
 
     void mount(const QString &idOrObjectPath);
