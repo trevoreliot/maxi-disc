@@ -15,6 +15,13 @@ public:
 
     bool encode(const QString &source, MdRecordMode mode, const QString &destination,
                 const std::atomic_bool &cancel, MdEncodedAudio *out, QString *error) override;
+
+    // The decode itself: 44.1 kHz 16-bit stereo, as raw big-endian PCM (SP) or a little-endian
+    // WAV file (atracdenc's input, LP). False (and no file) on failure; `error` == kEncodeCanceled
+    // if `cancel` stopped it.
+    enum class Output { RawBigEndian, Wav };
+    static bool decode(const QString &source, const QString &destination, Output output,
+                       const std::atomic_bool &cancel, QString *error);
 };
 
 } // namespace mmm

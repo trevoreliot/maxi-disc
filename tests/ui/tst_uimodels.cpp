@@ -117,7 +117,7 @@ private Q_SLOTS:
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
         m_onDevice = std::make_unique<OnDevice>(OnDevice::Options{.databasePath = db});
         m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false, mmm::test::fakeEncoder(),
-                                                                  m_dir.filePath(QStringLiteral("md-record"))});
+                                                                  m_dir.filePath(QStringLiteral("md-record")), false});
         m_send = std::make_unique<SendToDevice>(nullptr);
         m_cacheDir = m_dir.filePath(QStringLiteral("covers"));
     }
@@ -792,15 +792,34 @@ private Q_SLOTS:
         QVERIFY2(md.plan().value(QStringLiteral("canRecord")).toBool(), qPrintable(md.plan().value(QStringLiteral("error")).toString()));
         QCOMPARE(md.queue()->data(md.queue()->index(0), MdQueueModel::StateRole).toString(), QStringLiteral("pending"));
 
+        // M12: the mode (a given encoder can do LP); the free time follows it.
+        QVERIFY(md.lpAvailable());
+        QCOMPARE(md.recordMode(), 0);
+        const QString spFree = md.plan().value(QStringLiteral("availableText")).toString();
+        md.cycleRecordMode();
+        QCOMPARE(md.recordModeName(), QStringLiteral("LP2"));
+        QCOMPARE(md.plan().value(QStringLiteral("modeName")).toString(), QStringLiteral("LP2"));
+        QVERIFY(md.plan().value(QStringLiteral("availableText")).toString() != spFree);
+        md.cycleRecordMode();
+        QCOMPARE(md.recordMode(), 2);
+
         QSignalSpy recording(&md, &MiniDisc::recordingChanged);
         QVERIFY(md.record());
+        md.setRecordMode(0); // fixed while recording
+        QCOMPARE(md.recordMode(), 2);
+        QCOMPARE(md.statusText(), QStringLiteral("Recording 1 of 1 in LP4"));
         QVERIFY(md.isRecording());
-        QCOMPARE(md.statusText(), QStringLiteral("Recording 1 of 1"));
         QTRY_VERIFY(!md.isRecording());
         QCOMPARE(md.resultText(), QStringLiteral("Recorded 1 track."));
         QCOMPARE(md.queue()->data(md.queue()->index(0), MdQueueModel::StateRole).toString(), QStringLiteral("done"));
         QCOMPARE(md.trackCount(), before + 1);
+        QCOMPARE(md.tracks()->data(md.tracks()->index(before), MdTrackModel::ModeRole).toString(), QStringLiteral("LP4"));
         QVERIFY(!recording.isEmpty());
+        md.setRecordMode(0);
+        md.cycleRecordMode();
+        md.cycleRecordMode();
+        md.cycleRecordMode();
+        QCOMPARE(md.recordMode(), 0); // round the cycle
         // Done tracks don't record again.
         QVERIFY(!md.plan().value(QStringLiteral("canRecord")).toBool());
         md.clearQueue();

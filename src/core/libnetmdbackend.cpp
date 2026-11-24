@@ -238,9 +238,16 @@ public:
     {
         if (!m_handle)
             return NetMdError::NotFound;
-        if (audio.mode != MdRecordMode::Sp)
+        // How the mode goes over the wire (the values must be libnetmd's: checked here).
+        static_assert(NETMD_WIREFORMAT_PCM == 0x00 && NETMD_WIREFORMAT_LP2 == 0x94 && NETMD_WIREFORMAT_LP4 == 0xa8);
+        static_assert(NETMD_DISKFORMAT_SP_STEREO == 6 && NETMD_DISKFORMAT_LP2 == 2 && NETMD_DISKFORMAT_LP4 == 0);
+        const MdWireSpec spec = mdWireSpec(audio.mode);
+        if (audio.bytes <= 0 || audio.bytes % spec.frameBytes != 0) {
+            qCWarning(lcNetMd) << "upload:" << audio.bytes << "bytes isn't whole" << mdModeName(audio.mode) << "frames";
             return NetMdError::Failed;
-        // The PCM, with room after it: netmd_prepare_packets pads the last block (netmdcli
+        }
+        const auto wireformat = static_cast<netmd_wireformat>(spec.wireFormat);
+        // The audio (PCM or ATRAC3 frames), with room after it: netmd_prepare_packets pads the last block (netmdcli
         // allocates 2048 spare bytes too).
         std::vector<unsigned char> data;
         {
@@ -308,7 +315,7 @@ public:
         size_t frames = 0;
         size_t packetLength = 0;
         if (netmd_prepare_packets(data.data(), pcmBytes, &packets, &packetCount, &frames, NETMD_CHANNELS_STEREO,
-                                  &packetLength, kek.data(), NETMD_WIREFORMAT_PCM)
+                                  &packetLength, kek.data(), wireformat)
             != NETMD_NO_ERROR) {
             netmd_cleanup_packets(&packets);
             leave();
@@ -320,7 +327,7 @@ public:
         std::array<unsigned char, 8> uuid{};
         std::array<unsigned char, 20> newContentId{};
         const netmd_error sent = netmd_secure_send_track_ex(
-            m_handle, NETMD_WIREFORMAT_PCM, NETMD_DISKFORMAT_SP_STEREO, static_cast<unsigned int>(frames), packets,
+            m_handle, wireformat, static_cast<unsigned char>(spec.discFormat), static_cast<unsigned int>(frames), packets,
             packetLength, sessionKey.data(), &track, uuid.data(), newContentId.data(), &uploadProgress,
             const_cast<UploadProgress *>(&progress));
         netmd_cleanup_packets(&packets);

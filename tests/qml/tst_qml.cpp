@@ -36,7 +36,7 @@ public Q_SLOTS:
         m_onDevice = std::make_unique<OnDevice>(OnDevice::Options{.databasePath = db});
         // NetMD: an in-memory recorder; tests add it with MiniDisc.setTestDevices().
         m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false, mmm::test::fakeEncoder(),
-                                                                  m_dir.filePath(QStringLiteral("md-record"))});
+                                                                  m_dir.filePath(QStringLiteral("md-record")), false});
         m_send = std::make_unique<SendToDevice>(nullptr);
     }
 

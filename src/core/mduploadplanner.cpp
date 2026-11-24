@@ -65,7 +65,9 @@ MdUploadPlan plan(const MdDisc &disc, bool hasDisc, const QList<TrackRow> &track
     else if (!missing.isEmpty())
         p.error = QStringLiteral("File not found: %1").arg(missing);
     else if (p.neededMs > p.availableMs)
-        p.error = QStringLiteral("Doesn't fit: %1 needed, %2 free.").arg(minutes(p.neededMs), minutes(p.availableMs));
+        // In the mode's own time (an 80-minute disc holds 160 minutes of LP2).
+        p.error = QStringLiteral("Doesn't fit in %1: %2 needed, %3 free.")
+                      .arg(mdModeName(mode), minutes(p.neededMs * mdModeFactor(mode)), minutes(p.availableMs * mdModeFactor(mode)));
     p.canRecord = p.error.isEmpty();
 
     if (p.canRecord) {

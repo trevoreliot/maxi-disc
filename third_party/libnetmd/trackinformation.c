@@ -46,14 +46,18 @@ void netmd_get_track_information(netmd_dev_handle *dev, uint16_t track,
     netmd_copy_word_to_buffer(&buf, p2, 0);
 
     length = netmd_exch_message(dev, cmd, sizeof(cmd), rsp);
-    if (length > 0) {
-        uint32_t tmp = (unsigned int)data[19] << 8;
-        real_data_length = (tmp + data[20]) & 0xffffU;
+    /* The data's length is in the reply (was read from `data`, past its end). */
+    if (length >= 21) {
+        uint32_t tmp = (unsigned int)rsp[19] << 8;
+        real_data_length = (tmp + rsp[20]) & 0xffffU;
         if (real_data_length > data_length) {
             size = data_length;
         }
         else {
             size = real_data_length;
+        }
+        if (size > (size_t)length - 21) {
+            size = (size_t)length - 21;
         }
 
         memcpy(data, rsp + 21, size);

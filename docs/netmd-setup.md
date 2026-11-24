@@ -23,12 +23,14 @@ Only one program can hold the recorder. Close Web MiniDisc Pro (or its browser t
 music-md-manager uses it; the app shows "in use by another program" otherwise. The app only
 holds the recorder while it's selected on the Export screen.
 
-## Recording (SP)
+## Recording (SP, LP2, LP4)
 
-Select the recorder on the Export screen, add albums, artists, genres or playlists with `i`
-(they go to "To record"), check they fit, and press `S` (or **Record**). Each track is decoded to
-CD-quality PCM and sent to the recorder, which encodes it in SP; the disc's track list updates
-after each track. **Cancel** stops after the track being recorded: a NetMD upload can't be
+Select the recorder on the Export screen, add music with `i` (here or on the Library screen; it
+goes to "To record"), pick the mode under **MD options** (SP / LP2 / LP4, or `M` to cycle), check
+it fits, and press `S` (or **Record**). SP: each track is decoded to CD-quality PCM and the
+recorder encodes it. LP2 (132 kbps) / LP4 (66 kbps): the app encodes ATRAC3 itself with the
+bundled atracdenc (built with the app; `MMM_ATRACDENC=/path/to/atracdenc` uses another), so a
+track takes a little longer to prepare. The disc's track list updates after each track. **Cancel** stops after the track being recorded: a NetMD upload can't be
 stopped part-way. Don't unplug during a recording: the track in progress is lost.
 
 ## Titles

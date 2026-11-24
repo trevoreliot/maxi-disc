@@ -28,6 +28,7 @@ struct FakeRecorder
     NetMdError uploadError = NetMdError::None;  // uploadTrack fails (disc full, unplugged)
     int failUploadAt = -1;      // ... only for the upload with this number (0-based); -1: all
     int uploads = 0;            // uploads attempted
+    QList<MdRecordMode> uploadModes; // the mode of each upload attempted
     int uploadStepMs = 0;       // per progress step of an upload (4 steps)
     QStringList calls;          // "open", "readDisc", "readHeader", "writeHeader:<raw>", ...
 
@@ -114,6 +115,7 @@ public:
         {
             const auto l = step(QStringLiteral("uploadTrack:%1:%2").arg(title).arg(audio.bytes));
             stepMs = m_r->uploadStepMs;
+            m_r->uploadModes << audio.mode;
             if (m_r->failUploadAt < 0 || m_r->failUploadAt == m_r->uploads)
                 error = m_r->uploadError;
             ++m_r->uploads;
@@ -129,9 +131,13 @@ public:
             return error;
         std::lock_guard lock(m_r->mutex);
         const int index = static_cast<int>(m_r->tracks.size());
-        m_r->tracks << MdTrack{index, title, audio.durationMs, MdEncoding::Sp, false, false};
-        m_r->capacity.recordedMs += audio.durationMs;
-        m_r->capacity.availableMs -= audio.durationMs;
+        const MdEncoding encoding = audio.mode == MdRecordMode::Lp4 ? MdEncoding::Lp4
+            : audio.mode == MdRecordMode::Lp2                      ? MdEncoding::Lp2
+                                                                   : MdEncoding::Sp;
+        m_r->tracks << MdTrack{index, title, audio.durationMs, encoding, false, false};
+        const qint64 discMs = audio.durationMs / mdModeFactor(audio.mode); // capacity is SP time
+        m_r->capacity.recordedMs += discMs;
+        m_r->capacity.availableMs -= discMs;
         if (trackIndex)
             *trackIndex = index;
         return NetMdError::None;
@@ -156,12 +162,13 @@ private:
     bool m_open = false;
 };
 
-// "Decodes" by writing a small file (a second of silence per track), no GStreamer. Can fail
+// "Decodes" by writing a small file (a second of silence per track, in the mode's format: PCM, or
+// whole 384 / 192-byte ATRAC3 frames), no GStreamer or atracdenc. Can fail
 // for a path containing "broken"; waits `delayMs` (polling cancel) to test canceling a decode.
 struct FakeEncoder final : MdAudioEncoder
 {
     int delayMs = 0;
-    bool encode(const QString &source, MdRecordMode, const QString &destination, const std::atomic_bool &cancel,
+    bool encode(const QString &source, MdRecordMode mode, const QString &destination, const std::atomic_bool &cancel,
                 MdEncodedAudio *out, QString *error) override
     {
         for (int waited = 0; waited < delayMs; waited += 10) {
@@ -180,10 +187,11 @@ struct FakeEncoder final : MdAudioEncoder
         QFile f(destination);
         if (!f.open(QIODevice::WriteOnly))
             return false;
-        f.write(QByteArray(176400, '\0'));
+        const qint64 bytes = mode == MdRecordMode::Sp ? 176400 : 43 * mdWireSpec(mode).frameBytes;
+        f.write(QByteArray(bytes, '\0'));
         f.close();
         if (out)
-            *out = MdEncodedAudio{MdRecordMode::Sp, destination, 176400, 1000};
+            *out = MdEncodedAudio{mode, destination, bytes, 1000};
         return true;
     }
 };

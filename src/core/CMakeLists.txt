@@ -53,6 +53,7 @@ add_library(mmm_core STATIC
     mdupload.h
     mduploadplanner.h mduploadplanner.cpp
     gstpcmencoder.h gstpcmencoder.cpp
+    atracencoder.h atracencoder.cpp
     syncjob.h syncjob.cpp
     mprisservice.h mprisservice.cpp)
 target_include_directories(mmm_core PUBLIC
@@ -62,6 +63,10 @@ target_link_libraries(mmm_core
     PUBLIC Qt6::Core Qt6::Sql Qt6::DBus Qt6::Network
     PRIVATE Qt6::Concurrent
     PRIVATE PkgConfig::GST TagLib::tag netmd mmm_build_flags)
+# M12: the vendored atracdenc (third_party/atracdenc.cmake) is built with core, and its build-tree
+# path is AtracEncoder's fallback when it isn't next to the running program (tests, tools).
+add_dependencies(mmm_core atracdenc_build)
+target_compile_definitions(mmm_core PRIVATE MMM_ATRACDENC_BUILD_PATH="${MMM_ATRACDENC_PATH}")
 
 # Publish moc metatypes so QML modules can use core types via QML_FOREIGN (e.g. PlayQueue).
 qt_extract_metatypes(mmm_core)

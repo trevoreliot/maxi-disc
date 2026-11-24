@@ -2,7 +2,7 @@
 #include "netmdmanager.h"
 
 #include "apppaths.h"
-#include "gstpcmencoder.h"
+#include "atracencoder.h"
 #include "mdtitle.h"
 #include "netmdmonitor.h"
 
@@ -40,7 +40,8 @@ public:
 
     // Records one track: decode, upload (title + commit), re-read the disc. Outcome: 0 done,
     // 1 canceled while decoding, 2 decoding failed, 3 the recorder failed.
-    void uploadOne(quint64 generation, int index, const QString &source, const QString &title, const QString &temp)
+    void uploadOne(quint64 generation, int index, const QString &source, const QString &title, const QString &temp,
+                   MdRecordMode mode)
     {
         if (stale(generation))
             return;
@@ -52,7 +53,7 @@ public:
         MdEncodedAudio audio;
         QString why;
         const std::unique_ptr<MdAudioEncoder> encoder = m_encoder();
-        if (!encoder->encode(source, MdRecordMode::Sp, temp, *m_cancelDecode, &audio, &why)) {
+        if (!encoder->encode(source, mode, temp, *m_cancelDecode, &audio, &why)) {
             QFile::remove(temp);
             Q_EMIT uploadStep(generation, index, why == kEncodeCanceled ? 1 : 2, NetMdError::None, why, {}, false);
             return;
@@ -183,7 +184,8 @@ NetMdManager::NetMdManager(Options options, QObject *parent)
     if (!m_options.backend)
         m_options.backend = makeLibNetMdBackend;
     if (!m_options.encoder)
-        m_options.encoder = [] { return std::make_unique<GstPcmEncoder>(); };
+        // atracdenc is looked up once, here (the factory runs on the worker thread).
+        m_options.encoder = [atracdenc = AtracEncoder::findBinary()] { return makeDefaultMdEncoder(atracdenc); };
     m_thread = new QThread;
     m_thread->setObjectName(QStringLiteral("netmd"));
     m_worker = new NetMdWorker(m_options.backend, m_options.encoder, m_current, m_cancelDecode);
@@ -412,7 +414,7 @@ void NetMdManager::onTrackWritten(quint64 generation, NetMdError error, int inde
     Q_EMIT discChanged();
 }
 
-bool NetMdManager::startUpload(const QList<MdUploadItem> &items, const QString &discTitle)
+bool NetMdManager::startUpload(const QList<MdUploadItem> &items, const QString &discTitle, MdRecordMode mode)
 {
     if (m_uploading || isBusy() || !m_hasDisc || items.isEmpty())
         return false;
@@ -429,6 +431,7 @@ bool NetMdManager::startUpload(const QList<MdUploadItem> &items, const QString &
         item.error.clear();
     }
     m_uploading = true;
+    m_uploadMode = mode;
     m_cancelRequested = false;
     m_uploadFailed = false;
     m_titlingDisc = false;
@@ -472,10 +475,12 @@ void NetMdManager::uploadNext()
     }
     m_uploadIndex = next;
     const MdUploadItem &item = m_items.at(next);
-    const QString temp = m_tempDir->filePath(QStringLiteral("track-%1.pcm").arg(next + 1));
+    const QString temp = m_tempDir->filePath(
+        QStringLiteral("track-%1.%2").arg(next + 1).arg(m_uploadMode == MdRecordMode::Sp ? QStringLiteral("pcm") : QStringLiteral("atrac")));
     const quint64 generation = nextGeneration();
-    QMetaObject::invokeMethod(m_worker, [w = m_worker, generation, next, source = item.track.path, title = item.title, temp] {
-        w->uploadOne(generation, next, source, title, temp);
+    QMetaObject::invokeMethod(m_worker, [w = m_worker, generation, next, source = item.track.path, title = item.title, temp,
+                                         mode = m_uploadMode] {
+        w->uploadOne(generation, next, source, title, temp, mode);
     }, Qt::QueuedConnection);
     Q_EMIT uploadChanged();
 }

@@ -259,6 +259,28 @@ private Q_SLOTS:
         QVERIFY(QDir(m_temp.path()).entryList(QDir::Files | QDir::NoDotAndDotDot).isEmpty()); // decoded audio is gone
     }
 
+    // M12: the mode goes to the encoder and the recorder, for the whole run.
+    void recordsInLp2AndLp4()
+    {
+        openRecorder();
+        m_recorder->uploadModes.clear();
+        const int before = static_cast<int>(manager().disc().tracks.size());
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(items(2), {}, MdRecordMode::Lp2));
+        QCOMPARE(manager().uploadMode(), MdRecordMode::Lp2);
+        QVERIFY(finished.wait(5000));
+        QVERIFY(manager().startUpload(items(1), {}, MdRecordMode::Lp4));
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(m_recorder->uploadModes, (QList<MdRecordMode>{MdRecordMode::Lp2, MdRecordMode::Lp2, MdRecordMode::Lp4}));
+        const QStringList calls = m_recorder->takeCalls();
+        QVERIFY(calls.contains(QStringLiteral("uploadTrack:Song 1:%1").arg(43 * 384)));
+        QVERIFY(calls.contains(QStringLiteral("uploadTrack:Song 1:%1").arg(43 * 192)));
+        const QList<MdTrack> tracks = manager().disc().tracks;
+        QCOMPARE(tracks.size(), before + 3);
+        QCOMPARE(tracks[before].encoding, MdEncoding::Lp2);
+        QCOMPARE(tracks.last().encoding, MdEncoding::Lp4);
+    }
+
     void cancelFinishesTheTrackBeingRecorded()
     {
         openRecorder();

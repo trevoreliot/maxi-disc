@@ -64,6 +64,7 @@ public:
         RefreshDevice,  // Export: read the MiniDisc (or the device) again
         ClearQueue,     // Export, MiniDisc: empty the "to record" list
         SendQueueToDevice, // anywhere: send the play queue to the selected device
+        CycleRecordMode,   // Export, MiniDisc: SP → LP2 → LP4
     };
     Q_ENUM(Action)
 

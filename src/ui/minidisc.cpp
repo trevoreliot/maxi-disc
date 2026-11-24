@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "minidisc.h"
 
+#include "atracencoder.h"
+
 #include "devices.h"
 #include "library.h"
 #include "mdtitle.h"
@@ -10,6 +12,7 @@
 #include <QSet>
 
 #include <QJSEngine>
+#include <QSettings>
 
 namespace {
 MiniDisc *s_instance = nullptr;
@@ -259,6 +262,17 @@ MiniDisc::MiniDisc(const Options &options, QObject *parent)
         Q_EMIT statusChanged();
     });
     connect(Devices::instance(), &Devices::currentChanged, this, &MiniDisc::followCurrentDevice);
+
+    // LP2 / LP4 (M12): the default encoder needs atracdenc; a given encoder (tests) does it all.
+    m_lpAvailable = options.encoder ? true : mmm::AtracEncoder::isAvailable(&m_lpReason);
+    m_persist = options.persistSettings;
+    if (m_persist) {
+        const QString saved = QSettings().value(QStringLiteral("minidisc/recordMode")).toString();
+        if (m_lpAvailable && saved == QStringLiteral("lp2"))
+            m_recordMode = mmm::MdRecordMode::Lp2;
+        else if (m_lpAvailable && saved == QStringLiteral("lp4"))
+            m_recordMode = mmm::MdRecordMode::Lp4;
+    }
     m_manager->start();
     followCurrentDevice();
 }
@@ -322,7 +336,7 @@ QList<mmm::TrackRow> MiniDisc::queuedTracks() const
 
 mmm::MdUploadPlan MiniDisc::currentPlan() const
 {
-    return mmm::MdUploadPlanner::plan(m_manager->disc(), m_manager->hasDisc(), queuedTracks());
+    return mmm::MdUploadPlanner::plan(m_manager->disc(), m_manager->hasDisc(), queuedTracks(), m_recordMode);
 }
 
 QVariantMap MiniDisc::plan() const
@@ -335,8 +349,10 @@ QVariantMap MiniDisc::plan() const
         {QStringLiteral("error"), p.error},
         {QStringLiteral("warning"), p.warning},
         {QStringLiteral("durationText"), MdTrackModel::formatDuration(p.durationMs)},
-        {QStringLiteral("neededText"), MdTrackModel::formatDuration(p.neededMs)},
-        {QStringLiteral("availableText"), MdTrackModel::formatDuration(p.availableMs)},
+        // In the mode's own time: an 80-minute disc has 160 minutes free in LP2.
+        {QStringLiteral("neededText"), MdTrackModel::formatDuration(p.neededMs * mmm::mdModeFactor(p.mode))},
+        {QStringLiteral("availableText"), MdTrackModel::formatDuration(p.availableMs * mmm::mdModeFactor(p.mode))},
+        {QStringLiteral("modeName"), mmm::mdModeName(p.mode)},
         {QStringLiteral("queuedFraction"), std::clamp(double(p.neededMs) / total, 0.0, 1.0)},
         {QStringLiteral("overflow"), p.neededMs > p.availableMs},
         {QStringLiteral("suggestedDiscTitle"), p.suggestedDiscTitle},
@@ -489,7 +505,7 @@ bool MiniDisc::record()
     const QString discTitle = m_titleDisc ? currentPlan().suggestedDiscTitle : QString();
     m_queue->setItems(todo);
     m_result.clear();
-    if (!m_manager->startUpload(todo, discTitle))
+    if (!m_manager->startUpload(todo, discTitle, m_recordMode))
         return false;
     setRecordView(true);
     Q_EMIT recordingChanged();
@@ -499,6 +515,29 @@ bool MiniDisc::record()
 void MiniDisc::cancelRecord()
 {
     m_manager->cancelUpload();
+}
+
+void MiniDisc::setRecordMode(int mode)
+{
+    if (mode < 0 || mode > 2 || isRecording())
+        return;
+    const auto m = static_cast<mmm::MdRecordMode>(mode);
+    if (m != mmm::MdRecordMode::Sp && !m_lpAvailable)
+        return;
+    if (m == m_recordMode)
+        return;
+    m_recordMode = m;
+    if (m_persist)
+        QSettings().setValue(QStringLiteral("minidisc/recordMode"), recordModeName().toLower());
+    Q_EMIT recordModeChanged();
+    Q_EMIT planChanged();
+}
+
+void MiniDisc::cycleRecordMode()
+{
+    if (!m_lpAvailable)
+        return;
+    setRecordMode((recordMode() + 1) % 3);
 }
 
 QString MiniDisc::deviceName() const
@@ -541,7 +580,10 @@ double MiniDisc::usedFraction() const
 QString MiniDisc::statusText() const
 {
     if (m_manager->isUploading())
-        return QStringLiteral("Recording %1 of %2").arg(std::max(0, m_manager->uploadIndex()) + 1).arg(m_manager->uploadItems().size());
+        return QStringLiteral("Recording %1 of %2%3")
+            .arg(std::max(0, m_manager->uploadIndex()) + 1)
+            .arg(m_manager->uploadItems().size())
+            .arg(m_manager->uploadMode() == mmm::MdRecordMode::Sp ? QString() : QStringLiteral(" in ") + mmm::mdModeName(m_manager->uploadMode()));
     if (m_manager->state() == mmm::NetMdManager::State::Opening)
         return QStringLiteral("Reading…");
     switch (m_manager->error()) {

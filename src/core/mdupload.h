@@ -14,8 +14,48 @@
 // Recording to a MiniDisc (M11): what gets recorded, the plan, progress. Plain values.
 namespace mmm {
 
-// SP now; LP2 / LP4 arrive with M12 (atracdenc).
+// SP: the recorder encodes PCM itself. LP2 / LP4 (M12): ATRAC3 made by atracdenc.
 enum class MdRecordMode { Sp, Lp2, Lp4 };
+
+// "SP", "LP2", "LP4".
+inline QString mdModeName(MdRecordMode mode)
+{
+    switch (mode) {
+    case MdRecordMode::Sp:
+        return QStringLiteral("SP");
+    case MdRecordMode::Lp2:
+        return QStringLiteral("LP2");
+    case MdRecordMode::Lp4:
+        return QStringLiteral("LP4");
+    }
+    return {};
+}
+
+// How much music fits per unit of disc time (capacity is reported in SP time).
+inline qint64 mdModeFactor(MdRecordMode mode)
+{
+    return mode == MdRecordMode::Lp4 ? 4 : mode == MdRecordMode::Lp2 ? 2 : 1;
+}
+
+// How a mode goes over NetMD (libnetmd / netmd-js values; LibNetMdBackend static_asserts them).
+struct MdWireSpec
+{
+    int wireFormat = 0;  // PCM 0x00, LP2 0x94, LP4 0xa8
+    int discFormat = 6;  // SP stereo 6, LP2 2, LP4 0
+    int frameBytes = 4;  // the encoded audio's frame: SP a stereo sample, LP2 384, LP4 192 (ATRAC3)
+};
+inline MdWireSpec mdWireSpec(MdRecordMode mode)
+{
+    switch (mode) {
+    case MdRecordMode::Sp:
+        return {0x00, 6, 4};
+    case MdRecordMode::Lp2:
+        return {0x94, 2, 384};
+    case MdRecordMode::Lp4:
+        return {0xa8, 0, 192};
+    }
+    return {};
+}
 
 enum class MdItemState { Pending, Decoding, Uploading, Done, Failed, Skipped };
 
@@ -33,8 +73,8 @@ struct MdUploadPlan
 {
     MdRecordMode mode = MdRecordMode::Sp;
     qint64 durationMs = 0;       // the tracks' total length
-    qint64 neededMs = 0;         // disc time they take in this mode (LP2 half, LP4 a quarter)
-    qint64 availableMs = 0;
+    qint64 neededMs = 0;         // disc time they take in this mode, in SP time (LP2 half, LP4 a quarter)
+    qint64 availableMs = 0;      // SP time (× mdModeFactor(mode) = music that fits in this mode)
     bool canRecord = false;
     bool tight = false;          // fits, but only just (each track may round up a little)
     QString error;               // why not (empty if canRecord)
@@ -42,7 +82,8 @@ struct MdUploadPlan
     QString suggestedDiscTitle;  // a blank untitled disc filled from one album: its title
 };
 
-// Audio prepared for the recorder: SP = raw PCM, 44.1 kHz, 16-bit big-endian stereo.
+// Audio prepared for the recorder: SP = raw PCM, 44.1 kHz, 16-bit big-endian stereo; LP2 / LP4
+// = raw ATRAC3 frames (384 / 192 bytes, 1024 samples each).
 struct MdEncodedAudio
 {
     MdRecordMode mode = MdRecordMode::Sp;

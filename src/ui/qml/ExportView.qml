@@ -151,6 +151,10 @@ Item {
             if (mdSelected && !MiniDisc.recording)
                 MiniDisc.clearQueue();
             return true;
+        case KeyRouter.CycleRecordMode:
+            if (mdSelected)
+                MiniDisc.cycleRecordMode();
+            return true;
         case KeyRouter.RenameTrack:
             if (mdSelected)
                 renameMdTrack();
@@ -734,11 +738,47 @@ Item {
                                         }
                                     }
                                 }
-                                Label {
+                                // M12: how the next recording goes on the disc (M cycles).
+                                RowLayout {
+                                    objectName: "mdModeBar"
                                     Layout.columnSpan: 2
-                                    text: qsTr("Records in SP. LP2 / LP4: M12")
+                                    spacing: 0
+                                    enabled: root.mdSelected && !MiniDisc.recording
+
+                                    Repeater {
+                                        model: [qsTr("SP"), qsTr("LP2"), qsTr("LP4")]
+                                        delegate: Button {
+                                            id: modeButton
+                                            required property int index
+                                            required property string modelData
+                                            objectName: "mdMode" + modelData
+                                            Layout.fillWidth: true
+                                            text: modelData
+                                            checkable: true
+                                            checked: MiniDisc.recordMode === index
+                                            highlighted: checked
+                                            enabled: index === 0 || MiniDisc.lpAvailable
+                                            focusPolicy: Qt.NoFocus
+                                            onClicked: MiniDisc.recordMode = index
+                                            ToolTip.visible: hovered
+                                            ToolTip.delay: 600
+                                            ToolTip.text: index === 0 ? qsTr("SP: best quality, 80 minutes on an 80-minute disc (M cycles)")
+                                                        : index === 1 ? qsTr("LP2: 132 kbps ATRAC3, twice the music (M cycles)")
+                                                        : qsTr("LP4: 66 kbps ATRAC3, four times the music (M cycles)")
+                                        }
+                                    }
+                                }
+                                Label {
+                                    objectName: "mdModeNote"
+                                    Layout.columnSpan: 2
+                                    Layout.fillWidth: true
+                                    text: !MiniDisc.lpAvailable ? MiniDisc.lpUnavailableReason
+                                        : MiniDisc.recordMode === 0 ? qsTr("SP · the deck encodes; 1× time")
+                                        : MiniDisc.recordMode === 1 ? qsTr("LP2 · 132 kbps; 2× time")
+                                        : qsTr("LP4 · 66 kbps; 4× time")
                                     font.pixelSize: Theme.fontMicro
-                                    color: Theme.textMuted
+                                    color: MiniDisc.lpAvailable ? Theme.textMuted : Theme.errorText
+                                    wrapMode: Text.Wrap
                                 }
                             }
                             ColumnLayout {

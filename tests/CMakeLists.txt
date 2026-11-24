@@ -97,7 +97,10 @@ endforeach()
 qt_add_executable(tst_gstpcmencoder core/tst_gstpcmencoder.cpp core/testmedia.h core/testmedia.cpp)
 target_link_libraries(tst_gstpcmencoder PRIVATE mmm_core PkgConfig::GST Qt6::Test mmm_build_flags)
 add_test(NAME tst_gstpcmencoder COMMAND tst_gstpcmencoder)
-set(MMM_NETMD_TESTS tst_mdtitle tst_netmdmanager tst_mduploadplanner tst_gstpcmencoder)
+qt_add_executable(tst_atracencoder core/tst_atracencoder.cpp core/testmedia.h core/testmedia.cpp)
+target_link_libraries(tst_atracencoder PRIVATE mmm_core PkgConfig::GST Qt6::Test mmm_build_flags)
+add_test(NAME tst_atracencoder COMMAND tst_atracencoder)
+set(MMM_NETMD_TESTS tst_mdtitle tst_netmdmanager tst_mduploadplanner tst_gstpcmencoder tst_atracencoder)
 
 set(MMM_ARTWORK_TESTS tst_artworksaver tst_artworkmatch tst_httpfetcher tst_musicbrainzclient tst_coverartarchiveclient tst_artworkfinder)
 

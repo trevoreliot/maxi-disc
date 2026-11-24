@@ -94,6 +94,11 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     `uploadTrack` (secure session, title, commit) → re-read disc. Cancel = after the current track.
     Keys (recorder selected): `o` disc ↔ to record, `x`/`X` remove/clear, `S` record/cancel. Tests:
     `FakeEncoder` + the fake recorder's `uploadTrack` (fakenetmd.h).
+  - LP2 / LP4 (M12): vendored atracdenc 0.2.3 (`third_party/atracdenc`, an ExternalProject built with
+    core, binary next to the app; decisions/0007) run by core `AtracEncoder` (QProcess; GStreamer → WAV →
+    atracdenc → the RIFF data chunk = raw ATRAC3 frames, 384 / 192 bytes); `makeDefaultMdEncoder()` picks
+    by mode; `mdWireSpec()` = wire/disc formats (static_asserted in LibNetMdBackend). UI: `MiniDisc.recordMode`
+    (QSettings; tests pass `persistSettings = false`), `M` cycles. `tst_atracencoder` runs the real binary.
   - Send to device (M11b): `SendToDevice` (QML singleton; construct after Devices, Playback, Sync,
     MiniDisc; its constructor has no default argument so QML uses `create()`) → `MiniDisc::addItems` /
     `Sync::addItems` (counts via `DeviceAddResult`) → `notice` → `Toast` in Main. USB selections take

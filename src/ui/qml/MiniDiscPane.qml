@@ -141,8 +141,9 @@ Item {
                 objectName: "mdCapacity"
                 Layout.fillWidth: true
                 text: MiniDisc.recordView && (MiniDisc.plan.pending ?? 0) > 0 && !MiniDisc.recording
-                      ? qsTr("%1 · to record %2 · %3 free").arg(MiniDisc.capacityText.split(" · ")[0])
+                      ? qsTr("%1 · to record %2 · %3 free in %4").arg(MiniDisc.capacityText.split(" · ")[0])
                             .arg(MiniDisc.plan.neededText ?? "").arg(MiniDisc.plan.availableText ?? "")
+                            .arg(MiniDisc.recordModeName)
                       : MiniDisc.capacityText
                 font.pixelSize: Theme.fontSmall
                 color: Theme.textSecondary
@@ -439,7 +440,7 @@ Item {
                                      : Theme.textMuted
                             }
                             Tag {
-                                text: "SP"
+                                text: MiniDisc.recordModeName // how it goes on the disc (M12)
                             }
                             Label {
                                 text: queued.durationText

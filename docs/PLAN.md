@@ -128,7 +128,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - [x] **M10 NetMD basics** — Done when: libnetmd linked; detect the MZ-NE410; read disc TOC and titles; rename disc and tracks; udev rule documented. User test: read and retitle a scratch disc.
 - [x] **M11 SP upload** — Done when: decode to 44.1 kHz 16-bit PCM via GStreamer; upload as SP; progress and cancel. User test: burn a short album in SP, then play it on the deck.
 - [x] **M11b Send music to devices** — Done when: `i` on the Library screen sends what's under the cursor to the device selected on Export (browse row = artist / genre / album / playlist; grid = album; album page = marked tracks, else the cursor track; playlist page / search = cursor track); `I` sends the play queue from any screen; "Send to <device>" buttons on the album page (marked, else the album), playlist page (the playlist), search results and the queue panel, disabled with the reason when no device can take it; USB selections take single tracks; a toast says what every send did (Export's own adds too). User test: with the MZ-NE410 selected, send an artist, an album, one song and 3 marked songs from Library and the play queue with `I`; the toasts' counts match "To record", no duplicates. On a USB stick: send a playlist and 2 marked tracks, remove one with `x`, restart: the selection is kept.
-- [ ] **M12 LP2 / LP4 upload** — Done when: atracdenc encoding; mode chosen per job; disc-space estimate before burning. User test: burn in LP2 and LP4; check sound and titles.
+- [x] **M12 LP2 / LP4 upload** — Done when: atracdenc encoding; mode chosen per job; disc-space estimate before burning. User test: burn in LP2 and LP4; check sound and titles.
 - [ ] **M13 (Optional, deferred) netmd-js extras** — Port device-quirk fixes only if the MZ-NE410 needs them. netmd-exploits features wait until requested.
 
 ### Phase 6: Online services (depend only on M5; may be pulled earlier)
@@ -323,6 +323,19 @@ and the user has run the "User test". Tick the box, commit, then stop.
     "Unknown Error". After a USB error the backend resets the port on close and the manager
     reopens the recorder itself, so a failed recording doesn't need a replug.
   - Easier picking of what to send (user asked, 2026-11-22): became M11b.
+- M12 notes / follow-ups:
+  - atracdenc 0.2.3 is vendored and run as a program (decisions/0007, third_party/atracdenc/UPSTREAM.md):
+    LP2 = its ATRAC3 default (384-byte frames), LP4 = `atrac3_lp4` (192-byte); `AtracEncoder` keeps the
+    RIFF data chunk. `makeDefaultMdEncoder()` picks GstPcmEncoder (SP) or AtracEncoder (LP).
+  - Mode per recording: `MiniDisc.recordMode` (SP / LP2 / LP4 buttons in MD options, `M` cycles),
+    remembered in QSettings, fixed while recording. Free / needed times are shown in the mode's time.
+  - Not done: streaming into atracdenc's stdin (no temp WAV); encoding the next track while one
+    uploads (LP encoding takes a while: worth it now); per-track modes in one run; LP2 at 105 kbps
+    (atracdenc can, NetMD's 0x90 wire format would need testing); an encode progress bar (atracdenc's
+    stdout); install rules (the app has none yet: a package must put atracdenc next to the app or
+    set MMM_ATRACDENC); a single track over ~3 hours makes a > 2 GB temporary WAV.
+  - atracdenc's RIFF header undercounts its frames (the encoder's delay frames follow): trusting it
+    would cut ~46 ms off every track's end, so the data is read to the end of the file.
 - M11b notes / follow-ups:
   - `SendToDevice` (QML singleton) is the one entry point: it routes to `MiniDisc::addItems`
     (per-session "To record") or `Sync::addItems` (persistent USB selection, one transaction via

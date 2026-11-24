@@ -126,6 +126,12 @@ class MiniDisc : public QObject
     Q_PROPERTY(bool titleDisc READ titleDisc WRITE setTitleDisc NOTIFY planChanged FINAL)
     Q_PROPERTY(bool recording READ isRecording NOTIFY recordingChanged FINAL)
     Q_PROPERTY(bool cancelling READ isCancelling NOTIFY recordingChanged FINAL)
+    // How the next recording goes on the disc (M12): 0 SP, 1 LP2, 2 LP4 (MdRecordMode). Remembered;
+    // fixed while recording. LP needs atracdenc: lpAvailable / lpUnavailableReason.
+    Q_PROPERTY(int recordMode READ recordMode WRITE setRecordMode NOTIFY recordModeChanged FINAL)
+    Q_PROPERTY(QString recordModeName READ recordModeName NOTIFY recordModeChanged FINAL)
+    Q_PROPERTY(bool lpAvailable READ lpAvailable CONSTANT FINAL)
+    Q_PROPERTY(QString lpUnavailableReason READ lpUnavailableReason CONSTANT FINAL)
     // {trackText ("Track 2 of 8: Title"), stage, trackFraction, overallFraction, bytesText}
     Q_PROPERTY(QVariantMap progress READ progress NOTIFY progressChanged FINAL)
     // The last recording's outcome ("" before one): "Recorded 8 tracks.", "Canceled ...", ...
@@ -138,6 +144,7 @@ public:
         bool monitor = true;              // false: no USB detection (tests, --no-devices)
         mmm::MdAudioEncoderFactory encoder = {}; // default: GstPcmEncoder (tests: a fake)
         QString tempDir = {};             // decoded audio ("" = the app's cache)
+        bool persistSettings = true;      // remember the record mode (QSettings); tests: false
     };
 
     explicit MiniDisc(const Options &options, QObject *parent = nullptr);
@@ -181,6 +188,14 @@ public:
     Q_INVOKABLE bool record();
     // Stops after the track being recorded.
     Q_INVOKABLE void cancelRecord();
+    // SP → LP2 → LP4 → SP (`M`); LP is skipped when atracdenc isn't there.
+    Q_INVOKABLE void cycleRecordMode();
+
+    int recordMode() const { return static_cast<int>(m_recordMode); }
+    void setRecordMode(int mode);
+    QString recordModeName() const { return mmm::mdModeName(m_recordMode); }
+    bool lpAvailable() const { return m_lpAvailable; }
+    QString lpUnavailableReason() const { return m_lpReason; }
 
     bool recordView() const { return m_recordView; }
     void setRecordView(bool on);
@@ -201,6 +216,7 @@ Q_SIGNALS:
     void errorChanged();
     void statusChanged();
     void recordViewChanged();
+    void recordModeChanged();
     void planChanged();
     void recordingChanged();
     void progressChanged();
@@ -216,5 +232,9 @@ private:
     std::unique_ptr<MdQueueModel> m_queue;
     bool m_recordView = false;
     bool m_titleDisc = true;
+    mmm::MdRecordMode m_recordMode = mmm::MdRecordMode::Sp;
+    bool m_persist = true;
+    bool m_lpAvailable = false;
+    QString m_lpReason;
     QString m_result;
 };

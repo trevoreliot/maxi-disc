@@ -348,6 +348,23 @@ TestCase {
         verify(findChild(view, "mdPlanError").visible); // 02.flac isn't in the fixture
         verify(!findChild(view, "mdRecordButton").enabled);
 
+        // M12: M cycles SP → LP2 → LP4 → SP; the buttons and the free time follow.
+        compare(MiniDisc.recordMode, 0);
+        verify(findChild(view, "mdModeSP").checked);
+        keyClick("M");
+        compare(MiniDisc.recordMode, 1);
+        verify(findChild(view, "mdModeLP2").checked);
+        verify(!findChild(view, "mdModeSP").checked);
+        compare(MiniDisc.plan.modeName, "LP2");
+        keyClick("M");
+        compare(MiniDisc.recordModeName, "LP4");
+        if (screenshotDir !== "") {
+            wait(200);
+            grabImage(win.contentItem).save(screenshotDir + "/export-minidisc-lp4.png");
+        }
+        keyClick("M");
+        compare(MiniDisc.recordMode, 0);
+
         // l into the queue, j to the missing one, x removes it.
         keyClick("l");
         compare(view.pane, ExportView.Selection);

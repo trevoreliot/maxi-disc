@@ -23,8 +23,8 @@ using BusPtr = std::unique_ptr<GstBus, GstObjectUnref>;
 
 } // namespace
 
-bool GstPcmEncoder::encode(const QString &source, MdRecordMode mode, const QString &destination,
-                           const std::atomic_bool &cancel, MdEncodedAudio *out, QString *error)
+bool GstPcmEncoder::decode(const QString &source, const QString &destination, Output output,
+                           const std::atomic_bool &cancel, QString *error)
 {
     auto fail = [&](const QString &message) {
         if (error)
@@ -32,16 +32,18 @@ bool GstPcmEncoder::encode(const QString &source, MdRecordMode mode, const QStri
         QFile::remove(destination);
         return false;
     };
-    if (mode != MdRecordMode::Sp)
-        return fail(QStringLiteral("LP2 / LP4 recording isn't available yet"));
     if (!QFileInfo(source).isFile())
         return fail(QStringLiteral("file not found: %1").arg(source));
     gst::ensureInitialized();
     // decodebin's audio pad is linked when it appears (gst_parse_launch's delayed linking);
     // an embedded cover image has no audio caps, so it never links to audioconvert.
-    const QString desc = QStringLiteral("filesrc name=src ! decodebin ! audioconvert ! audioresample "
-                                        "! audio/x-raw,format=S16BE,rate=44100,channels=2,layout=interleaved "
-                                        "! filesink name=sink");
+    const QString desc = output == Output::RawBigEndian
+        ? QStringLiteral("filesrc name=src ! decodebin ! audioconvert ! audioresample "
+                         "! audio/x-raw,format=S16BE,rate=44100,channels=2,layout=interleaved "
+                         "! filesink name=sink")
+        : QStringLiteral("filesrc name=src ! decodebin ! audioconvert ! audioresample "
+                         "! audio/x-raw,format=S16LE,rate=44100,channels=2,layout=interleaved "
+                         "! wavenc ! filesink name=sink");
     GError *err = nullptr;
     ElementPtr pipeline(gst_parse_launch(desc.toUtf8().constData(), &err));
     if (!pipeline) {
@@ -87,10 +89,27 @@ bool GstPcmEncoder::encode(const QString &source, MdRecordMode mode, const QStri
         return fail(kEncodeCanceled);
     if (!problem.isEmpty())
         return fail(problem);
+    return true;
+}
 
+bool GstPcmEncoder::encode(const QString &source, MdRecordMode mode, const QString &destination,
+                           const std::atomic_bool &cancel, MdEncodedAudio *out, QString *error)
+{
+    if (mode != MdRecordMode::Sp) {
+        if (error)
+            *error = QStringLiteral("PCM is for SP only");
+        QFile::remove(destination);
+        return false;
+    }
+    if (!decode(source, destination, Output::RawBigEndian, cancel, error))
+        return false;
     const qint64 bytes = QFileInfo(destination).size();
-    if (bytes <= 0 || bytes % 4 != 0)
-        return fail(QStringLiteral("no audio decoded from %1").arg(source));
+    if (bytes <= 0 || bytes % 4 != 0) {
+        if (error)
+            *error = QStringLiteral("no audio decoded from %1").arg(source);
+        QFile::remove(destination);
+        return false;
+    }
     if (out) {
         out->mode = mode;
         out->path = destination;

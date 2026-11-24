@@ -113,6 +113,7 @@ TestCase {
             { tag: "m", key: "m", action: KeyRouter.MountToggle },
             { tag: "i", key: "i", action: KeyRouter.AddToDevice },
             { tag: "I", key: "I", action: KeyRouter.SendQueueToDevice },
+            { tag: "M", key: "M", action: KeyRouter.CycleRecordMode },
             { tag: "x", key: "x", action: KeyRouter.ExportRemove },
             { tag: "p", key: "p", action: KeyRouter.ExportPlan },
             { tag: "S", key: "S", action: KeyRouter.ExportSync },

@@ -59,5 +59,9 @@ allow. Local changes are under the licence of the file they're in.
     let the 1 s poll time out, then stopped answering until replugged), poll errors logged by name
     and kept for `netmd_last_usb_error()` (now also set by exchanges; `netmd_set_last_usb_error`).
 15. `log.c`: logs to stderr (was stdout), so one redirect captures it with the app's log.
+16. `trackinformation.c` `netmd_get_track_information`: reads the data length from the reply
+    (`rsp[19..20]`; was `data[19..20]`, past the end of the caller's 8-byte buffer) and copies no
+    more than the reply holds. Found in the M12 user test: every track's SP/LP2/LP4 read as
+    unknown (the reply was right: `… 00 08 80 07 00 04 01 10 90 00`, 0x90 = SP, 0x92 = LP2).
 
 `CMakeLists.txt` is ours (upstream has qmake only).

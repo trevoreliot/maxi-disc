@@ -95,6 +95,37 @@ private Q_SLOTS:
                  QStringLiteral("Agaetis byrjun"));
     }
 
+    // M12: a queue too long for SP fits in LP2 / LP4; the message is in the mode's time.
+    void longPlayModes()
+    {
+        const QList<TrackRow> hundredMinutes(10, track(600'000));
+        const MdUploadPlan sp = MdUploadPlanner::plan(disc(4'800'000), true, hundredMinutes);
+        QVERIFY(!sp.canRecord);
+        QVERIFY2(sp.error.contains(QStringLiteral("Doesn't fit in SP: 100:00 needed, 80:00 free")), qPrintable(sp.error));
+        QVERIFY(MdUploadPlanner::plan(disc(4'800'000), true, hundredMinutes, MdRecordMode::Lp2).canRecord);
+        const QList<TrackRow> fourHours(24, track(600'000));
+        const MdUploadPlan lp2 = MdUploadPlanner::plan(disc(4'800'000), true, fourHours, MdRecordMode::Lp2);
+        QVERIFY(!lp2.canRecord);
+        QVERIFY2(lp2.error.contains(QStringLiteral("in LP2: 240:00 needed, 160:00 free")), qPrintable(lp2.error));
+        QVERIFY(MdUploadPlanner::plan(disc(4'800'000), true, fourHours, MdRecordMode::Lp4).canRecord);
+        // The track limit doesn't change with the mode.
+        QVERIFY(!MdUploadPlanner::plan(disc(4'800'000, 250), true, QList<TrackRow>(6, track(1000)), MdRecordMode::Lp4).canRecord);
+    }
+
+    void wireSpecs()
+    {
+        QCOMPARE(mdWireSpec(MdRecordMode::Sp).wireFormat, 0x00);
+        QCOMPARE(mdWireSpec(MdRecordMode::Sp).discFormat, 6);
+        QCOMPARE(mdWireSpec(MdRecordMode::Lp2).wireFormat, 0x94);
+        QCOMPARE(mdWireSpec(MdRecordMode::Lp2).discFormat, 2);
+        QCOMPARE(mdWireSpec(MdRecordMode::Lp2).frameBytes, 384);
+        QCOMPARE(mdWireSpec(MdRecordMode::Lp4).wireFormat, 0xa8);
+        QCOMPARE(mdWireSpec(MdRecordMode::Lp4).discFormat, 0);
+        QCOMPARE(mdWireSpec(MdRecordMode::Lp4).frameBytes, 192);
+        QCOMPARE(mdModeFactor(MdRecordMode::Lp4), qint64(4));
+        QCOMPARE(mdModeName(MdRecordMode::Lp2), QStringLiteral("LP2"));
+    }
+
     void modesAndTitles()
     {
         QCOMPARE(MdUploadPlanner::neededMs(100'000, MdRecordMode::Sp), qint64(100'000));

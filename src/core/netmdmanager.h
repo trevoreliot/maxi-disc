@@ -70,7 +70,7 @@ public:
     // Records `items` (titles already set) at the end of the disc, then titles the disc
     // `discTitle` if given. False if busy or there's no disc. Progress: uploadChanged /
     // uploadProgressChanged; uploadFinished at the end.
-    bool startUpload(const QList<MdUploadItem> &items, const QString &discTitle = {});
+    bool startUpload(const QList<MdUploadItem> &items, const QString &discTitle = {}, MdRecordMode mode = MdRecordMode::Sp);
     // Stops after the track being recorded (a track can't be stopped part-way); a track still
     // being decoded stops at once.
     void cancelUpload();
@@ -78,6 +78,7 @@ public:
     bool isCancelling() const { return m_uploading && m_cancelRequested; }
     QList<MdUploadItem> uploadItems() const { return m_items; }
     int uploadIndex() const { return m_uploadIndex; }   // the item being recorded (-1: none)
+    MdRecordMode uploadMode() const { return m_uploadMode; } // the recording's mode (fixed per run)
     MdTransferProgress uploadProgress() const { return m_progress; }
 
     State state() const { return m_state; }
@@ -133,6 +134,7 @@ private:
     QList<MdUploadItem> m_items;
     int m_uploadIndex = -1;
     bool m_uploading = false;
+    MdRecordMode m_uploadMode = MdRecordMode::Sp;
     bool m_cancelRequested = false;
     bool m_titlingDisc = false;
     bool m_uploadFailed = false;

@@ -48,6 +48,7 @@ function(mmm_add_sanitizer_defaults target)
 endfunction()
 
 add_subdirectory(third_party/libnetmd)
+include(third_party/atracdenc.cmake)
 add_subdirectory(src)
 add_subdirectory(tools/mmm-play)
 add_subdirectory(tools/mmm-tags)
