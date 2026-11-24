@@ -89,11 +89,14 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     + `RenameMdDialog` (Main owns it). Keys: n / Enter rename track, N disc, R refresh. Tests use
     `tests/core/fakenetmd.h` (never USB); the UI tests construct MiniDisc with it.
   - MiniDisc recording (M11): `MiniDisc` keeps a per-session "to record" queue (`MdQueueModel`; `i`
-    adds browse rows), `MdUploadPlanner` says if it fits; `NetMdManager::startUpload` → worker
-    `uploadOne` per track: `MdAudioEncoder` (`GstPcmEncoder`: S16BE 44.1 kHz stereo) → backend
-    `uploadTrack` (secure session, title, commit) → re-read disc. Cancel = after the current track.
-    Keys (recorder selected): `o` disc ↔ to record, `x`/`X` remove/clear, `S` record/cancel. Tests:
-    `FakeEncoder` + the fake recorder's `uploadTrack` (fakenetmd.h).
+    adds browse rows), `MdUploadPlanner` says if it fits; `NetMdManager::startUpload` → `pumpUpload()`
+    schedules both threads (M12c): `MdEncodeWorker` ("netmd-encode") prepares a track with
+    `MdAudioEncoder` (`GstPcmEncoder`: S16BE 44.1 kHz stereo) one ahead of the worker's `uploadOne`
+    (backend `uploadTrack`: secure session, title, commit → re-read disc). Per recording: a run id,
+    its own cancel flag and a shared temp dir; item states Pending → Decoding → Ready → Uploading → Done.
+    Cancel = after the current track. Keys (recorder selected): `o` disc ↔ to record, `x`/`X`
+    remove/clear, `S` record/cancel. Tests: `FakeEncoder` + the fake recorder's `uploadTrack`
+    (fakenetmd.h; their `events` show what overlapped).
   - LP2 / LP4 (M12): vendored atracdenc 0.2.3 (`third_party/atracdenc`, an ExternalProject built with
     core, binary next to the app; decisions/0007) run by core `AtracEncoder` (QProcess; GStreamer → WAV →
     atracdenc → the RIFF data chunk = raw ATRAC3 frames, 384 / 192 bytes); `makeDefaultMdEncoder()` picks

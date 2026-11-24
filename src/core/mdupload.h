@@ -57,7 +57,8 @@ inline MdWireSpec mdWireSpec(MdRecordMode mode)
     return {};
 }
 
-enum class MdItemState { Pending, Decoding, Uploading, Done, Failed, Skipped };
+// Ready (M12c): prepared, waiting for the track before it to finish on the disc.
+enum class MdItemState { Pending, Decoding, Ready, Uploading, Done, Failed, Skipped };
 
 // One track to record.
 struct MdUploadItem
@@ -93,7 +94,7 @@ struct MdEncodedAudio
 };
 
 // Makes MdEncodedAudio from a library file (M11: GstPcmEncoder; M12 adds ATRAC for LP2/LP4).
-// Runs on the NetMD worker thread; polls `cancel`. Stopped by `cancel`: returns false with
+// Runs on the NetMD encode thread (M12c: MdEncodeWorker, while a track uploads); polls `cancel`. Stopped by `cancel`: returns false with
 // `error` == kCanceled (a real failure has another message).
 inline const QString kEncodeCanceled = QStringLiteral("canceled");
 class MdAudioEncoder
@@ -116,3 +117,4 @@ struct MdTransferProgress
 } // namespace mmm
 
 Q_DECLARE_METATYPE(mmm::MdTransferProgress)
+Q_DECLARE_METATYPE(mmm::MdEncodedAudio)

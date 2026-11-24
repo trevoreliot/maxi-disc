@@ -66,7 +66,8 @@ private:
 };
 
 // The tracks to record (M11). Roles: number, title (as it goes on the disc), artist,
-// durationText, itemState ("pending", "decoding", "uploading", "done", "failed", "skipped"), error.
+// durationText, itemState ("pending", "decoding", "ready" (M12c: prepared, waiting for its turn),
+// "uploading", "done", "failed", "skipped"), error.
 class MdQueueModel : public QAbstractListModel
 {
     Q_OBJECT

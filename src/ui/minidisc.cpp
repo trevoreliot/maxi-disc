@@ -166,6 +166,8 @@ QString stateName(mmm::MdItemState s)
         return QStringLiteral("pending");
     case mmm::MdItemState::Decoding:
         return QStringLiteral("decoding");
+    case mmm::MdItemState::Ready:
+        return QStringLiteral("ready");
     case mmm::MdItemState::Uploading:
         return QStringLiteral("uploading");
     case mmm::MdItemState::Done:
@@ -439,7 +441,9 @@ QVariantMap MiniDisc::progress() const
     QString stage;
     if (index >= 0 && index < items.size()) {
         switch (items.at(index).state) {
+        case mmm::MdItemState::Pending: // its preparing hasn't started yet, or failed (shown in its turn)
         case mmm::MdItemState::Decoding:
+        case mmm::MdItemState::Ready:
             stage = QStringLiteral("Preparing");
             break;
         case mmm::MdItemState::Uploading:
@@ -449,7 +453,11 @@ QVariantMap MiniDisc::progress() const
             break;
         }
     }
-    const double overall = items.isEmpty() ? 0.0 : (std::max(0, index) + track) / double(items.size());
+    // Every track on the disc, the disc's title being written: all but done.
+    const bool titling = m_manager->isUploading() && index < 0;
+    if (titling)
+        stage = QStringLiteral("Finishing");
+    const double overall = titling ? 1.0 : items.isEmpty() ? 0.0 : (std::max(0, index) + track) / double(items.size());
     return {
         {QStringLiteral("trackText"), index >= 0 && index < items.size()
                                           ? QStringLiteral("Track %1 of %2: %3").arg(index + 1).arg(items.size()).arg(items.at(index).title)

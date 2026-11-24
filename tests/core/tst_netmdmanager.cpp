@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <QSignalSpy>
 #include <QDir>
+#include <QDirIterator>
+#include <QElapsedTimer>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -49,7 +51,7 @@ private Q_SLOTS:
         m_recorder = std::make_shared<test::FakeRecorder>();
         QVERIFY(m_temp.isValid());
         m_manager = std::make_unique<NetMdManager>(
-            NetMdManager::Options{test::fakeNetMd(m_recorder), false, 2000, test::fakeEncoder(m_decodeDelayMs), m_temp.path()});
+            NetMdManager::Options{test::fakeNetMd(m_recorder), false, 2000, test::fakeEncoder(m_decodeDelayMs, m_recorder), m_temp.path()});
     }
     void cleanup()
     {
@@ -223,6 +225,37 @@ private Q_SLOTS:
         }
         return out;
     }
+    // Tracks named "/lib/<name>.flac" ("broken…" can't be decoded, "slow…" takes 600 ms).
+    QList<MdUploadItem> itemsNamed(const QStringList &names)
+    {
+        QList<MdUploadItem> out;
+        for (int i = 0; i < names.size(); ++i) {
+            MdUploadItem item;
+            item.track.path = QStringLiteral("/lib/%1.flac").arg(names[i]);
+            item.title = QStringLiteral("Song %1").arg(i + 1);
+            out << item;
+        }
+        return out;
+    }
+    // Prepared tracks on disk (in the recordings' temporary folders).
+    int tempFiles() const
+    {
+        int n = 0;
+        QDirIterator it(m_temp.path(), QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            it.next();
+            ++n;
+        }
+        return n;
+    }
+    void restartWithDecodeDelay(int ms)
+    {
+        m_decodeDelayMs = ms;
+        cleanup();
+        init();
+        m_decodeDelayMs = 0;
+        openRecorder();
+    }
     QList<MdItemState> states() const
     {
         QList<MdItemState> out;
@@ -339,6 +372,192 @@ private Q_SLOTS:
 
     // A recorder that stops answering mid-recording but stays plugged in is reopened (the real
     // backend resets its USB port first): the disc comes back without a replug.
+    // --- M12c: the next track is prepared while one uploads ---
+    void preparesTheNextTrackWhileOneUploads()
+    {
+        restartWithDecodeDelay(100);
+        m_recorder->uploadStepMs = 50; // ~200 ms per track
+        m_recorder->takeEvents();
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(items(3), QStringLiteral("Mix")));
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(finished.first().first().toBool(), true);
+        QCOMPARE(states(), (QList<MdItemState>{MdItemState::Done, MdItemState::Done, MdItemState::Done}));
+        const QStringList e = m_recorder->takeEvents();
+        const auto at = [&](const char *what) {
+            const qsizetype i = e.indexOf(QString::fromLatin1(what));
+            return i < 0 ? std::numeric_limits<qsizetype>::max() : i;
+        };
+        // In order on the disc; each next one prepared while the one before uploads...
+        QVERIFY2(at("uploaded:Song 1") < at("upload:Song 2") && at("uploaded:Song 2") < at("upload:Song 3"), qPrintable(e.join(u',')));
+        QVERIFY2(at("encode:1") < at("uploaded:Song 1"), qPrintable(e.join(u',')));
+        QVERIFY2(at("encode:2") < at("uploaded:Song 2"), qPrintable(e.join(u',')));
+        // ... but no further ahead than that.
+        QVERIFY2(at("encode:2") > at("uploaded:Song 1"), qPrintable(e.join(u',')));
+        QVERIFY(m_recorder->takeCalls().contains(QStringLiteral("writeHeader:0;Mix//1-2;Side A//")));
+        QCOMPARE(tempFiles(), 0);
+    }
+
+    void aTrackPreparedAheadWaitsItsTurn()
+    {
+        openRecorder();
+        m_recorder->uploadStepMs = 100; // ~400 ms per track; preparing is instant
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(items(4)));
+        QTRY_COMPARE(manager().uploadItems().at(1).state, MdItemState::Ready);
+        QCOMPARE(manager().uploadItems().at(0).state, MdItemState::Uploading);
+        QCOMPARE(manager().uploadItems().at(2).state, MdItemState::Pending); // one ahead at most
+        QCOMPARE(manager().uploadIndex(), 0);
+        QVERIFY(tempFiles() <= 2);
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(states(), QList<MdItemState>(4, MdItemState::Done));
+        QCOMPARE(tempFiles(), 0);
+    }
+
+    void aSlowTrackToPrepareIsWaitedFor()
+    {
+        openRecorder();
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(itemsNamed({QStringLiteral("0"), QStringLiteral("slow1")})));
+        // The first is on the disc, the second still being prepared: it's the one shown.
+        QTRY_COMPARE(manager().uploadItems().at(0).state, MdItemState::Done);
+        QCOMPARE(manager().uploadItems().at(1).state, MdItemState::Decoding);
+        QCOMPARE(manager().uploadIndex(), 1);
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(states(), (QList<MdItemState>{MdItemState::Done, MdItemState::Done}));
+    }
+
+    void aTrackThatCantBePreparedWaitsForTheOneBefore()
+    {
+        openRecorder();
+        m_recorder->uploadStepMs = 50;
+        m_recorder->takeEvents();
+        m_recorder->takeCalls();
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(itemsNamed({QStringLiteral("0"), QStringLiteral("broken1"), QStringLiteral("2")}),
+                                      QStringLiteral("Mix")));
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(finished.first().first().toBool(), false);
+        // The one before it went on whole; it failed in its turn; nothing after it was prepared.
+        QCOMPARE(states(), (QList<MdItemState>{MdItemState::Done, MdItemState::Failed, MdItemState::Skipped}));
+        QVERIFY(manager().uploadItems()[1].error.contains(QStringLiteral("decode")));
+        const QStringList e = m_recorder->takeEvents();
+        QVERIFY(e.contains(QStringLiteral("uploaded:Song 1")));
+        QVERIFY(!e.contains(QStringLiteral("encode:2")));
+        QVERIFY(!m_recorder->takeCalls().join(u',').contains(QStringLiteral("writeHeader"))); // not titled
+        QCOMPARE(tempFiles(), 0);
+    }
+
+    void aFailedUploadStopsTheTrackBeingPrepared()
+    {
+        openRecorder();
+        m_recorder->uploadStepMs = 30;
+        m_recorder->uploadError = NetMdError::Rejected;
+        m_recorder->failUploadAt = 0;
+        m_recorder->takeEvents();
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(itemsNamed({QStringLiteral("0"), QStringLiteral("slow1"), QStringLiteral("2")})));
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(states(), (QList<MdItemState>{MdItemState::Failed, MdItemState::Skipped, MdItemState::Skipped}));
+        QCOMPARE(manager().error(), NetMdError::Rejected); // the recorder's error, not a decode one
+        QTRY_VERIFY(m_recorder->events.contains(QStringLiteral("encode-canceled:slow1")));
+        QTRY_COMPARE(tempFiles(), 0);
+        QVERIFY(!m_recorder->takeEvents().contains(QStringLiteral("encode:2")));
+    }
+
+    void cancelStopsTheTrackBeingPrepared()
+    {
+        openRecorder();
+        m_recorder->uploadStepMs = 60;
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(itemsNamed({QStringLiteral("0"), QStringLiteral("slow1"), QStringLiteral("2")})));
+        QTRY_COMPARE(manager().uploadItems().at(0).state, MdItemState::Uploading);
+        QTRY_COMPARE(manager().uploadItems().at(1).state, MdItemState::Decoding);
+        manager().cancelUpload();
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(finished.first().first().toBool(), false);
+        QCOMPARE(states(), (QList<MdItemState>{MdItemState::Done, MdItemState::Skipped, MdItemState::Skipped}));
+        QCOMPARE(m_recorder->uploads, 1);
+        QTRY_COMPARE(tempFiles(), 0);
+    }
+
+    void cancelDropsTheTrackPreparedAhead()
+    {
+        openRecorder();
+        m_recorder->uploadStepMs = 100;
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(items(3)));
+        QTRY_COMPARE(manager().uploadItems().at(1).state, MdItemState::Ready);
+        QCOMPARE(tempFiles(), 2);
+        manager().cancelUpload();
+        QCOMPARE(tempFiles(), 1); // the one prepared ahead went at once; the uploading one stays
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(states(), (QList<MdItemState>{MdItemState::Done, MdItemState::Skipped, MdItemState::Skipped}));
+        QCOMPARE(m_recorder->uploads, 1);
+        QCOMPARE(tempFiles(), 0);
+    }
+
+    void unplugWhileOneUploadsAndTheNextIsPrepared()
+    {
+        openRecorder();
+        m_recorder->uploadStepMs = 100;
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(items(3)));
+        QTRY_COMPARE(manager().uploadItems().at(1).state, MdItemState::Ready);
+        manager().setDevicesForTesting({});
+        QCOMPARE(finished.count(), 1); // at once
+        QCOMPARE(states(), (QList<MdItemState>{MdItemState::Failed, MdItemState::Skipped, MdItemState::Skipped}));
+        QCOMPARE(manager().error(), NetMdError::Disconnected);
+        QTRY_COMPARE(tempFiles(), 0); // once the upload on its way gives up
+    }
+
+    void unplugAfterACancelLeavesTheRestSkipped()
+    {
+        openRecorder();
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(itemsNamed({QStringLiteral("0"), QStringLiteral("slow1")})));
+        QTRY_COMPARE(manager().uploadItems().at(1).state, MdItemState::Decoding);
+        QTRY_COMPARE(manager().uploadItems().at(0).state, MdItemState::Done);
+        manager().cancelUpload(); // waits for the encode to stop...
+        manager().setDevicesForTesting({}); // ... and the recorder goes meanwhile
+        QTRY_COMPARE(finished.count(), 1);
+        QCOMPARE(states(), (QList<MdItemState>{MdItemState::Done, MdItemState::Skipped})); // canceled, not failed
+        QCOMPARE(manager().error(), NetMdError::Disconnected);
+        QTRY_COMPARE(tempFiles(), 0);
+    }
+
+    void quittingWhileOneUploadsAndTheNextIsPrepared()
+    {
+        openRecorder();
+        m_recorder->uploadStepMs = 50;
+        QVERIFY(manager().startUpload(itemsNamed({QStringLiteral("0"), QStringLiteral("slow1"), QStringLiteral("2")})));
+        QTRY_COMPARE(manager().uploadItems().at(1).state, MdItemState::Decoding);
+        QElapsedTimer quitting;
+        quitting.start();
+        m_manager.reset(); // both threads wind down: the upload finishes, the encode stops
+        QVERIFY(quitting.elapsed() < 4000);
+        QCOMPARE(m_recorder->uploads, 1);
+        QTRY_COMPARE(tempFiles(), 0);
+    }
+
+    void aNewRecordingRightAfterAFailedOne()
+    {
+        openRecorder();
+        m_recorder->uploadError = NetMdError::Rejected;
+        m_recorder->failUploadAt = 0;
+        QSignalSpy finished(&manager(), &NetMdManager::uploadFinished);
+        QVERIFY(manager().startUpload(itemsNamed({QStringLiteral("0"), QStringLiteral("slow1")})));
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(finished.last().first().toBool(), false);
+        // The old run's encode may still be winding down: the new one isn't affected.
+        m_recorder->uploadError = NetMdError::None;
+        QVERIFY(manager().startUpload(items(2)));
+        QVERIFY(finished.wait(5000));
+        QCOMPARE(finished.last().first().toBool(), true);
+        QCOMPARE(states(), (QList<MdItemState>{MdItemState::Done, MdItemState::Done}));
+        QTRY_COMPARE(tempFiles(), 0);
+    }
+
     void aRecorderThatStopsAnsweringIsReopened()
     {
         openRecorder();

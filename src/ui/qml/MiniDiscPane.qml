@@ -434,12 +434,14 @@ Item {
                             Tag {
                                 visible: queued.itemState !== "pending"
                                 text: queued.itemState === "decoding" ? qsTr("preparing")
+                                    : queued.itemState === "ready" ? qsTr("ready")
                                     : queued.itemState === "uploading" ? qsTr("recording")
                                     : queued.itemState === "done" ? qsTr("done")
                                     : queued.itemState === "failed" ? qsTr("failed")
                                     : qsTr("skipped")
                                 color: queued.itemState === "failed" ? Theme.errorText
                                      : queued.itemState === "done" || queued.itemState === "uploading" || queued.itemState === "decoding" ? Theme.accent
+                                     : queued.itemState === "ready" ? Theme.textSecondary
                                      : Theme.textMuted
                             }
                             Tag {

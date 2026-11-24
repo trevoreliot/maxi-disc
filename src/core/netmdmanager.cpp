@@ -3,9 +3,11 @@
 
 #include "apppaths.h"
 #include "atracencoder.h"
+#include "mdencodeworker.h"
 #include "mdtitle.h"
 #include "netmdmonitor.h"
 
+#include <QDeadlineTimer>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -31,36 +33,28 @@ class NetMdWorker : public QObject
     Q_OBJECT
 
 public:
-    NetMdWorker(NetMdBackendFactory factory, MdAudioEncoderFactory encoder, std::shared_ptr<std::atomic<quint64>> current,
-                std::shared_ptr<std::atomic_bool> cancelDecode)
+    NetMdWorker(NetMdBackendFactory factory, std::shared_ptr<std::atomic<quint64>> current)
         : m_factory(std::move(factory))
-        , m_encoder(std::move(encoder))
         , m_current(std::move(current))
-        , m_cancelDecode(std::move(cancelDecode))
     {
     }
 
-    // Records one track: decode, upload (title + commit), re-read the disc. Outcome: 0 done,
-    // 1 canceled while decoding, 2 decoding failed, 3 the recorder failed.
-    void uploadOne(quint64 generation, int index, const QString &source, const QString &title, const QString &temp,
-                   MdRecordMode mode)
+    // Records one prepared track (title + commit), removes its file, re-reads the disc.
+    // Outcome: 0 done, 3 the recorder failed. `dir` (the recording's temporary folder) is kept
+    // until this returns.
+    void uploadOne(quint64 generation, int index, const MdEncodedAudio &audio, const QString &title,
+                   const std::shared_ptr<QTemporaryDir> &dir)
     {
-        if (stale(generation))
+        Q_UNUSED(dir)
+        if (stale(generation)) {
+            QFile::remove(audio.path);
             return;
+        }
         if (!m_backend) {
+            QFile::remove(audio.path);
             Q_EMIT uploadStep(generation, index, 3, NetMdError::NotFound, {}, {}, false);
             return;
         }
-        Q_EMIT itemState(generation, index, int(MdItemState::Decoding));
-        MdEncodedAudio audio;
-        QString why;
-        const std::unique_ptr<MdAudioEncoder> encoder = m_encoder();
-        if (!encoder->encode(source, mode, temp, *m_cancelDecode, &audio, &why)) {
-            QFile::remove(temp);
-            Q_EMIT uploadStep(generation, index, why == kEncodeCanceled ? 1 : 2, NetMdError::None, why, {}, false);
-            return;
-        }
-        Q_EMIT itemState(generation, index, int(MdItemState::Uploading));
         QElapsedTimer sinceProgress;
         sinceProgress.start();
         int track = -1;
@@ -70,7 +64,7 @@ public:
                 sinceProgress.restart();
             }
         }, &track);
-        QFile::remove(temp);
+        QFile::remove(audio.path);
         MdDisc disc;
         const bool haveDisc = error != NetMdError::Disconnected && m_backend->readDisc(&disc) == NetMdError::None;
         // A failure after which the disc can't even be read: the recorder went away mid-session.
@@ -261,7 +255,6 @@ Q_SIGNALS:
     void uploadStep(quint64 generation, int index, int outcome, mmm::NetMdError error, const QString &message,
                     const mmm::MdDisc &disc, bool haveDisc);
     void uploadProgress(quint64 generation, qint64 sent, qint64 total);
-    void itemState(quint64 generation, int index, int state);
     void headerWritten(quint64 generation, mmm::NetMdError error, const QString &rawHeader);
     void trackWritten(quint64 generation, mmm::NetMdError error, int index, const QString &title);
     void edited(quint64 generation, mmm::NetMdError error, const mmm::MdDisc &disc, bool haveDisc);
@@ -279,9 +272,7 @@ private:
     }
 
     NetMdBackendFactory m_factory;
-    MdAudioEncoderFactory m_encoder;
     std::shared_ptr<std::atomic<quint64>> m_current;
-    std::shared_ptr<std::atomic_bool> m_cancelDecode;
     std::unique_ptr<NetMdBackend> m_backend;
 };
 
@@ -292,23 +283,30 @@ NetMdManager::NetMdManager(Options options, QObject *parent)
     qRegisterMetaType<mmm::MdDisc>();
     qRegisterMetaType<mmm::NetMdError>();
     qRegisterMetaType<mmm::MdTransferProgress>();
+    qRegisterMetaType<mmm::MdEncodedAudio>();
     if (!m_options.backend)
         m_options.backend = makeLibNetMdBackend;
     if (!m_options.encoder)
-        // atracdenc is looked up once, here (the factory runs on the worker thread).
+        // atracdenc is looked up once, here (the factory runs on the encode thread).
         m_options.encoder = [atracdenc = AtracEncoder::findBinary()] { return makeDefaultMdEncoder(atracdenc); };
     m_thread = new QThread;
     m_thread->setObjectName(QStringLiteral("netmd"));
-    m_worker = new NetMdWorker(m_options.backend, m_options.encoder, m_current, m_cancelDecode);
+    m_worker = new NetMdWorker(m_options.backend, m_current);
     m_worker->moveToThread(m_thread);
     connect(m_worker, &NetMdWorker::opened, this, &NetMdManager::onOpened, Qt::QueuedConnection);
     connect(m_worker, &NetMdWorker::headerWritten, this, &NetMdManager::onHeaderWritten, Qt::QueuedConnection);
     connect(m_worker, &NetMdWorker::trackWritten, this, &NetMdManager::onTrackWritten, Qt::QueuedConnection);
     connect(m_worker, &NetMdWorker::uploadStep, this, &NetMdManager::onUploadStep, Qt::QueuedConnection);
     connect(m_worker, &NetMdWorker::uploadProgress, this, &NetMdManager::onUploadProgress, Qt::QueuedConnection);
-    connect(m_worker, &NetMdWorker::itemState, this, &NetMdManager::onItemState, Qt::QueuedConnection);
     connect(m_worker, &NetMdWorker::edited, this, &NetMdManager::onEdited, Qt::QueuedConnection);
     m_thread->start();
+    // Tracks are prepared on their own thread (M12c): the next one while one uploads.
+    m_encodeThread = new QThread;
+    m_encodeThread->setObjectName(QStringLiteral("netmd-encode"));
+    m_encodeWorker = new MdEncodeWorker(m_options.encoder);
+    m_encodeWorker->moveToThread(m_encodeThread);
+    connect(m_encodeWorker, &MdEncodeWorker::encoded, this, &NetMdManager::onEncoded, Qt::QueuedConnection);
+    m_encodeThread->start();
     if (m_options.monitor) {
         m_monitor = std::make_unique<NetMdMonitor>(m_options.pollIntervalMs);
         connect(m_monitor.get(), &NetMdMonitor::devicesChanged, this, &NetMdManager::deviceListChanged);
@@ -319,22 +317,39 @@ NetMdManager::~NetMdManager()
 {
     m_monitor.reset();
     disconnect(m_worker, nullptr, this, nullptr);
+    disconnect(m_encodeWorker, nullptr, this, nullptr);
     *m_current = ~quint64(0); // everything still queued is stale
-    *m_cancelDecode = true;   // a decode in progress stops (an upload can't)
-    // Close, delete the worker and end the thread, in that order, on that thread.
+    if (m_cancelEncode)
+        *m_cancelEncode = true; // a track being prepared stops (an upload can't)
+    dropPrepared();
+    // Both threads wind down together: delete each worker and end its thread, on that thread
+    // (the recorder's closed first).
     NetMdWorker *worker = m_worker;
     QMetaObject::invokeMethod(worker, [worker] {
         worker->close();
         delete worker;
         QThread::currentThread()->quit();
     }, Qt::QueuedConnection);
+    MdEncodeWorker *encoder = m_encodeWorker;
+    QMetaObject::invokeMethod(encoder, [encoder] {
+        delete encoder;
+        QThread::currentThread()->quit();
+    }, Qt::QueuedConnection);
+    m_tempDir.reset(); // the threads still using it keep it until they're done
     // A USB command can block for tens of seconds: don't hang the app's exit on one. A stuck
-    // thread is left behind (the process is ending anyway).
-    if (m_thread->wait(5000)) {
-        delete m_thread;
-    } else {
-        qCWarning(lcNetMd) << "the recorder didn't answer in time: leaving its thread behind";
-    }
+    // thread is left behind (the process is ending anyway). One 5 s budget for both, but each
+    // gets at least half a second (an idle one stops at once even if the other was stuck).
+    QElapsedTimer waited;
+    waited.start();
+    const auto join = [&](QThread *thread, const char *what) {
+        if (thread->wait(QDeadlineTimer(std::max<qint64>(500, 5000 - waited.elapsed())))) {
+            delete thread;
+        } else {
+            qCWarning(lcNetMd) << what << "didn't stop in time: leaving its thread behind";
+        }
+    };
+    join(m_encodeThread, "preparing a track");
+    join(m_thread, "the recorder");
 }
 
 void NetMdManager::start()
@@ -375,18 +390,22 @@ void NetMdManager::deviceListChanged()
             m_edit = Edit::None;
             m_hasDisc = false;
             m_disc = {};
+            setError(NetMdError::Disconnected); // before uploadFinished: its listeners see why
             if (m_uploading) {
-                *m_cancelDecode = true; // a decode in progress stops; the handle is useless now
-                // The track being recorded is lost (not one already done); the rest can't be recorded.
-                if (m_uploadIndex >= 0 && m_uploadIndex < m_items.size() && m_items[m_uploadIndex].state != MdItemState::Done) {
-                    m_items[m_uploadIndex].state = MdItemState::Failed;
-                    m_items[m_uploadIndex].error = describe(NetMdError::Disconnected);
+                *m_cancelEncode = true; // a track being prepared stops; the handle is useless now
+                // The track being recorded (or prepared for it) is lost (not one already done,
+                // nor one canceled before it reached the recorder); the rest can't be recorded.
+                const int at = uploadIndex();
+                const bool canceledBefore = m_cancelRequested && m_sending < 0;
+                if (at >= 0 && !canceledBefore && m_items[at].state != MdItemState::Done) {
+                    m_items[at].state = MdItemState::Failed;
+                    m_items[at].error = describe(NetMdError::Disconnected);
                 }
-                skipRemaining(m_uploadIndex + 1);
+                skipRemaining(std::max(0, at)); // from it on (a failed one stays failed)
+                dropPrepared();
                 m_uploadFailed = true;
                 finishUpload(false);
             }
-            setError(NetMdError::Disconnected);
             setState(State::Ready);
             Q_EMIT discChanged();
         }
@@ -595,27 +614,33 @@ bool NetMdManager::startUpload(const QList<MdUploadItem> &items, const QString &
         return false;
     const QString base = m_options.tempDir.isEmpty() ? AppPaths::mdRecordDir() : m_options.tempDir;
     QDir().mkpath(base);
-    m_tempDir = std::make_unique<QTemporaryDir>(QDir(base).filePath(QStringLiteral("record-XXXXXX")));
-    if (!m_tempDir->isValid()) {
-        m_tempDir.reset();
+    auto dir = std::make_shared<QTemporaryDir>(QDir(base).filePath(QStringLiteral("record-XXXXXX")));
+    if (!dir->isValid())
         return false;
-    }
+    m_tempDir = std::move(dir);
     m_items = items;
     for (MdUploadItem &item : m_items) {
         item.state = MdItemState::Pending;
         item.error.clear();
     }
     m_uploading = true;
+    m_run = ++m_runs;
     m_uploadMode = mode;
+    m_cancelEncode = std::make_shared<std::atomic_bool>(false); // this recording's alone
+    m_nextUpload = 0;
+    m_sending = -1;
+    m_nextEncode = 0;
+    m_encoding = -1;
+    m_prepared.clear();
+    m_encodeBlocked = false;
     m_cancelRequested = false;
     m_uploadFailed = false;
     m_titlingDisc = false;
     m_discTitleAfter = MdTitle::clean(discTitle, MdTitle::kMaxHeaderBytes).text;
-    *m_cancelDecode = false;
-    m_uploadIndex = -1;
+    m_progress = {};
     setError(NetMdError::None);
     setState(State::Writing);
-    uploadNext();
+    pumpUpload();
     return true;
 }
 
@@ -624,53 +649,125 @@ void NetMdManager::cancelUpload()
     if (!m_uploading || m_cancelRequested)
         return;
     m_cancelRequested = true;
-    *m_cancelDecode = true; // a track still decoding stops now; one uploading finishes
+    m_encodeBlocked = true;
+    *m_cancelEncode = true; // a track being prepared stops now; one uploading finishes
+    dropPrepared();          // one prepared ahead won't go on
     Q_EMIT uploadChanged();
+    pumpUpload();            // nothing running: done now
 }
 
-void NetMdManager::uploadNext()
+int NetMdManager::uploadIndex() const
 {
-    m_progress = {};
-    Q_EMIT uploadProgressChanged();
-    const int next = m_uploadIndex + 1;
-    if (m_cancelRequested || next >= m_items.size()) {
-        skipRemaining(next);
-        if (!m_cancelRequested && !m_uploadFailed && !m_discTitleAfter.isEmpty()) {
-            // Everything's on the disc: title it, then finish (onHeaderWritten).
-            m_titlingDisc = true;
-            m_uploadIndex = -1; // every track is done: an unplug now fails none of them
-            const quint64 generation = nextGeneration();
-            QMetaObject::invokeMethod(m_worker, [w = m_worker, generation, t = m_discTitleAfter] { w->writeDiscTitle(generation, t); },
-                                      Qt::QueuedConnection);
-            Q_EMIT uploadChanged();
+    if (!m_uploading)
+        return -1;
+    if (m_sending >= 0)
+        return m_sending;
+    return m_nextUpload < m_items.size() ? m_nextUpload : -1; // past the end: titling the disc
+}
+
+void NetMdManager::pumpUpload()
+{
+    if (!m_uploading)
+        return;
+    const int count = static_cast<int>(m_items.size());
+    if (m_cancelRequested) {
+        // The track on its way to the disc can't be stopped, nor the disc's title; a track
+        // being prepared stops at once. Then it's over.
+        if (m_sending >= 0 || m_encoding >= 0 || m_titlingDisc)
             return;
-        }
-        finishUpload(!m_cancelRequested && !m_uploadFailed);
+        dropPrepared();
+        skipRemaining(m_nextUpload);
+        finishUpload(false);
         return;
     }
-    m_uploadIndex = next;
-    const MdUploadItem &item = m_items.at(next);
-    const QString temp = m_tempDir->filePath(
-        QStringLiteral("track-%1.%2").arg(next + 1).arg(m_uploadMode == MdRecordMode::Sp ? QStringLiteral("pcm") : QStringLiteral("atrac")));
-    const quint64 generation = nextGeneration();
-    QMetaObject::invokeMethod(m_worker, [w = m_worker, generation, next, source = item.track.path, title = item.title, temp,
-                                         mode = m_uploadMode] {
-        w->uploadOne(generation, next, source, title, temp, mode);
-    }, Qt::QueuedConnection);
+
+    // The disc: the next track, if it's ready.
+    if (m_sending < 0 && !m_titlingDisc) {
+        if (m_nextUpload >= count) {
+            if (!m_discTitleAfter.isEmpty()) {
+                // Everything's on the disc: title it, then finish (onHeaderWritten).
+                m_titlingDisc = true;
+                const quint64 generation = nextGeneration();
+                QMetaObject::invokeMethod(m_worker, [w = m_worker, generation, t = m_discTitleAfter] { w->writeDiscTitle(generation, t); },
+                                          Qt::QueuedConnection);
+                Q_EMIT uploadChanged();
+                return;
+            }
+            finishUpload(true);
+            return;
+        }
+        if (const auto it = m_prepared.constFind(m_nextUpload); it != m_prepared.cend()) {
+            const Prepared prepared = *it;
+            m_prepared.erase(it);
+            if (!prepared.error.isEmpty()) {
+                // It couldn't be prepared: a failed track stops the rest (as an upload's would).
+                m_items[m_nextUpload].state = MdItemState::Failed;
+                m_items[m_nextUpload].error = prepared.error;
+                m_uploadFailed = true;
+                *m_cancelEncode = true;
+                dropPrepared();
+                skipRemaining(m_nextUpload + 1);
+                finishUpload(false);
+                return;
+            }
+            m_sending = m_nextUpload;
+            m_items[m_sending].state = MdItemState::Uploading;
+            m_progress = {};
+            Q_EMIT uploadProgressChanged();
+            const quint64 generation = nextGeneration();
+            QMetaObject::invokeMethod(m_worker, [w = m_worker, generation, index = m_sending, audio = prepared.audio,
+                                                 title = m_items[m_sending].title, dir = m_tempDir] {
+                w->uploadOne(generation, index, audio, title, dir);
+            }, Qt::QueuedConnection);
+        }
+    }
+
+    // Preparing: the next track, one ahead of the disc at most (so at most two on disk).
+    if (!m_encodeBlocked && !m_titlingDisc && m_encoding < 0 && m_nextEncode < count) {
+        const int limit = m_sending >= 0 ? m_sending + 1 : m_nextUpload;
+        if (m_nextEncode <= limit) {
+            const int index = m_nextEncode++;
+            m_encoding = index;
+            m_items[index].state = MdItemState::Decoding;
+            const QString destination = m_tempDir->filePath(
+                QStringLiteral("track-%1.%2").arg(index + 1).arg(m_uploadMode == MdRecordMode::Sp ? QStringLiteral("pcm") : QStringLiteral("atrac")));
+            QMetaObject::invokeMethod(m_encodeWorker, [w = m_encodeWorker, run = m_run, index, source = m_items[index].track.path,
+                                                       destination, mode = m_uploadMode, cancel = m_cancelEncode, dir = m_tempDir] {
+                w->encodeOne(run, index, source, destination, mode, cancel, dir);
+            }, Qt::QueuedConnection);
+        }
+    }
     Q_EMIT uploadChanged();
 }
 
-void NetMdManager::onItemState(quint64 generation, int index, int state)
+void NetMdManager::onEncoded(quint64 run, int index, int outcome, const MdEncodedAudio &audio, const QString &error)
 {
-    if (generation != m_generation || index < 0 || index >= m_items.size())
+    if (!m_uploading || run != m_run || index != m_encoding) {
+        // A recording that's over (failed, unplugged): its track won't be used.
+        if (outcome == MdEncodeWorker::Ok)
+            QFile::remove(audio.path);
         return;
-    m_items[index].state = MdItemState(state);
-    Q_EMIT uploadChanged();
+    }
+    m_encoding = -1;
+    if (outcome == MdEncodeWorker::Canceled || m_cancelRequested) {
+        if (outcome == MdEncodeWorker::Ok)
+            QFile::remove(audio.path);
+        m_items[index].state = MdItemState::Skipped;
+    } else if (outcome == MdEncodeWorker::Failed) {
+        // Applied in its turn: if the track before it fails on the disc, that's the error.
+        m_encodeBlocked = true;
+        m_prepared.insert(index, Prepared{{}, error.isEmpty() ? QStringLiteral("Couldn't prepare the track.") : error});
+        m_items[index].state = MdItemState::Pending;
+    } else {
+        m_prepared.insert(index, Prepared{audio, {}});
+        m_items[index].state = MdItemState::Ready; // uploading at once if it's its turn (pumpUpload)
+    }
+    pumpUpload();
 }
 
 void NetMdManager::onUploadProgress(quint64 generation, qint64 sent, qint64 total)
 {
-    if (generation != m_generation)
+    if (generation != m_generation || !m_uploading || m_sending < 0)
         return;
     m_progress = MdTransferProgress{sent, total};
     Q_EMIT uploadProgressChanged();
@@ -679,8 +776,10 @@ void NetMdManager::onUploadProgress(quint64 generation, qint64 sent, qint64 tota
 void NetMdManager::onUploadStep(quint64 generation, int index, int outcome, NetMdError error, const QString &message,
                                 const MdDisc &disc, bool haveDisc)
 {
-    if (generation != m_generation || index < 0 || index >= m_items.size())
+    Q_UNUSED(message)
+    if (generation != m_generation || !m_uploading || index != m_sending)
         return;
+    m_sending = -1;
     if (haveDisc) {
         m_disc = disc;
         const MdTitle::Header h = MdTitle::parseHeader(disc.rawHeader);
@@ -689,57 +788,61 @@ void NetMdManager::onUploadStep(quint64 generation, int index, int outcome, NetM
         Q_EMIT discChanged();
     }
     MdUploadItem &item = m_items[index];
-    switch (outcome) {
-    case 0:
+    if (outcome == 0) {
         item.state = MdItemState::Done;
-        break;
-    case 1:
-        item.state = MdItemState::Skipped; // canceled before it reached the recorder
-        break;
-    case 2:
-        item.state = MdItemState::Failed;
-        item.error = message;
-        m_uploadFailed = true;
-        break;
-    default:
-        item.state = MdItemState::Failed;
-        item.error = describe(error);
-        m_uploadFailed = true;
-        setError(error);
-        if (error == NetMdError::Disconnected) {
-            m_hasDisc = false; // what's shown is gone
-            m_disc = {};
-            Q_EMIT discChanged();
-        }
-        break;
-    }
-    // A failed track stops the rest: an album with a hole is worse than half an album.
-    if (m_uploadFailed) {
-        skipRemaining(index + 1);
-        finishUpload(false);
-        // The recorder stopped answering (still plugged in): reopen it, which resets its USB
-        // port first (LibNetMdBackend::close), instead of leaving it to a replug.
-        if (m_error == NetMdError::Disconnected && !m_selected.isEmpty())
-            refresh();
+        ++m_nextUpload;
+        m_progress = {};
+        Q_EMIT uploadProgressChanged();
+        pumpUpload();
         return;
     }
-    uploadNext();
+    // A failed track stops the rest: an album with a hole is worse than half an album.
+    item.state = MdItemState::Failed;
+    item.error = describe(error);
+    m_uploadFailed = true;
+    setError(error);
+    if (error == NetMdError::Disconnected) {
+        m_hasDisc = false; // what's shown is gone
+        m_disc = {};
+        Q_EMIT discChanged();
+    }
+    *m_cancelEncode = true; // the next track, being prepared: no use now
+    m_encodeBlocked = true;
+    dropPrepared();
+    skipRemaining(index + 1);
+    finishUpload(false);
+    // The recorder stopped answering (still plugged in): reopen it, which resets its USB
+    // port first (LibNetMdBackend::close), instead of leaving it to a replug.
+    if (m_error == NetMdError::Disconnected && !m_selected.isEmpty())
+        refresh();
 }
 
 void NetMdManager::skipRemaining(int from)
 {
     for (int i = std::max(0, from); i < m_items.size(); ++i) {
-        if (m_items[i].state == MdItemState::Pending)
+        const MdItemState s = m_items[i].state;
+        if (s == MdItemState::Pending || s == MdItemState::Decoding || s == MdItemState::Ready)
             m_items[i].state = MdItemState::Skipped;
     }
+}
+
+void NetMdManager::dropPrepared()
+{
+    for (const Prepared &p : std::as_const(m_prepared)) {
+        if (!p.audio.path.isEmpty())
+            QFile::remove(p.audio.path);
+    }
+    m_prepared.clear();
 }
 
 void NetMdManager::finishUpload(bool ok)
 {
     m_uploading = false;
     m_titlingDisc = false;
-    m_uploadIndex = -1;
-    m_tempDir.reset();
+    m_sending = -1;
+    m_encoding = -1; // one winding down reports to a recording that's over (dropped)
+    dropPrepared();
+    m_tempDir.reset(); // removed once the threads still using it are done
     m_progress = {};
     setState(m_selected.isEmpty() ? State::Idle : State::Ready);
     Q_EMIT uploadProgressChanged();

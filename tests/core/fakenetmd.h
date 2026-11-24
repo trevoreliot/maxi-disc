@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QFile>
+#include <QFileInfo>
 #include <QStringList>
 #include <QThread>
 
@@ -34,6 +35,10 @@ struct FakeRecorder
     int failEditAt = -1;        // ... only the edit with this number (0-based); -1: all
     int edits = 0;              // edits attempted
     QStringList calls;          // "open", "readDisc", "readHeader", "writeHeader:<raw>", ...
+    // M12c: what ran when, across the two threads: "encode:<file>", "encoded:<file>",
+    // "encode-failed:<file>", "encode-canceled:<file>" (the encoder, if given this recorder),
+    // "upload:<title>", "uploaded:<title>".
+    QStringList events;
 
     FakeRecorder() { tracks = startTracks(); }
     static QList<MdTrack> startTracks()
@@ -50,6 +55,7 @@ struct FakeRecorder
         tracks = startTracks();
         capacity = MdCapacity{1'000'000, 4'800'000, 3'800'000, true};
         noDisc = false;
+        events.clear();
         openError = writeError = headerReadError = uploadError = editError = NetMdError::None;
         failUploadAt = failEditAt = -1;
         delayMs = uploadStepMs = 0;
@@ -58,6 +64,16 @@ struct FakeRecorder
     {
         std::lock_guard lock(mutex);
         return std::exchange(calls, {});
+    }
+    QStringList takeEvents()
+    {
+        std::lock_guard lock(mutex);
+        return std::exchange(events, {});
+    }
+    void event(const QString &e)
+    {
+        std::lock_guard lock(mutex);
+        events << e;
     }
 };
 
@@ -130,6 +146,7 @@ public:
         NetMdError error = NetMdError::None;
         {
             const auto l = step(QStringLiteral("uploadTrack:%1:%2").arg(title).arg(audio.bytes));
+            m_r->events << QStringLiteral("upload:") + title;
             stepMs = m_r->uploadStepMs;
             m_r->uploadModes << audio.mode;
             if (m_r->failUploadAt < 0 || m_r->failUploadAt == m_r->uploads)
@@ -143,6 +160,7 @@ public:
             if (progress)
                 progress(audio.bytes * i / 4, audio.bytes);
         }
+        m_r->event(QStringLiteral("uploaded:") + title);
         if (error != NetMdError::None)
             return error;
         std::lock_guard lock(m_r->mutex);
@@ -231,17 +249,27 @@ private:
 
 // "Decodes" by writing a small file (a second of silence per track, in the mode's format: PCM, or
 // whole 384 / 192-byte ATRAC3 frames), no GStreamer or atracdenc. Can fail
-// for a path containing "broken"; waits `delayMs` (polling cancel) to test canceling a decode.
+// for a path containing "broken"; waits `delayMs` (polling cancel) to test canceling a decode,
+// 600 ms for a path containing "slow". Logs to `log`'s events if given.
 struct FakeEncoder final : MdAudioEncoder
 {
     int delayMs = 0;
+    std::shared_ptr<FakeRecorder> log;
     bool encode(const QString &source, MdRecordMode mode, const QString &destination, const std::atomic_bool &cancel,
                 MdEncodedAudio *out, QString *error) override
     {
-        for (int waited = 0; waited < delayMs; waited += 10) {
+        const QString name = QFileInfo(source).completeBaseName();
+        const auto note = [&](const char *what) {
+            if (log)
+                log->event(QLatin1String(what) + name);
+        };
+        note("encode:");
+        const int wait = source.contains(QLatin1String("slow")) ? 600 : delayMs;
+        for (int waited = 0; waited < wait; waited += 10) {
             if (cancel.load()) {
                 if (error)
                     *error = kEncodeCanceled;
+                note("encode-canceled:");
                 return false;
             }
             QThread::msleep(10);
@@ -249,6 +277,7 @@ struct FakeEncoder final : MdAudioEncoder
         if (source.contains(QLatin1String("broken"))) {
             if (error)
                 *error = QStringLiteral("cannot decode %1").arg(source);
+            note("encode-failed:");
             return false;
         }
         QFile f(destination);
@@ -259,15 +288,17 @@ struct FakeEncoder final : MdAudioEncoder
         f.close();
         if (out)
             *out = MdEncodedAudio{mode, destination, bytes, 1000};
+        note("encoded:");
         return true;
     }
 };
 
-inline MdAudioEncoderFactory fakeEncoder(int delayMs = 0)
+inline MdAudioEncoderFactory fakeEncoder(int delayMs = 0, std::shared_ptr<FakeRecorder> log = {})
 {
-    return [delayMs] {
+    return [delayMs, log] {
         auto e = std::make_unique<FakeEncoder>();
         e->delayMs = delayMs;
+        e->log = log;
         return e;
     };
 }
