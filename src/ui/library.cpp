@@ -3,6 +3,7 @@
 
 #include "coverimageprovider.h"
 #include "database.h"
+#include "librarymodels.h"
 #include "libraryscanner.h"
 #include "m3u.h"
 
@@ -184,6 +185,106 @@ bool Library::appendToPlaylist(int id, const QStringList &paths)
     else
         setError(QStringLiteral("Cannot add to playlist: %1").arg(error));
     return ok;
+}
+
+bool Library::removeFromPlaylist(int id, const QString &path, int occurrence)
+{
+    if (!m_db || occurrence < 0)
+        return false;
+    QStringList paths = m_db->playlistPaths(id);
+    int seen = 0;
+    for (qsizetype i = 0; i < paths.size(); ++i) {
+        if (paths[i] == path && seen++ == occurrence) {
+            paths.removeAt(i);
+            QString error;
+            if (!m_db->setPlaylistPaths(id, paths, &error)) {
+                setError(QStringLiteral("Cannot change the playlist: %1").arg(error));
+                return false;
+            }
+            Q_EMIT changed();
+            return true;
+        }
+    }
+    return false;
+}
+
+QList<mmm::TrackRow> Library::itemTracks(const mmm::LibraryQuery &q, const QString &kind, qint64 id)
+{
+    if (kind == QLatin1String("artist"))
+        return q.artistTracks(id);
+    if (kind == QLatin1String("genre"))
+        return q.genreTracks(id);
+    if (kind == QLatin1String("album"))
+        return q.albumTracks(id);
+    if (kind == QLatin1String("playlist"))
+        return q.playlistTracks(id);
+    if (kind == QLatin1String("track"))
+        return q.tracksByIds({id});
+    return {};
+}
+
+namespace {
+
+QStringList pathsOf(const QList<mmm::TrackRow> &rows)
+{
+    QStringList out;
+    for (const mmm::TrackRow &t : rows)
+        out << t.path;
+    return out;
+}
+
+QString tracksText(qsizetype n)
+{
+    return n == 1 ? QStringLiteral("1 track") : QStringLiteral("%1 tracks").arg(n);
+}
+
+} // namespace
+
+void Library::addItemToPlaylist(int playlistId, const QString &kind, int id)
+{
+    runQuery([playlistId, kind, id](const mmm::LibraryQuery &q) {
+        QString name;
+        for (const mmm::PlaylistRow &p : q.playlists()) {
+            if (p.id == playlistId)
+                name = p.name;
+        }
+        return std::pair{pathsOf(itemTracks(q, kind, id)), name};
+    }).then(this, [this, playlistId](const std::pair<QStringList, QString> &r) {
+        if (r.first.isEmpty())
+            return;
+        if (appendToPlaylist(playlistId, r.first))
+            setStatusMessage(QStringLiteral("Added %1 to “%2”").arg(tracksText(r.first.size()), r.second));
+    });
+}
+
+void Library::createPlaylistFromItem(const QString &name, const QString &kind, int id)
+{
+    runQuery([kind, id](const mmm::LibraryQuery &q) { return pathsOf(itemTracks(q, kind, id)); })
+        .then(this, [this, name](const QStringList &paths) {
+            if (createPlaylist(name, paths) > 0)
+                setStatusMessage(QStringLiteral("Made “%1” (%2)").arg(name, tracksText(paths.size())));
+        });
+}
+
+void Library::requestAlbumInfo(int albumId, const QString &tag)
+{
+    runQuery([albumId](const mmm::LibraryQuery &q) { return q.album(albumId); })
+        .then(this, [this, albumId, tag](const std::optional<mmm::AlbumRow> &album) {
+            QVariantMap info;
+            if (album) {
+                info.insert(QStringLiteral("title"), album->title);
+                info.insert(QStringLiteral("artist"), album->artist);
+                info.insert(QStringLiteral("year"), album->year);
+                info.insert(QStringLiteral("coverUrl"), AlbumListModel::coverUrl(*album));
+            }
+            Q_EMIT albumInfoReady(albumId, info, tag);
+        });
+}
+
+void Library::requestItemPaths(const QString &kind, int id, const QString &tag)
+{
+    runQuery([kind, id](const mmm::LibraryQuery &q) { return pathsOf(itemTracks(q, kind, id)); })
+        .then(this, [this, kind, id, tag](const QStringList &paths) { Q_EMIT itemPathsReady(kind, id, paths, tag); });
 }
 
 int Library::importPlaylist(const QUrl &file)

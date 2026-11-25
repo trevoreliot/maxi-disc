@@ -138,6 +138,10 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - [x] **M14b ListenBrainz token in pass** (decisions/0008, revisited) — Done when: without a working keyring and with pass set up, the token is kept in pass (`music-md-manager/listenbrainz/token`, value on stdin, one `pass` call at a time); the dialog says where it's kept; gpg's own error is shown when reading fails; tests use a fake `pass` (never the real store, GPG or keyring). User test: connect ListenBrainz, the entry shows in QtPass; restart: still connected (after a pinentry prompt, perhaps), both toggles on; disconnect: the entry is gone.
 - [x] **M15 Discord status** — Done when: shows track, artist, album and progress while playing; clears on pause or quit; reconnects if Discord restarts; on/off toggle. User test: Discord profile shows what's playing and clears on stop.
 
+### Quality of life (user-requested, between milestones)
+- [x] **Q1 Right-click menus: Library and queue** — Done when: right-click (or `,` / Menu / Shift+F10 on the cursor's row) opens a menu fitting what's under it: browse artist / genre / album / playlist rows, album tiles, tracks on the album page / playlist / search, queue rows and the queue's empty space; Play / Play next / Add to queue / Add to playlist ▸ (New playlist… + playlists) / Send to <device> / Find cover… / Edit tags… / Open folder / Go to album / Remove from playlist / Mark, queue Move to play next / up / down / Remove, playlist Rename / Export / Delete; marked tracks act together when the clicked one is marked; j / k / h / l / Enter / Esc drive the menu; nothing leaks behind it. User test: right-click each kind of row and use a few entries each; `,` then j / l / Enter into "Add to playlist"; marked tracks; queue reorder.
+- [ ] **Q2 Right-click menus: Export and transport** — the transport bar's now-playing; Export devices (mount, refresh, profile, open in file manager), the Export browse pane, MiniDisc disc tracks / "to record" / disc, sync selection rows; "Open folder" selecting the file (FileManager1 D-Bus).
+
 ### Phase 7: Emacs integration (depends on M5)
 - [ ] **M16 Doom Emacs client** — Done when: an Emacs package (in `contrib/emacs/`, loadable from
   Doom's `packages.el` via `:recipe` with a local path) uses `dbus.el` to show now playing
@@ -338,6 +342,20 @@ uiuwiiqwquiwquwuquwqwiqiwqiwiwqiiiui121 32 21 2g1g2g121g21g21!A2    QWexrzzresdw
     set MMM_ATRACDENC); a single track over ~3 hours makes a > 2 GB temporary WAV.
   - atracdenc's RIFF header undercounts its frames (the encoder's delay frames follow): trusting it
     would cut ~46 ms off every track's end, so the data is read to the end of the file.
+- Q1 notes / follow-ups:
+  - One menu (`AppContextMenu`, Main owns it) built from entries the views describe (`ContextMenus`
+    singleton: the shared entry builders and the requests Main handles: tag editor, cover finder,
+    go to album, new / rename / delete / export playlist, open folder). Keys through the KeyRouter
+    (`ContextMenu` action: `,`, Menu, Shift+F10; the menu's list opts in with routeKeys).
+  - Backend: `Playback.playItem` / `enqueueItem` (an artist / genre / album / playlist / track read on
+    the query pool; requests apply in order, a replace drops pending ones; an empty playlist doesn't
+    wipe the queue), `enqueueRows` (marked tracks in list order), `moveToPlayNext`
+    (`PlayQueue::moveToNext`); `Library.removeFromPlaylist(id, path, occurrence)`,
+    `addItemToPlaylist`, `createPlaylistFromItem`, `requestAlbumInfo` / `requestItemPaths`
+    (+ `LibraryQuery::album`); `Desktop` singleton (open a folder; tests record instead).
+  - Right-clicking a browse row outlines it without selecting it (what's on the right stays);
+    content rows become the cursor's. Marked tracks: one of several marked → the entries are for all
+    of them; an unmarked one → just it (marks stay).
 - M15 notes / follow-ups:
   - You create your own Discord application (its name is what Discord shows: "Listening to …") and
     paste its ID in ☰ → Discord… (or the toggle when not set up); kept in QSettings (decisions/0009).

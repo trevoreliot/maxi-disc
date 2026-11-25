@@ -11,6 +11,7 @@
 #include <QLoggingCategory>
 #include <QSettings>
 
+#include <algorithm>
 #include <cmath>
 
 Q_LOGGING_CATEGORY(lcPlaybackUi, "mmm.playback.ui")
@@ -152,6 +153,7 @@ void Playback::playFromModel(TrackListModel *model, int index)
 {
     if (!model || model->rows().isEmpty())
         return;
+    dropPending();
     m_controller.playTracks(model->rows(), std::clamp(index, 0, static_cast<int>(model->rows().size()) - 1));
 }
 
@@ -164,10 +166,101 @@ void Playback::enqueueFromModel(TrackListModel *model, bool playNext, int index)
         rows << model->rows().at(index);
     else
         rows = model->rows();
-    if (playNext)
-        m_controller.queue()->insertNext(rows);
-    else
-        m_controller.queue()->append(rows);
+    add(playNext ? Pending::Next : Pending::Append, rows);
+}
+
+void Playback::enqueueRows(TrackListModel *model, const QList<int> &rows, bool playNext)
+{
+    if (!model)
+        return;
+    QList<int> sorted = rows;
+    std::sort(sorted.begin(), sorted.end());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+    QList<mmm::TrackRow> tracks;
+    for (const int r : std::as_const(sorted)) {
+        if (r >= 0 && r < model->rows().size())
+            tracks << model->rows().at(r);
+    }
+    add(playNext ? Pending::Next : Pending::Append, tracks);
+}
+
+void Playback::playItem(const QString &kind, int id)
+{
+    dropPending(); // it replaces the queue: what was still loading for the old one is moot
+    request(Pending::Play, kind, id);
+}
+
+void Playback::enqueueItem(const QString &kind, int id, bool playNext)
+{
+    request(playNext ? Pending::Next : Pending::Append, kind, id);
+}
+
+void Playback::moveToPlayNext(int index)
+{
+    m_controller.queue()->moveToNext(index);
+}
+
+void Playback::request(Pending::Op op, const QString &kind, int id)
+{
+    Library *lib = Library::instance();
+    if (!lib || id <= 0)
+        return;
+    auto p = std::make_shared<Pending>();
+    p->op = op;
+    m_pending.push_back(p);
+    const quint64 epoch = m_pendingEpoch;
+    lib->runQuery([kind, id](const mmm::LibraryQuery &q) { return Library::itemTracks(q, kind, id); })
+        .then(this, [this, p, epoch](const QList<mmm::TrackRow> &rows) {
+            if (epoch != m_pendingEpoch)
+                return; // replaced meanwhile
+            p->rows = rows;
+            p->ready = true;
+            flushPending();
+        })
+        .onCanceled(this, [this, p, epoch] {
+            // Never read (shutting down): done with nothing, so the ones after it still go.
+            if (epoch != m_pendingEpoch)
+                return;
+            p->ready = true;
+            flushPending();
+        });
+}
+
+void Playback::add(Pending::Op op, const QList<mmm::TrackRow> &rows)
+{
+    auto p = std::make_shared<Pending>();
+    p->op = op;
+    p->rows = rows;
+    p->ready = true;
+    m_pending.push_back(p);
+    flushPending();
+}
+
+void Playback::flushPending()
+{
+    while (!m_pending.empty() && m_pending.front()->ready) {
+        const std::shared_ptr<Pending> p = m_pending.front();
+        m_pending.pop_front();
+        if (p->rows.isEmpty())
+            continue; // an empty playlist doesn't wipe the queue
+        switch (p->op) {
+        case Pending::Play:
+            m_controller.playTracks(p->rows, 0);
+            break;
+        case Pending::Append:
+            m_controller.queue()->append(p->rows);
+            break;
+        case Pending::Next:
+            m_controller.queue()->insertNext(p->rows);
+            break;
+        }
+    }
+}
+
+void Playback::dropPending()
+{
+    m_pending.clear();
+    ++m_pendingEpoch;
 }
 
 void Playback::playPause() { m_controller.togglePlayPause(); }
@@ -175,10 +268,20 @@ void Playback::next() { m_controller.next(); }
 void Playback::previous() { m_controller.previous(); }
 void Playback::stop() { m_controller.stop(); }
 void Playback::seek(qint64 positionMs) { m_controller.seek(positionMs); }
-void Playback::playQueueIndex(int index) { m_controller.playIndex(index); }
+void Playback::playQueueIndex(int index)
+{
+    // An explicit pick: a Play still loading mustn't replace it when it arrives.
+    std::erase_if(m_pending, [](const std::shared_ptr<Pending> &p) { return p->op == Pending::Play; });
+    m_controller.playIndex(index);
+    flushPending();
+}
 void Playback::removeFromQueue(int index) { m_controller.queue()->removeAt(index); }
 void Playback::moveInQueue(int from, int to) { m_controller.queue()->move(from, to); }
-void Playback::clearQueue() { m_controller.clearQueue(); }
+void Playback::clearQueue()
+{
+    dropPending();
+    m_controller.clearQueue();
+}
 void Playback::cycleRepeatMode() { setRepeatMode((repeatMode() + 1) % 3); }
 
 int Playback::saveQueueAsPlaylist(const QString &name)

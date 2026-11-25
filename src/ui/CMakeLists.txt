@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 qt_add_library(mmm_ui STATIC)
 
+# Q1: the right-click menus' hub (views describe their menu; Main shows it).
+set_source_files_properties(qml/ContextMenus.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
 qt_add_qml_module(mmm_ui
     URI MusicMdManager
     VERSION 1.0
@@ -41,6 +44,8 @@ qt_add_qml_module(mmm_ui
         qml/DiscordDialog.qml
         qml/Toast.qml
         qml/SendToDeviceButton.qml
+        qml/AppContextMenu.qml
+        qml/ContextMenus.qml
     SOURCES
         appbridge.h appbridge.cpp
         library.h library.cpp
@@ -48,6 +53,7 @@ qt_add_qml_module(mmm_ui
         coverimageprovider.h coverimageprovider.cpp
         playback.h playback.cpp
         listenbrainz.h listenbrainz.cpp
+        desktop.h desktop.cpp
         discord.h discord.cpp
         keyrouter.h keyrouter.cpp
         tageditor.h tageditor.cpp

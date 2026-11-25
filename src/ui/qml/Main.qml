@@ -28,6 +28,11 @@ ApplicationWindow {
     readonly property alias mainMenu: menuScreen
     readonly property alias exportView: exportScreen
     readonly property alias queuePanel: queueDock
+    readonly property alias contextMenu: appContextMenu
+    // The menu being asked for comes from the keyboard (`,`): its first item gets the cursor.
+    property bool menuFromKeyboard: false
+    // The latest "Go to album" (an older one answering late doesn't take over the screen).
+    property int goToAlbumTicket: 0
     readonly property alias tagEditorDialog: tagDialog
     readonly property alias artworkFinderDialog: artDialog
     readonly property alias profileEditorDialog: profileDialog
@@ -115,7 +120,32 @@ ApplicationWindow {
         }
     }
 
+    // Goes to an album (a menu's "Go to album"): the library, the album open, the search cleared.
+    function goToAlbum(albumId: int, info: var) {
+        if (info.title === undefined)
+            return;
+        if (searching)
+            topChrome.clearSearch();
+        showScreen(Main.LibraryScreen);
+        libraryScreen.openAlbum(albumId, info.title, info.artist, info.year, info.coverUrl, true);
+        libraryScreen.focusedPane = LibraryView.Content;
+    }
+
     function handleAction(action: int) {
+        // An open right-click menu takes every key (none leaks to what's behind it).
+        if (appContextMenu.opened) {
+            appContextMenu.handleAction(action);
+            return;
+        }
+        if (action === KeyRouter.ContextMenu) {
+            menuFromKeyboard = true;
+            if (queueFocused)
+                queueDock.openContextMenu();
+            else if (currentScreen === Main.LibraryScreen)
+                libraryScreen.openContextMenu();
+            menuFromKeyboard = false;
+            return;
+        }
         // The artwork finder takes the keys while it's open (it opts in with routeKeys);
         // only play/pause and track skipping still reach the player.
         if (artDialog.opened && artDialog.handleAction(action))
@@ -305,6 +335,110 @@ ApplicationWindow {
 
     ListenBrainzDialog {
         id: listenBrainz
+    }
+
+    // --- Right-click menus (Q1): the menu, and what its entries ask of the window ---
+    AppContextMenu {
+        id: appContextMenu
+    }
+
+    TextPrompt {
+        id: newPlaylistPrompt
+        property string kind
+        property int itemId: 0
+        property list<string> paths: []
+        title: qsTr("New playlist")
+        placeholderText: qsTr("Playlist name")
+        onSubmitted: name => {
+            if (kind !== "")
+                Library.createPlaylistFromItem(name, kind, itemId);
+            else
+                Library.createPlaylist(name, paths); // (reports failures itself)
+        }
+    }
+
+    TextPrompt {
+        id: renamePlaylistPrompt
+        property int playlistId: 0
+        title: qsTr("Rename playlist")
+        onSubmitted: name => {
+            if (Library.renamePlaylist(playlistId, name) && libraryScreen.playlistId === playlistId)
+                libraryScreen.playlistName = name;
+        }
+    }
+
+    FileDialog {
+        id: exportPlaylistDialog
+        property int playlistId: 0
+        title: qsTr("Export playlist")
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "m3u8"
+        nameFilters: [qsTr("Playlists (*.m3u8 *.m3u)")]
+        onAccepted: Library.exportPlaylist(playlistId, selectedFile)
+    }
+
+    Connections {
+        target: ContextMenus
+        function onRequested(item: Item, x: real, y: real, entries: var, closed: var) {
+            appContextMenu.show(item, x, y, entries, closed, root.menuFromKeyboard);
+        }
+        function onEditTagsRequested(paths: list<string>, label: string) {
+            tagDialog.edit(paths, label);
+        }
+        function onEditItemTagsRequested(kind: string, id: int, label: string) {
+            Library.requestItemPaths(kind, id, "editTags:" + label);
+        }
+        function onFindArtRequested(albumId: int) {
+            artDialog.openAlbum(albumId);
+        }
+        function onGoToAlbumRequested(albumId: int) {
+            Library.requestAlbumInfo(albumId, "goToAlbum:" + (++root.goToAlbumTicket));
+        }
+        function onNewPlaylistRequested(kind: string, id: int, paths: list<string>, suggestedName: string) {
+            newPlaylistPrompt.kind = kind;
+            newPlaylistPrompt.itemId = id;
+            newPlaylistPrompt.paths = paths;
+            newPlaylistPrompt.text = suggestedName;
+            newPlaylistPrompt.open();
+        }
+        function onRenamePlaylistRequested(id: int, name: string) {
+            renamePlaylistPrompt.playlistId = id;
+            renamePlaylistPrompt.text = name;
+            renamePlaylistPrompt.open();
+        }
+        function onDeletePlaylistRequested(id: int, name: string) {
+            confirm.ask({
+                title: qsTr("Delete “%1”?").arg(name),
+                message: qsTr("The playlist goes; its music stays in the library."),
+                action: () => {
+                    if (Library.deletePlaylist(id) && libraryScreen.playlistId === id)
+                        libraryScreen.playlistId = 0;
+                }
+            });
+        }
+        function onExportPlaylistRequested(id: int, name: string) {
+            exportPlaylistDialog.playlistId = id;
+            exportPlaylistDialog.open();
+        }
+        function onOpenItemFolderRequested(kind: string, id: int) {
+            Library.requestItemPaths(kind, id, "openFolder");
+        }
+    }
+
+    Connections {
+        target: Library
+        function onItemPathsReady(kind: string, id: int, paths: list<string>, tag: string) {
+            if (paths.length === 0)
+                return;
+            if (tag === "openFolder")
+                Desktop.openCommonFolder(paths);
+            else if (tag.startsWith("editTags:"))
+                tagDialog.edit(paths, paths.length === 1 ? paths[0] : qsTr("%1 — %2 tracks").arg(tag.slice(9)).arg(paths.length));
+        }
+        function onAlbumInfoReady(albumId: int, info: var, tag: string) {
+            if (tag === "goToAlbum:" + root.goToAlbumTicket)
+                root.goToAlbum(albumId, info);
+        }
     }
 
     DiscordDialog {

@@ -11,6 +11,7 @@
 #include "apppaths.h"
 #include "coverimageprovider.h"
 #include "devices.h"
+#include "desktop.h"
 #include "discord.h"
 #include "listenbrainz.h"
 #include "library.h"
@@ -76,6 +77,7 @@ int main(int argc, char *argv[])
     listenBrainzOptions.databasePath = QFileInfo(databasePath).dir().filePath(QStringLiteral("scrobbles.db"));
     ListenBrainz listenBrainz(listenBrainzOptions);
     Discord discord(Discord::Options{}); // after Playback too
+    Desktop desktop(Desktop::Options{});
     Devices devices({.databasePath = databasePath, .monitor = !parser.isSet(noDevicesOpt)});
     Sync sync({.databasePath = databasePath, .cacheDir = {}});
     OnDevice onDevice({.databasePath = databasePath});

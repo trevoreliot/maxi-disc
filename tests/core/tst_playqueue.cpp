@@ -164,6 +164,30 @@ private Q_SLOTS:
         q.move(-1, 2); // invalid: ignored
     }
 
+    void moveToNext()
+    {
+        PlayQueue q;
+        QAbstractItemModelTester tester(&q, QAbstractItemModelTester::FailureReportingMode::QtTest);
+        q.setItems(tracks({"a", "b", "c", "d", "e"}), 2); // current "c"
+        q.moveToNext(4); // e: right after c
+        QCOMPARE(titles(q), (QStringList{QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c"),
+                                         QStringLiteral("e"), QStringLiteral("d")}));
+        q.moveToNext(0); // a (before the current track): after c too
+        QCOMPARE(titles(q), (QStringList{QStringLiteral("b"), QStringLiteral("c"), QStringLiteral("a"),
+                                         QStringLiteral("e"), QStringLiteral("d")}));
+        QCOMPARE(q.current()->title, QStringLiteral("c"));
+        q.moveToNext(2); // already next: nothing moves
+        q.moveToNext(1); // the current track itself: nothing moves
+        q.moveToNext(9); // out of range
+        QCOMPARE(titles(q), (QStringList{QStringLiteral("b"), QStringLiteral("c"), QStringLiteral("a"),
+                                         QStringLiteral("e"), QStringLiteral("d")}));
+        PlayQueue none;
+        none.append(tracks({"a", "b", "c"}));
+        QCOMPARE(none.currentIndex(), -1); // nothing current: to the top
+        none.moveToNext(2);
+        QCOMPARE(titles(none), (QStringList{QStringLiteral("c"), QStringLiteral("a"), QStringLiteral("b")}));
+    }
+
     void clear()
     {
         PlayQueue q;

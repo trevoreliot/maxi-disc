@@ -124,6 +124,13 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     Playback; QSettings `discord/appId` / `discord/enabled`; tests: `persistSettings = false`, `ipcDirs`
     = the fake's dir) + `DiscordDialog` + the transport-bar toggle. decisions/0009. Tests use
     `tests/core/fakediscord.h`; tst_qml's Setup runs one (application id 123456789012345678).
+  - Right-click menus (Q1): views describe their menu as entries and call `ContextMenus.open()` (QML
+    singleton, `qml/ContextMenus.qml`: shared entry builders + the requests Main handles); Main's
+    `AppContextMenu` shows it and takes every KeyRouter action while open (`,` / Menu / Shift+F10 =
+    `ContextMenu` opens it for the cursor's row via the screen's `openContextMenu()`). Things only
+    known by id resolve on the pool (`Playback.playItem` / `enqueueItem`, `Library.requestItemPaths` /
+    `requestAlbumInfo` / `addItemToPlaylist`). `Desktop` singleton opens folders (construct before the
+    engine; tests record URLs). QML tests: give a just-opened popup a moment before clicking it.
   - Send to device (M11b): `SendToDevice` (QML singleton; construct after Devices, Playback, Sync,
     MiniDisc; its constructor has no default argument so QML uses `create()`) → `MiniDisc::addItems` /
     `Sync::addItems` (counts via `DeviceAddResult`) → `notice` → `Toast` in Main. USB selections take

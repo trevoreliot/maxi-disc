@@ -69,10 +69,16 @@ public:
     void removeAt(int index);
     // Moves one item; the current track stays current.
     void move(int from, int to);
+    // Moves `from` to play right after the current track (to the top if nothing is current).
+    // The current track itself, or the one already next, stays put.
+    void moveToNext(int from);
     void clear();
     // Replaces the queued entries that have the same file path as one of `rows` (e.g. after
     // a tag edit). Order and the current index stay. Returns true if the current entry changed.
     bool updateTracks(const QList<TrackRow> &rows);
+
+    // Row `row` as {roleName: value} (QML: a queued track's fields); empty if out of range.
+    Q_INVOKABLE QVariantMap get(int row) const;
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;

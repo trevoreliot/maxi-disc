@@ -173,9 +173,30 @@ void PlayQueue::move(int from, int to)
     Q_EMIT upcomingChanged();
 }
 
+void PlayQueue::moveToNext(int from)
+{
+    if (from < 0 || from >= count() || from == m_current)
+        return;
+    // Taken out from before the current track, the slot after it is one lower.
+    const int to = m_current < 0 ? 0 : (from < m_current ? m_current : m_current + 1);
+    move(from, to);
+}
+
 void PlayQueue::clear()
 {
     setItems({}, -1);
+}
+
+QVariantMap PlayQueue::get(int row) const
+{
+    QVariantMap out;
+    if (row < 0 || row >= count())
+        return out;
+    const QModelIndex i = index(row);
+    const QHash<int, QByteArray> roles = roleNames();
+    for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+        out.insert(QString::fromLatin1(it.value()), data(i, it.key()));
+    return out;
 }
 
 int PlayQueue::rowCount(const QModelIndex &parent) const

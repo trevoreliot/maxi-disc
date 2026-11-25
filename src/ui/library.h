@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QThreadPool>
 #include <QUrl>
+#include <QVariantMap>
 #include <QtConcurrent>
 #include <QtQmlIntegration/qqmlintegration.h>
 
@@ -95,6 +96,23 @@ public:
     Q_INVOKABLE int importPlaylists(const QList<QUrl> &files);
     // Writes the playlist as extended M3U with absolute paths.
     Q_INVOKABLE bool exportPlaylist(int id, const QUrl &file);
+    // Removes one entry: the `occurrence`-th (0-based) entry for `path` (a playlist may hold a
+    // file twice; the playlist page skips missing files, so its row isn't the entry's index).
+    Q_INVOKABLE bool removeFromPlaylist(int id, const QString &path, int occurrence = 0);
+    // A browse row / album tile ("artist", "genre", "album", "playlist", "track" + id) added to
+    // a playlist, or made into a new one; its tracks are read on the query pool. Says so in
+    // statusMessage.
+    Q_INVOKABLE void addItemToPlaylist(int playlistId, const QString &kind, int id);
+    Q_INVOKABLE void createPlaylistFromItem(const QString &name, const QString &kind, int id);
+
+    // --- Lookups for the context menus (answered with a signal; `tag` says what it's for) ---
+    // albumInfoReady: title, artist, year, coverUrl (empty map if there's no such album).
+    Q_INVOKABLE void requestAlbumInfo(int albumId, const QString &tag);
+    // itemPathsReady: the item's files, in play order.
+    Q_INVOKABLE void requestItemPaths(const QString &kind, int id, const QString &tag);
+
+    // The tracks a kind + id stands for (see addItemToPlaylist), in play order.
+    static QList<mmm::TrackRow> itemTracks(const mmm::LibraryQuery &q, const QString &kind, qint64 id);
 
     // Writes tag changes to the files and updates the library (mmm::editTracks) on a
     // background thread. When done: status message or error, tracksEdited(), changed().
@@ -127,6 +145,8 @@ Q_SIGNALS:
     void scanProgressChanged();
     void countsChanged();
     void statusMessageChanged();
+    void albumInfoReady(int albumId, const QVariantMap &info, const QString &tag);
+    void itemPathsReady(const QString &kind, int id, const QStringList &paths, const QString &tag);
 
 private:
     static mmm::Database &threadDatabase(const QString &path);

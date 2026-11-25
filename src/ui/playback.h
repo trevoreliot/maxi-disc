@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QtQmlIntegration/qqmlintegration.h>
 
+#include <deque>
 #include <memory>
 
 #include "playbackcontroller.h"
@@ -97,6 +98,16 @@ public:
     // Add `model`'s rows (or just row `index` if >= 0) to the queue: at the end, or right after
     // the current track with `playNext`.
     Q_INVOKABLE void enqueueFromModel(TrackListModel *model, bool playNext = false, int index = -1);
+    // Some of `model`'s rows (the marked tracks), in list order whatever order they're given in.
+    Q_INVOKABLE void enqueueRows(TrackListModel *model, const QList<int> &rows, bool playNext = false);
+    // What a browse row, album tile or lone track stands for: kind "artist", "genre", "album",
+    // "playlist" or "track" + its id. Its tracks are read on the library's query pool; requests
+    // apply in the order they were made (a Play then an Add: the Add lands in the new queue).
+    // An explicit replace (playFromModel, clearQueue) drops the ones still loading.
+    Q_INVOKABLE void playItem(const QString &kind, int id);
+    Q_INVOKABLE void enqueueItem(const QString &kind, int id, bool playNext = false);
+    // Moves queue row `index` to play right after the current track.
+    Q_INVOKABLE void moveToPlayNext(int index);
     Q_INVOKABLE void playPause();
     Q_INVOKABLE void next();
     Q_INVOKABLE void previous();
@@ -124,9 +135,21 @@ Q_SIGNALS:
     void quitRequested();  // MPRIS Quit
 
 private:
+    struct Pending
+    {
+        enum Op { Play, Append, Next } op = Append;
+        bool ready = false;
+        QList<mmm::TrackRow> rows;
+    };
     void saveSettings() const;
+    void request(Pending::Op op, const QString &kind, int id);
+    void add(Pending::Op op, const QList<mmm::TrackRow> &rows); // in turn after the pending ones
+    void flushPending();
+    void dropPending();
 
     mmm::PlaybackController m_controller;
     std::unique_ptr<mmm::MprisService> m_mpris;
     bool m_persist;
+    std::deque<std::shared_ptr<Pending>> m_pending; // oldest first
+    quint64 m_pendingEpoch = 0;
 };

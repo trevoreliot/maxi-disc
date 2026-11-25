@@ -11,12 +11,15 @@ ItemDelegate {
     property bool current: false
     property bool paneActive: false
     property bool marked: false
+    property bool menuTarget: false // a right-click menu is open for it
 
     leftPadding: Theme.spaceLG
     rightPadding: Theme.spaceLG
     focusPolicy: Qt.NoFocus
 
     background: Rectangle {
+        border.width: control.menuTarget ? 1 : 0
+        border.color: Theme.focusRing
         color: control.current ? (control.paneActive ? Theme.rowActiveFocused : Theme.rowSelected)
              : control.marked ? Theme.rowMarked
              : control.hovered ? Theme.rowHover : "transparent"

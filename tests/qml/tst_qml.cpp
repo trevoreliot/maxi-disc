@@ -12,6 +12,7 @@
 #include "ondevice.h"
 #include "sync.h"
 #include "fixturelibrary.h"
+#include "desktop.h"
 #include "discord.h"
 #include "fakediscord.h"
 #include "library.h"
@@ -126,6 +127,8 @@ public Q_SLOTS:
         discord.firstRetryMs = 100;
         discord.coalesceMs = 50;
         m_discord = std::make_unique<Discord>(discord);
+        // Folders the menus would open (recorded in `openedUrls`, never opened).
+        m_desktop = std::make_unique<Desktop>(Desktop::Options{[this](const QUrl &url) { m_openedUrls.urls << url.toString(); }});
         // No device detection: tests set devices with Devices.setTestDevices().
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
@@ -154,6 +157,7 @@ public Q_SLOTS:
         m_onDevice.reset();
         m_sync.reset();
         m_devices.reset();
+        m_desktop.reset();
         m_discord.reset();
         m_fakeDiscordControl.reset();
         m_fakeDiscord.reset();
@@ -173,6 +177,7 @@ private:
     std::unique_ptr<mmm::test::FakeDiscord> m_fakeDiscord;
     std::unique_ptr<FakeDiscordControl> m_fakeDiscordControl;
     std::unique_ptr<Discord> m_discord;
+    std::unique_ptr<Desktop> m_desktop;
     std::unique_ptr<Devices> m_devices;
     std::unique_ptr<Sync> m_sync;
     std::unique_ptr<OnDevice> m_onDevice;

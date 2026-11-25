@@ -92,6 +92,47 @@ Pane {
         commit();
     }
 
+    // Right-click menus (Q1; the library's browse pane, not Export's yet). The row with a menu
+    // open is outlined; it isn't selected (what's on the right stays).
+    property bool contextMenus: false
+    property int contextTarget: -1
+
+    function contextEntries(index: int): var {
+        const list = currentList;
+        if (index < 0 || index >= list.count)
+            return []; // "All artists" / "All genres": not the whole library from one click
+        const r = list.model.get(index);
+        switch (mode) {
+        case BrowsePane.Artists:
+            return ContextMenus.itemEntries("artist", r.artistId, r.name);
+        case BrowsePane.Genres:
+            return ContextMenus.itemEntries("genre", r.genreId, r.name);
+        case BrowsePane.Albums:
+            return ContextMenus.albumEntries(r.albumId, r.title);
+        case BrowsePane.Playlists:
+            return ContextMenus.playlistEntries(r.playlistId, r.name, r.availableCount);
+        }
+        return [];
+    }
+
+    function openContextMenu(index: int, item: Item, x: real, y: real) {
+        if (!contextMenus)
+            return;
+        const entries = contextEntries(index);
+        if (entries.length === 0)
+            return;
+        contextTarget = index;
+        ContextMenus.open(item, x, y, entries, () => { root.contextTarget = -1; });
+    }
+
+    // `,` / Menu: the cursor's row.
+    function openContextMenuForCurrent() {
+        const list = currentList;
+        const item = list.currentItem;
+        if (item)
+            openContextMenu(list.currentIndex, item, Math.min(item.width * 0.35, 220), item.height);
+    }
+
     function clickRow(list: ListView, index: int) {
         list.currentIndex = index;
         root.interacted();
@@ -217,6 +258,11 @@ Pane {
                         root.clickRow(artistList, index);
                         root.rowDoubleClicked();
                     }
+                    menuTarget: root.contextTarget === index && root.currentList === artistList
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: point => root.openContextMenu(artistRow.index, artistRow, point.position.x, point.position.y)
+                    }
 
                     contentItem: RowLayout {
                         Label {
@@ -265,6 +311,11 @@ Pane {
                         root.clickRow(genreList, index);
                         root.rowDoubleClicked();
                     }
+                    menuTarget: root.contextTarget === index && root.currentList === genreList
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: point => root.openContextMenu(genreRow.index, genreRow, point.position.x, point.position.y)
+                    }
 
                     contentItem: RowLayout {
                         Label {
@@ -303,6 +354,11 @@ Pane {
                     onDoubleClicked: {
                         root.clickRow(albumList, index);
                         root.rowDoubleClicked();
+                    }
+                    menuTarget: root.contextTarget === index && root.currentList === albumList
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: point => root.openContextMenu(albumRow.index, albumRow, point.position.x, point.position.y)
                     }
 
                     contentItem: ColumnLayout {
@@ -346,6 +402,11 @@ Pane {
                     onDoubleClicked: {
                         root.clickRow(playlistList, index);
                         root.rowDoubleClicked();
+                    }
+                    menuTarget: root.contextTarget === index && root.currentList === playlistList
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: point => root.openContextMenu(playlistRow.index, playlistRow, point.position.x, point.position.y)
                     }
 
                     contentItem: RowLayout {

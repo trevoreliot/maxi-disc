@@ -167,7 +167,20 @@ QList<TrackRow> LibraryQuery::genreTracks(qint64 genreId) const
     return rows;
 }
 
+std::optional<AlbumRow> LibraryQuery::album(qint64 albumId) const
+{
+    const QList<AlbumRow> rows = albumRows(0, 0, albumId);
+    return rows.isEmpty() ? std::nullopt : std::optional<AlbumRow>(rows.first());
+}
+
 QList<AlbumRow> LibraryQuery::albums(qint64 artistId, qint64 genreId) const
+{
+    QList<AlbumRow> rows = albumRows(artistId, genreId, 0);
+    sortAlbums(rows, artistId);
+    return rows;
+}
+
+QList<AlbumRow> LibraryQuery::albumRows(qint64 artistId, qint64 genreId, qint64 albumId) const
 {
     QString sql = QStringLiteral(R"(
         SELECT al.id, al.title, ar.id, ar.name, al.year, al.compilation, al.cover_path,
@@ -187,6 +200,10 @@ QList<AlbumRow> LibraryQuery::albums(qint64 artistId, qint64 genreId) const
         // IN (subquery) is evaluated once; a correlated EXISTS rescanned the genre per album (6 s at 100k).
         sql += QStringLiteral(" AND al.id IN (SELECT album_id FROM tracks WHERE genre_id = ?)");
         binds << genreId;
+    }
+    if (albumId > 0) {
+        sql += QStringLiteral(" AND al.id = ?");
+        binds << albumId;
     }
     sql += QStringLiteral(" GROUP BY al.id");
 
@@ -212,7 +229,11 @@ QList<AlbumRow> LibraryQuery::albums(qint64 artistId, qint64 genreId) const
         r.artTrackPath = q.value(9).toString();
         rows << std::move(r);
     }
+    return rows;
+}
 
+void LibraryQuery::sortAlbums(QList<AlbumRow> &rows, qint64 artistId)
+{
     auto byYearThenId = [](const AlbumRow &a, const AlbumRow &b) {
         return a.year != b.year ? a.year < b.year : a.id < b.id;
     };
@@ -229,7 +250,6 @@ QList<AlbumRow> LibraryQuery::albums(qint64 artistId, qint64 genreId) const
                },
                byYearThenId);
     }
-    return rows;
 }
 
 namespace {

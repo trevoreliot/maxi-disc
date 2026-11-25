@@ -152,6 +152,30 @@ Item {
         }
     }
 
+    // `,` / Menu (Q1): the menu for what the cursor is on, in the pane that has the keyboard.
+    function openContextMenu() {
+        if (!hasLibrary)
+            return;
+        if (focusedPane === LibraryView.Browse) {
+            browsePane.openContextMenuForCurrent();
+            return;
+        }
+        switch (content) {
+        case LibraryView.Grid:
+            albumGrid.openContextMenuForCurrent();
+            break;
+        case LibraryView.Album:
+            albumView.openContextMenuForCurrent();
+            break;
+        case LibraryView.Playlist:
+            playlistView.openContextMenuForCurrent();
+            break;
+        case LibraryView.Search:
+            searchView.openContextMenuForCurrent();
+            break;
+        }
+    }
+
     function closeAlbum() {
         albumId = 0;
         albumFromGrid = false;
@@ -305,6 +329,7 @@ Item {
             SplitView.minimumWidth: 190
             SplitView.maximumWidth: 380
             paneActive: root.active && root.focusedPane === LibraryView.Browse
+            contextMenus: true
             onSelected: (mode, entry) => root.applySelection(mode, entry)
             onModeChanged: {
                 root.closeAlbum();
@@ -363,6 +388,10 @@ Item {
                     paneActive: contentArea.contentActive
                     onAlbumActivated: (id, title, artist, year, coverUrl) => {
                         root.openAlbum(id, title, artist, year, coverUrl, true);
+                        root.focusedPane = LibraryView.Content;
+                        root.interacted();
+                    }
+                    onInteracted: {
                         root.focusedPane = LibraryView.Content;
                         root.interacted();
                     }

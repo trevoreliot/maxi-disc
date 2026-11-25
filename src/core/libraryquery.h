@@ -113,6 +113,8 @@ public:
     // Albums, optionally only one album artist's and/or ones with a track in a genre (0 = any).
     // Unfiltered: by artist sort name, then year, then title. By artist: by year, then title.
     QList<AlbumRow> albums(qint64 artistId = 0, qint64 genreId = 0) const;
+    // One album (Go to album), as albums() lists it.
+    std::optional<AlbumRow> album(qint64 albumId) const;
     // An album's tracks by disc, track number, then title.
     QList<TrackRow> albumTracks(qint64 albumId) const;
     // Tracks of the albums whose album artist this is (what the artist browser lists),
@@ -149,6 +151,9 @@ public:
     static QString sortName(const QString &name);
 
 private:
+    QList<AlbumRow> albumRows(qint64 artistId, qint64 genreId, qint64 albumId) const;
+    static void sortAlbums(QList<AlbumRow> &rows, qint64 artistId);
+
     const Database &m_db;
 };
 

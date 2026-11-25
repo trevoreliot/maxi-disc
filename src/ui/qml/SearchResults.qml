@@ -40,6 +40,21 @@ Pane {
             Playback.playFromModel(results, list.currentIndex);
     }
 
+    // Right-click / `,` (Q1): a track's menu ("Play" plays the results from it, like Enter).
+    function openContextMenu(row: int, item: Item, x: real, y: real) {
+        if (row < 0 || row >= results.count)
+            return;
+        list.currentIndex = row;
+        interacted();
+        ContextMenus.open(item, x, y, ContextMenus.trackEntries(results, row, [row], {}), null);
+    }
+
+    function openContextMenuForCurrent() {
+        const item = list.currentItem;
+        if (item)
+            openContextMenu(list.currentIndex, item, Math.min(item.width * 0.35, 220), item.height);
+    }
+
     padding: 0
     background: Rectangle {
         color: Theme.bg
@@ -113,6 +128,11 @@ Pane {
                 }
                 // Plays the results from here, so "next" continues through them.
                 onDoubleClicked: Playback.playFromModel(results, index)
+
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: point => root.openContextMenu(row.index, row, point.position.x, point.position.y)
+                }
 
                 contentItem: RowLayout {
                     spacing: 12

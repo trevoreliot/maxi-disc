@@ -44,6 +44,32 @@ Pane {
             Playback.playFromModel(tracks, list.currentIndex);
     }
 
+    // Right-click / `,` (Q1): a track's menu, with "Remove from playlist" (the right one of a
+    // file that's in the playlist twice: the how-many-th of its path it is).
+    function openContextMenu(row: int, item: Item, x: real, y: real) {
+        if (row < 0 || row >= tracks.count)
+            return;
+        list.currentIndex = row;
+        interacted();
+        const path = tracks.get(row).path;
+        let occurrence = 0;
+        for (let i = 0; i < row; ++i) {
+            if (tracks.get(i).path === path)
+                ++occurrence;
+        }
+        ContextMenus.open(item, x, y, ContextMenus.trackEntries(tracks, row, [row], {
+            playFromHere: true,
+            playlistId: root.playlistId,
+            occurrence: occurrence,
+        }), null);
+    }
+
+    function openContextMenuForCurrent() {
+        const item = list.currentItem;
+        if (item)
+            openContextMenu(list.currentIndex, item, Math.min(item.width * 0.35, 220), item.height);
+    }
+
     padding: 0
     background: Rectangle {
         color: Theme.bg
@@ -201,6 +227,11 @@ Pane {
                     root.interacted();
                 }
                 onDoubleClicked: Playback.playFromModel(tracks, index)
+
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: point => root.openContextMenu(row.index, row, point.position.x, point.position.y)
+                }
 
                 contentItem: RowLayout {
                     spacing: 12

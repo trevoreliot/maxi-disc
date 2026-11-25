@@ -47,6 +47,72 @@ Pane {
         return false;
     }
 
+    // Right-click / `,` (Q1): a queued track's menu, or the queue's own on the empty space.
+    // Where the menu's track is now (the queue may have moved while the menu was open): its
+    // row if it's still there, else the nearest row with its file; -1 if it's gone.
+    function rowOf(i: int, path: string): int {
+        const q = Playback.queue;
+        if (i < q.count && q.get(i).path === path)
+            return i;
+        let best = -1;
+        for (let r = 0; r < q.count; ++r) {
+            if (q.get(r).path === path && (best < 0 || Math.abs(r - i) < Math.abs(best - i)))
+                best = r;
+        }
+        return best;
+    }
+
+    function rowEntries(i: int): var {
+        const q = Playback.queue;
+        const t = q.get(i);
+        const cur = q.currentIndex;
+        const at = fn => () => { const r = root.rowOf(i, t.path); if (r >= 0) fn(r); };
+        return [
+            { text: qsTr("Play now"), onTriggered: at(r => Playback.playQueueIndex(r)) },
+            { text: qsTr("Move to play next"), enabled: i !== cur && i !== cur + 1, onTriggered: at(r => Playback.moveToPlayNext(r)) },
+            { text: qsTr("Move up"), enabled: i > 0, onTriggered: at(r => Playback.moveInQueue(r, r - 1)) },
+            { text: qsTr("Move down"), enabled: i < q.count - 1, onTriggered: at(r => Playback.moveInQueue(r, r + 1)) },
+            ContextMenus.separator(),
+            { text: qsTr("Go to album"), enabled: t.albumId > 0, onTriggered: () => ContextMenus.goToAlbumRequested(t.albumId) },
+            { text: qsTr("Add to playlist"), playlists: true,
+              onPlaylist: id => Library.appendToPlaylist(id, [t.path]),
+              onNewPlaylist: () => ContextMenus.newPlaylistRequested("", 0, [t.path], t.title) },
+            { text: ContextMenus.sendText(""), hint: "i", enabled: SendToDevice.canSend, onTriggered: at(r => SendToDevice.sendQueueTrack(r)) },
+            ContextMenus.separator(),
+            { text: qsTr("Edit tags…"), onTriggered: () => ContextMenus.editTagsRequested([t.path], t.path) },
+            ContextMenus.separator(),
+            { text: qsTr("Remove from queue"), destructive: true, onTriggered: at(r => Playback.removeFromQueue(r)) },
+        ];
+    }
+
+    function queueEntries(): var {
+        const n = Playback.queue.count;
+        return [
+            { text: qsTr("Save queue as playlist…"), enabled: n > 0, onTriggered: () => { savePrompt.text = ""; savePrompt.open(); } },
+            { text: ContextMenus.sendText(qsTr("queue")), hint: "I", enabled: n > 0 && SendToDevice.canSend, onTriggered: () => SendToDevice.sendQueue() },
+            ContextMenus.separator(),
+            { text: qsTr("Clear queue"), destructive: true, enabled: n > (Playback.playing || Playback.paused ? 1 : 0),
+              onTriggered: () => Playback.clearQueue() },
+        ];
+    }
+
+    function openContextMenu(i: int, item: Item, x: real, y: real) {
+        if (i >= 0 && i < list.count) {
+            list.currentIndex = i;
+            ContextMenus.open(item, x, y, rowEntries(i), null);
+        } else {
+            ContextMenus.open(item, x, y, queueEntries(), null);
+        }
+    }
+
+    function openContextMenuForCurrent() {
+        const item = list.currentItem;
+        if (item)
+            openContextMenu(list.currentIndex, item, Math.min(item.width * 0.35, 220), item.height);
+        else
+            openContextMenu(-1, list, Theme.spaceLG, Theme.spaceLG);
+    }
+
     onPaneActiveChanged: {
         if (paneActive) {
             list.currentIndex = Math.max(0, Playback.queue.currentIndex);
@@ -139,6 +205,22 @@ Pane {
             boundsBehavior: Flickable.StopAtBounds
             model: Playback.queue
             ScrollBar.vertical: ScrollBar {}
+
+            // One handler for rows and the space below them.
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: point => {
+                    root.interacted();
+                    const i = list.indexAt(point.position.x + list.contentX, point.position.y + list.contentY);
+                    const item = i >= 0 ? list.itemAtIndex(i) : null;
+                    if (item) {
+                        const p = list.mapToItem(item, point.position.x, point.position.y);
+                        root.openContextMenu(i, item, p.x, p.y);
+                    } else {
+                        root.openContextMenu(-1, list, point.position.x, point.position.y);
+                    }
+                }
+            }
 
             delegate: NavRow {
                 id: row

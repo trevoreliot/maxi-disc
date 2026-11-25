@@ -69,6 +69,7 @@ public:
         EraseMd,           // Export, MiniDisc: wipe the disc, after asking
         MoveMdTrackDown,   // Export, MiniDisc: move the cursor's track down a place
         MoveMdTrackUp,     // Export, MiniDisc: ... up
+        ContextMenu,       // the right-click menu for what the cursor is on (`,`, Menu, Shift+F10)
     };
     Q_ENUM(Action)
 

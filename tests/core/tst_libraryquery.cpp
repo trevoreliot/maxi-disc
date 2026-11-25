@@ -189,6 +189,20 @@ private Q_SLOTS:
         QVERIFY(rows[7].compilation == false); // album artist given explicitly, not via the flag
     }
 
+    void oneAlbum()
+    {
+        const LibraryQuery q(m_db);
+        const auto rows = q.albums();
+        const auto abbey = q.album(rows[4].id);
+        QVERIFY(abbey);
+        QCOMPARE(abbey->title, QStringLiteral("Abbey Road"));
+        QCOMPARE(abbey->artist, QStringLiteral("The Beatles"));
+        QCOMPARE(abbey->year, 1969);
+        QCOMPARE(abbey->trackCount, 2);
+        QCOMPARE(abbey->artTrackPath, QStringLiteral("/m/beatles/ar/01.flac"));
+        QVERIFY(!q.album(999'999));
+    }
+
     void albumsByArtistAndGenre()
     {
         const LibraryQuery q(m_db);

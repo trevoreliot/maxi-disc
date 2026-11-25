@@ -47,6 +47,7 @@ constexpr std::array kTextBindings{
     TextBinding{u'N', KeyRouter::RenameDisc},
     TextBinding{u'R', KeyRouter::RefreshDevice},
     TextBinding{u'X', KeyRouter::ClearQueue},
+    TextBinding{u',', KeyRouter::ContextMenu}, // Doom's local leader: the "what can I do here" key
 };
 
 // Keys matched on key code + exact modifiers, in a context: outside text fields, inside
@@ -72,6 +73,8 @@ const std::array kKeyBindings{
     KeyBinding{Qt::Key_Delete, Qt::NoModifier, KeyRouter::ExportRemove, Where::Outside},
     KeyBinding{Qt::Key_Left, Qt::ControlModifier, KeyRouter::PreviousTrack, Where::Outside},
     KeyBinding{Qt::Key_Right, Qt::ControlModifier, KeyRouter::NextTrack, Where::Outside},
+    KeyBinding{Qt::Key_Menu, Qt::NoModifier, KeyRouter::ContextMenu, Where::Outside},
+    KeyBinding{Qt::Key_F10, Qt::ShiftModifier, KeyRouter::ContextMenu, Where::Outside},
 };
 
 } // namespace

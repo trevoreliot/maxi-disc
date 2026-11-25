@@ -17,6 +17,7 @@ GridView {
     property bool paneActive: false
 
     signal albumActivated(int albumId, string title, string artist, int year, string coverUrl)
+    signal interacted() // a right-click: the grid takes the keyboard
 
     readonly property int columns: Math.max(1, Math.floor(width / (tileSize + 24)))
 
@@ -69,6 +70,19 @@ GridView {
             (currentItem as AlbumTile).open();
     }
 
+    // Right-click / `,` (Q1): the album's menu; the tile becomes the cursor's.
+    function openContextMenu(index: int, x: real, y: real) {
+        setCurrent(index);
+        const tile = currentItem as AlbumTile;
+        if (tile)
+            ContextMenus.open(tile, x, y, ContextMenus.albumEntries(tile.albumId, currentAlbumName()), null);
+    }
+
+    function openContextMenuForCurrent() {
+        if (currentItem)
+            openContextMenu(currentIndex, currentItem.width / 2, currentItem.height - 20);
+    }
+
     cellWidth: Math.floor(width / columns)
     cellHeight: tileSize + 60
     clip: true
@@ -108,6 +122,14 @@ GridView {
         onClicked: {
             grid.currentIndex = index;
             open();
+        }
+
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            onTapped: point => {
+                grid.interacted();
+                grid.openContextMenu(tile.index, point.position.x, point.position.y);
+            }
         }
 
         background: Rectangle {

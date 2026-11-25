@@ -137,6 +137,31 @@ Pane {
         editRequested(pathsOf(rows), label);
     }
 
+    // Right-click / `,` (Q1): a track's menu. On a marked row (one of several), the queue /
+    // playlist / send / tags entries are for all the marked tracks; marks stay as they are.
+    function openContextMenu(row: int, item: Item, x: real, y: real) {
+        if (row < 0 || row >= tracks.count)
+            return;
+        list.currentIndex = row;
+        interacted();
+        const marked = markedRows.includes(row);
+        const rows = marked && markedRows.length > 1 ? Array.from(markedRows) : [row];
+        ContextMenus.open(item, x, y, ContextMenus.trackEntries(tracks, row, rows, {
+            onAlbumPage: true,
+            playFromHere: true,
+            marked: marked,
+            markedCount: markedRows.length,
+            onToggleMark: () => { list.currentIndex = row; root.toggleMarked(); },
+            onClearMarks: () => root.clearMarks(),
+        }), null);
+    }
+
+    function openContextMenuForCurrent() {
+        const item = list.currentItem;
+        if (item)
+            openContextMenu(list.currentIndex, item, Math.min(item.width * 0.35, 220), item.height);
+    }
+
     padding: 0
     background: Rectangle {
         color: Theme.bg
@@ -353,6 +378,10 @@ Pane {
                 TapHandler {
                     acceptedModifiers: Qt.KeyboardModifierMask
                     onTapped: root.clickRow(row.index, point.modifiers)
+                }
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: point => root.openContextMenu(row.index, row, point.position.x, point.position.y)
                 }
 
                 contentItem: RowLayout {
