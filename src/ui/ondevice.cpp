@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ondevice.h"
 
+#include "desktop.h"
+
 #include "database.h"
 #include "devices.h"
 #include "library.h"
@@ -129,6 +131,14 @@ void OnDeviceModel::toggle(int row)
         m_collapsed.insert(key);
     m_currentKey = key; // the cursor stays on the header it folded
     rebuild();
+}
+
+QStringList OnDeviceModel::relPathsAt(int row) const
+{
+    if (row < 0 || row >= m_rows.size())
+        return {};
+    const Row &r = m_rows.at(row);
+    return r.kind == TrackRow ? QStringList{r.track.relPath} : r.relPaths;
 }
 
 int OnDeviceModel::indexOfKey(const QString &key) const
@@ -271,7 +281,9 @@ void OnDeviceModel::rebuild()
                 albumRow.trackCount += 1;
                 albumRow.bytes += t->size;
                 albumRow.notInLibrary += t->inLibrary ? 0 : 1;
+                albumRow.relPaths << t->relPath;
             }
+            rows[headerAt].relPaths << albumRow.relPaths;
             rows[headerAt].trackCount += albumRow.trackCount;
             rows[headerAt].bytes += albumRow.bytes;
             rows[headerAt].notInLibrary += albumRow.notInLibrary;
@@ -419,6 +431,20 @@ bool OnDevice::canScanWholeDevice() const
     return !m_profileMusicDir.isEmpty() && !m_fellBack;
 }
 
+QString OnDevice::pathAt(int row) const
+{
+    const QStringList rel = m_model->relPathsAt(row);
+    if (m_mountPoint.isEmpty() || rel.isEmpty())
+        return {};
+    const QDir root(m_mountPoint);
+    if (m_model->data(m_model->index(row), OnDeviceModel::KindRole).toInt() == OnDeviceModel::TrackRow)
+        return root.filePath(rel.first());
+    QStringList files;
+    for (const QString &r : rel)
+        files << root.filePath(r);
+    return Desktop::commonFolder(files);
+}
+
 void OnDevice::refresh()
 {
     update(true);
@@ -484,6 +510,7 @@ void OnDevice::update(bool force)
     m_done = 0;
     m_total = -1;
     m_model->beginBrowse();
+    m_mountPoint = entry->device.mountPoint;
     m_browser->start(mmm::DeviceBrowseRequest{entry->device.id, entry->device.mountPoint, m_profileMusicDir, m_wholeDevice});
     Q_EMIT stateChanged();
     Q_EMIT progressChanged();

@@ -12,6 +12,12 @@ Rectangle {
     signal listenBrainzSetupRequested() // Main opens the ListenBrainz dialog
     signal discordSetupRequested() // ... and the Discord one
 
+    // Right-click on the cover or the title (Q2): the playing track's menu.
+    function openNowPlayingMenu(item: Item, x: real, y: real) {
+        if (Playback.hasTrack)
+            ContextMenus.open(item, x, y, ContextMenus.nowPlayingEntries(), null);
+    }
+
     implicitHeight: 104
     color: Theme.surfaceChrome
 
@@ -39,9 +45,17 @@ Rectangle {
                 Layout.preferredWidth: 22
                 Layout.preferredHeight: 22
                 source: Playback.coverUrl
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: point => root.openNowPlayingMenu(parent, point.position.x, point.position.y)
+                }
             }
             Label {
                 objectName: "nowPlayingLabel"
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: point => root.openNowPlayingMenu(parent, point.position.x, point.position.y)
+                }
                 Layout.preferredWidth: 320
                 Layout.maximumWidth: 320
                 text: !Playback.hasTrack ? qsTr("Not playing")

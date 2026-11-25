@@ -67,6 +67,7 @@ Menu {
     function addPlaylistMenu(e: var) {
         const menu = playlistComponent.createObject(null, { entry: e, title: e.text });
         addMenu(menu);
+        menu.enabled = e.enabled !== false;
         playlistMenu = menu;
         playlists.reload();
     }
@@ -177,6 +178,13 @@ Menu {
 
             contentItem: RowLayout {
                 spacing: Theme.spaceLG
+                // A choice among a few (`checked` given): ✓ on the current one.
+                Label {
+                    visible: menuItem.entry.checked !== undefined
+                    Layout.preferredWidth: 12
+                    text: menuItem.entry.checked ? "✓" : ""
+                    color: Theme.accent
+                }
                 Label {
                     Layout.fillWidth: true
                     text: menuItem.text

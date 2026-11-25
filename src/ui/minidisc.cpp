@@ -9,6 +9,7 @@
 #include "mduploadplanner.h"
 #include "syncplanner.h"
 
+#include <algorithm>
 #include <QSet>
 
 #include <QJSEngine>
@@ -685,7 +686,14 @@ void MiniDisc::refresh()
 
 bool MiniDisc::deleteTracks()
 {
-    const QList<int> rows = m_tracks->deleteRows();
+    return deleteTrackRows(m_tracks->deleteRows());
+}
+
+bool MiniDisc::deleteTrackRows(const QList<int> &given)
+{
+    QList<int> rows = given;
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
     if (rows.isEmpty() || !m_manager->deleteTracks(rows))
         return false;
     // Then: the track that took the first deleted one's place (or the new last one); if it

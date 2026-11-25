@@ -143,6 +143,8 @@ ApplicationWindow {
                 queueDock.openContextMenu();
             else if (currentScreen === Main.LibraryScreen)
                 libraryScreen.openContextMenu();
+            else if (currentScreen === Main.ExportScreen)
+                exportScreen.openContextMenu();
             menuFromKeyboard = false;
             return;
         }

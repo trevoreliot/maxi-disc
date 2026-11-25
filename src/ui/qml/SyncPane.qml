@@ -18,6 +18,33 @@ Item {
 
     signal interacted()
 
+    // Right-click menus (Q2): ExportView builds them (it has the actions). `what`: the row's kind
+    // (or the empty space's); `item` the row's delegate (or the list), (x, y) in it.
+    signal menuRequested(string what, int row, Item item, real x, real y)
+
+    // A right-click in `view`: on a row (rowWhat), else on the empty space (emptyWhat; "" = none).
+    function requestMenu(view: ListView, rowWhat: string, emptyWhat: string, x: real, y: real) {
+        root.interacted();
+        const i = view.indexAt(x + view.contentX, y + view.contentY);
+        const item = i >= 0 ? view.itemAtIndex(i) : null;
+        if (item) {
+            const p = view.mapToItem(item, x, y);
+            root.menuRequested(rowWhat, i, item, p.x, p.y);
+        } else if (emptyWhat !== "") {
+            root.menuRequested(emptyWhat, -1, view, x, y);
+        }
+    }
+
+    // `,`: the row's delegate (made if it's scrolled away), for anchoring the menu.
+    function rowItem(view: ListView, row: int): Item {
+        if (row < 0 || row >= view.count)
+            return null;
+        view.positionViewAtIndex(row, ListView.Contain);
+        return view.itemAtIndex(row);
+    }
+
+    function selectionItem(row: int): Item { return rowItem(selectionView, row); }
+
     function moveSelection(delta: int) {
         const n = selectionView.count;
         if (n === 0)
@@ -81,6 +108,16 @@ Item {
             onCountChanged: currentIndex = count === 0 ? -1 : Math.max(0, Math.min(currentIndex, count - 1))
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: point => {
+                    const i = selectionView.indexAt(point.position.x + selectionView.contentX, point.position.y + selectionView.contentY);
+                    if (i >= 0)
+                        selectionView.currentIndex = i;
+                    root.requestMenu(selectionView, "selection", "", point.position.x, point.position.y);
+                }
+            }
 
             delegate: NavRow {
                 id: itemRow

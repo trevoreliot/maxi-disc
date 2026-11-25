@@ -128,7 +128,14 @@ public Q_SLOTS:
         discord.coalesceMs = 50;
         m_discord = std::make_unique<Discord>(discord);
         // Folders the menus would open (recorded in `openedUrls`, never opened).
-        m_desktop = std::make_unique<Desktop>(Desktop::Options{[this](const QUrl &url) { m_openedUrls.urls << url.toString(); }});
+        // ... and files it would show selected ("show:" + the file's URI; never the real file manager).
+        m_desktop = std::make_unique<Desktop>(Desktop::Options{
+            [this](const QUrl &url) { m_openedUrls.urls << url.toString(); },
+            [this](const QStringList &uris, const std::function<void(bool)> &done) {
+                for (const QString &u : uris)
+                    m_openedUrls.urls << QStringLiteral("show:") + u;
+                done(true);
+            }});
         // No device detection: tests set devices with Devices.setTestDevices().
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});

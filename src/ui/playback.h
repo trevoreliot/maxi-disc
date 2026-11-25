@@ -38,6 +38,9 @@ class Playback : public QObject
     Q_PROPERTY(bool paused READ isPaused NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool hasTrack READ hasTrack NOTIFY currentChanged FINAL)
     Q_PROPERTY(int currentTrackId READ currentTrackId NOTIFY currentChanged FINAL)
+    // The current track's file and album (Q2: the now-playing menu); "" / 0 with none.
+    Q_PROPERTY(QString currentPath READ currentPath NOTIFY currentChanged FINAL)
+    Q_PROPERTY(int currentAlbumId READ currentAlbumId NOTIFY currentChanged FINAL)
     Q_PROPERTY(QString title READ title NOTIFY currentChanged FINAL)
     Q_PROPERTY(QString artist READ artist NOTIFY currentChanged FINAL)
     Q_PROPERTY(QString album READ album NOTIFY currentChanged FINAL)
@@ -76,6 +79,8 @@ public:
     bool isPaused() const;
     bool hasTrack() const;
     int currentTrackId() const;
+    QString currentPath() const { return hasTrack() ? m_controller.currentTrack()->path : QString(); }
+    int currentAlbumId() const { return hasTrack() ? static_cast<int>(m_controller.currentTrack()->albumId) : 0; }
     QString title() const;
     QString artist() const;
     QString album() const;

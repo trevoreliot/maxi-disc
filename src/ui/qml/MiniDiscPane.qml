@@ -20,6 +20,35 @@ Item {
     signal renameTrackRequested(int index)
     signal renameDiscRequested()
 
+    // Right-click menus (Q2): ExportView builds them (it has the actions). `what`: the row's kind
+    // (or the empty space's); `item` the row's delegate (or the list), (x, y) in it.
+    signal menuRequested(string what, int row, Item item, real x, real y)
+
+    // A right-click in `view`: on a row (rowWhat), else on the empty space (emptyWhat; "" = none).
+    function requestMenu(view: ListView, rowWhat: string, emptyWhat: string, x: real, y: real) {
+        root.interacted();
+        const i = view.indexAt(x + view.contentX, y + view.contentY);
+        const item = i >= 0 ? view.itemAtIndex(i) : null;
+        if (item) {
+            const p = view.mapToItem(item, x, y);
+            root.menuRequested(rowWhat, i, item, p.x, p.y);
+        } else if (emptyWhat !== "") {
+            root.menuRequested(emptyWhat, -1, view, x, y);
+        }
+    }
+
+    // `,`: the row's delegate (made if it's scrolled away), for anchoring the menu.
+    function rowItem(view: ListView, row: int): Item {
+        if (row < 0 || row >= view.count)
+            return null;
+        view.positionViewAtIndex(row, ListView.Contain);
+        return view.itemAtIndex(row);
+    }
+
+    function trackItem(row: int): Item { return rowItem(list, row); }
+    function queueItem(row: int): Item { return rowItem(queueList, row); }
+    readonly property Item discHeader: discHeaderRow
+
     component Tag: Label {
         leftPadding: 5
         rightPadding: 5
@@ -87,8 +116,16 @@ Item {
         spacing: Theme.spaceSM
 
         RowLayout {
+            id: discHeaderRow
             Layout.fillWidth: true
             spacing: Theme.spaceSM
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: point => {
+                    root.interacted();
+                    root.menuRequested("mdDisc", -1, discHeaderRow, point.position.x, point.position.y);
+                }
+            }
             Label {
                 objectName: "mdDiscTitle"
                 Layout.fillWidth: true
@@ -221,6 +258,11 @@ Item {
                     highlightMoveDuration: 0
                     ScrollBar.vertical: ScrollBar {}
                     onCurrentIndexChanged: if (currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
+
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: point => root.requestMenu(list, "mdTrack", "mdDisc", point.position.x, point.position.y)
+                    }
 
                     delegate: Column {
                         id: entry
@@ -381,6 +423,11 @@ Item {
                     highlightMoveDuration: 0
                     ScrollBar.vertical: ScrollBar {}
                     onCurrentIndexChanged: if (currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
+
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: point => root.requestMenu(queueList, "mdQueue", "mdQueueSpace", point.position.x, point.position.y)
+                    }
 
                     delegate: NavRow {
                         id: queued

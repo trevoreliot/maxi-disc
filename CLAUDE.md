@@ -129,8 +129,11 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     `AppContextMenu` shows it and takes every KeyRouter action while open (`,` / Menu / Shift+F10 =
     `ContextMenu` opens it for the cursor's row via the screen's `openContextMenu()`). Things only
     known by id resolve on the pool (`Playback.playItem` / `enqueueItem`, `Library.requestItemPaths` /
-    `requestAlbumInfo` / `addItemToPlaylist`). `Desktop` singleton opens folders (construct before the
-    engine; tests record URLs). QML tests: give a just-opened popup a moment before clicking it.
+    `requestAlbumInfo` / `addItemToPlaylist`). `Desktop` singleton opens folders and shows files selected
+    (FileManager1 D-Bus only when main.cpp passes `fileManagerShowItems`; tests record URLs / "show:" URIs).
+    Q2: the transport's now-playing and the Export screen (ExportView builds those menus from its panes'
+    `menuRequested`). QML tests: give a just-opened popup a moment before clicking it; entries run
+    after the menu closes (Qt.callLater), so check their effect with tryCompare.
   - Send to device (M11b): `SendToDevice` (QML singleton; construct after Devices, Playback, Sync,
     MiniDisc; its constructor has no default argument so QML uses `create()`) → `MiniDisc::addItems` /
     `Sync::addItems` (counts via `DeviceAddResult`) → `notice` → `Toast` in Main. USB selections take

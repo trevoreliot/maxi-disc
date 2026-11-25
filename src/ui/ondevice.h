@@ -74,6 +74,9 @@ public:
     // Folds / unfolds the artist or album at `row` (tracks: nothing).
     Q_INVOKABLE void toggle(int row);
     Q_INVOKABLE int indexOfKey(const QString &key) const;
+    // The files (paths relative to the device) a row stands for: a track's own, or all of an
+    // artist's / album's (Q2: open it in the file manager).
+    Q_INVOKABLE QStringList relPathsAt(int row) const;
 
     void clear();
     // A browse starts: tracks it doesn't send again are dropped when it ends (endBrowse).
@@ -99,6 +102,7 @@ private:
         qint64 bytes = 0;
         int notInLibrary = 0;
         mmm::DeviceTrack track; // tracks (a copy: m_tracks may change before the next rebuild)
+        QStringList relPaths;   // artists / albums: their tracks' files
     };
     void updateStats();
 
@@ -164,6 +168,9 @@ public:
 
     // Reads the device again (only new or changed files are actually read).
     Q_INVOKABLE void refresh();
+    // Where a row is on the mounted device: a track's file, or the folder an artist's / album's
+    // files share ("" if unknown).
+    Q_INVOKABLE QString pathAt(int row) const;
 
     mmm::DeviceBrowser *browser() const { return m_browser.get(); }
 
@@ -189,4 +196,5 @@ private:
     QString m_browseKey;  // ... + mount point + music folder + whole device: what was browsed
     QString m_shownKey;   // the scope the model's tracks are from
     QString m_profileMusicDir;
+    QString m_mountPoint; // of the device browsed
 };

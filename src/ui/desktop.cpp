@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "desktop.h"
 
+#include <QCoreApplication>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
 #include <QJSEngine>
+#include <QPointer>
 
 namespace {
 
@@ -47,9 +52,44 @@ bool Desktop::openFolder(const QString &dir)
     return true;
 }
 
-bool Desktop::openContainingFolder(const QString &filePath)
+bool Desktop::showFile(const QString &filePath)
 {
-    return !filePath.isEmpty() && openFolder(QFileInfo(filePath).absolutePath());
+    if (filePath.isEmpty())
+        return false;
+    const QFileInfo file(filePath);
+    if (!file.exists())
+        return openFolder(file.absolutePath()); // gone: its folder, if that's still there
+    if (!m_options.showItems)
+        return openFolder(file.absolutePath());
+    QPointer<Desktop> self(this);
+    const QString dir = file.absolutePath();
+    // A proper URI (spaces, #, % … encoded), as FileManager1 wants.
+    const QString uri = QString::fromUtf8(QUrl::fromLocalFile(file.absoluteFilePath()).toEncoded());
+    m_options.showItems({uri}, [self, dir](bool ok) {
+        if (!ok && self)
+            self->openFolder(dir);
+    });
+    return true;
+}
+
+void Desktop::fileManagerShowItems(const QStringList &uris, std::function<void(bool)> done)
+{
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        done(false);
+        return;
+    }
+    QDBusMessage call = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.FileManager1"),
+                                                       QStringLiteral("/org/freedesktop/FileManager1"),
+                                                       QStringLiteral("org.freedesktop.FileManager1"),
+                                                       QStringLiteral("ShowItems"));
+    call << uris << QString(); // (no startup id)
+    // (Parented to the app: gone with it, even if it quits before the answer.)
+    auto *watcher = new QDBusPendingCallWatcher(bus.asyncCall(call, 5000), QCoreApplication::instance());
+    QObject::connect(watcher, &QDBusPendingCallWatcher::finished, watcher, [watcher, done] {
+        watcher->deleteLater();
+        done(!watcher->isError());
+    });
 }
 
 QString Desktop::commonFolder(const QStringList &filePaths)
@@ -74,5 +114,7 @@ QString Desktop::commonFolder(const QStringList &filePaths)
 
 bool Desktop::openCommonFolder(const QStringList &filePaths)
 {
+    if (filePaths.size() == 1)
+        return showFile(filePaths.first());
     return openFolder(commonFolder(filePaths));
 }

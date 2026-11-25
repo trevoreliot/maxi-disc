@@ -96,12 +96,21 @@ Pane {
     // open is outlined; it isn't selected (what's on the right stays).
     property bool contextMenus: false
     property int contextTarget: -1
+    // Another screen's own entries for a row: function(kind, id, name, index) → entries (the
+    // Export screen: "Add to <device>" first). None: the library's.
+    property var entriesFor: null
 
     function contextEntries(index: int): var {
         const list = currentList;
         if (index < 0 || index >= list.count)
             return []; // "All artists" / "All genres": not the whole library from one click
         const r = list.model.get(index);
+        if (entriesFor) {
+            const item = [{ kind: "artist", id: r.artistId, name: r.name }, { kind: "genre", id: r.genreId, name: r.name },
+                          { kind: "album", id: r.albumId, name: r.artist ? r.title + " – " + r.artist : r.title },
+                          { kind: "playlist", id: r.playlistId, name: r.name }][mode];
+            return entriesFor(item.kind, item.id, item.name, index);
+        }
         switch (mode) {
         case BrowsePane.Artists:
             return ContextMenus.itemEntries("artist", r.artistId, r.name);

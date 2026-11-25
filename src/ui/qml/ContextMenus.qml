@@ -7,7 +7,8 @@ import QtQuick
 // Main shows it (AppContextMenu) and does what only it can (dialogs, opening an album).
 //
 // An entry: { text, hint (the key that does it too, shown greyed), enabled (default true),
-// destructive (shown in red, kept at the bottom), separator: true (a line), or
+// destructive (shown in red, kept at the bottom), checked (one of a few choices: ✓ if true),
+// separator: true (a line), or
 // playlists: true (an "Add to playlist" submenu: onPlaylist(id), onNewPlaylist()) }, and
 // onTriggered for a plain item.
 QtObject {
@@ -50,17 +51,43 @@ QtObject {
 
     // Play / Play next / Add to queue / Add to playlist / Send for what a browse row or an album
     // tile stands for (kind "artist", "genre", "album", "playlist" + id).
-    function itemEntries(kind: string, id: int, name: string): var {
+    function playbackEntries(kind: string, id: int): var {
         return [
             { text: qsTr("Play"), onTriggered: () => Playback.playItem(kind, id) },
             { text: qsTr("Play next"), onTriggered: () => Playback.enqueueItem(kind, id, true) },
             { text: qsTr("Add to queue"), onTriggered: () => Playback.enqueueItem(kind, id, false) },
+        ];
+    }
+
+    function itemEntries(kind: string, id: int, name: string): var {
+        return playbackEntries(kind, id).concat([
             separator(),
             { text: qsTr("Add to playlist"), playlists: true, excludePlaylist: kind === "playlist" ? id : 0,
               onPlaylist: playlistId => Library.addItemToPlaylist(playlistId, kind, id),
               onNewPlaylist: () => root.newPlaylistRequested(kind, id, [], name) },
             { text: sendText(""), hint: "i", enabled: SendToDevice.canSend,
               onTriggered: () => SendToDevice.sendItem(kind, id, name) },
+        ]);
+    }
+
+    // The transport bar's now-playing (Q2): the playing track.
+    function nowPlayingEntries(): var {
+        const trackId = Playback.currentTrackId;
+        const albumId = Playback.currentAlbumId;
+        const path = Playback.currentPath;
+        const title = Playback.title;
+        return [
+            { text: qsTr("Go to album"), enabled: albumId > 0, onTriggered: () => root.goToAlbumRequested(albumId) },
+            separator(),
+            { text: qsTr("Add to playlist"), playlists: true, enabled: path !== "",
+              onPlaylist: playlistId => Library.appendToPlaylist(playlistId, [path]),
+              onNewPlaylist: () => root.newPlaylistRequested("", 0, [path], title) },
+            { text: sendText(""), enabled: SendToDevice.canSend && trackId > 0,
+              onTriggered: () => SendToDevice.sendItem("track", trackId, Playback.artist ? title + " – " + Playback.artist : title) },
+            separator(),
+            { text: qsTr("Find cover…"), enabled: albumId > 0, onTriggered: () => root.findArtRequested(albumId) },
+            { text: qsTr("Edit tags…"), enabled: path !== "", onTriggered: () => root.editTagsRequested([path], path) },
+            { text: qsTr("Open containing folder"), enabled: path !== "", onTriggered: () => Desktop.showFile(path) },
         ];
     }
 

@@ -81,11 +81,12 @@ Item {
     // Ask before something that can't be undone (Main owns the ConfirmDialog; see its ask()).
     signal confirmRequested(var options)
 
-    // M12b: `d` / x / Delete / the button: the marked tracks, else the cursor's.
-    function askDeleteMdTracks() {
+    // M12b: `d` / x / Delete / the button: the marked tracks, else the cursor's. `only`: these
+    // rows instead (Q2: a right-clicked track, even with others marked).
+    function askDeleteMdTracks(only: var) {
         if (!MiniDisc.canEdit || MiniDisc.recordView)
             return;
-        const rows = MiniDisc.tracks.deleteRows();
+        const rows = only ? only : MiniDisc.tracks.deleteRows();
         if (rows.length === 0)
             return;
         const line = r => String(r + 1).padStart(2, "0") + "  " + (MiniDisc.tracks.titleAt(r) || qsTr("Untitled"));
@@ -97,7 +98,7 @@ Item {
             message: rows.length === 1 ? qsTr("It goes from the MiniDisc for good.") : qsTr("They go from the MiniDisc for good."),
             details: shown,
             confirmText: qsTr("Delete"),
-            action: () => MiniDisc.deleteTracks()
+            action: () => MiniDisc.deleteTrackRows(rows)
         });
     }
 
@@ -174,6 +175,199 @@ Item {
         OnDevice.active = !OnDevice.active;
         if (OnDevice.active)
             focusedPane = ExportView.Selection; // the browse list has the keys until rows arrive
+    }
+
+    // --- Right-click menus (Q2) ---
+    readonly property bool syncBusy: Sync.state === Sync.Planning || Sync.state === Sync.Syncing
+
+    // A device row (it becomes the selected device first, like a click).
+    function deviceEntries(): var {
+        const d = Devices.current;
+        if (d.netMd) {
+            return [
+                { text: qsTr("Show tracks"), onTriggered: () => { MiniDisc.recordView = false; root.enterRightPane(ExportView.DeviceList); } },
+                { text: qsTr("Refresh"), hint: "R", enabled: !MiniDisc.busy && !MiniDisc.recording, onTriggered: () => MiniDisc.refresh() },
+            ];
+        }
+        // (By the device's own id / path: another one may be plugged in while the menu is open.)
+        const objectPath = d.objectPath;
+        const deviceId = d.deviceId;
+        return [
+            { text: d.mounted ? qsTr("Unmount") : qsTr("Mount"), hint: "m", enabled: !d.busy && !(d.mounted && syncBusy),
+              onTriggered: () => d.mounted ? Devices.unmount(objectPath) : Devices.mount(objectPath) },
+            { text: d.hasProfile ? qsTr("Edit profile…") : qsTr("Set up…"), enabled: !syncBusy,
+              onTriggered: () => root.editProfileRequested(deviceId) },
+            { text: qsTr("Open in file manager"), enabled: d.mounted && d.mountPoint !== "",
+              onTriggered: () => Desktop.openFolder(d.mountPoint) },
+            { text: qsTr("Refresh"), hint: "R", enabled: OnDevice.active && d.mounted && !d.busy && Sync.state !== Sync.Syncing,
+              onTriggered: () => OnDevice.refresh() },
+        ];
+    }
+
+    // An Export browse row: onto the selected device first, then playing it.
+    function browseEntries(kind: string, id: int, name: string): var {
+        return [
+            { text: SendToDevice.canSend ? qsTr("Add to %1").arg(SendToDevice.targetName) : qsTr("Add to device"), hint: "i",
+              enabled: SendToDevice.canSend,
+              onTriggered: () => {
+                  if (!root.mdSelected && SendToDevice.canSend)
+                      OnDevice.active = false; // show where it went
+                  SendToDevice.sendItem(kind, id, name);
+              } },
+            ContextMenus.separator(),
+        ].concat(ContextMenus.playbackEntries(kind, id));
+    }
+
+    // A disc track (`item`: its delegate, which knows `marked` / `protectedTrack`). One of several
+    // marked: the entries are for all of them; else just it (the marks stay).
+    function mdTrackEntries(row: int, item: Item): var {
+        const marked = item.marked === true;
+        const locked = item.protectedTrack === true;
+        const batch = marked && MiniDisc.tracks.markedCount > 1;
+        const n = MiniDisc.tracks.markedCount;
+        const canEdit = MiniDisc.canEdit;
+        const entries = [
+            { text: qsTr("Rename…"), hint: "n", enabled: canEdit && !batch && !locked, onTriggered: () => root.renameMdRequested(false, row) },
+            { text: qsTr("Move up"), hint: "K", enabled: canEdit && !batch && !locked && row > 0,
+              onTriggered: () => { MiniDisc.tracks.currentIndex = row; MiniDisc.moveTrack(-1); } },
+            { text: qsTr("Move down"), hint: "J", enabled: canEdit && !batch && !locked && row < MiniDisc.tracks.count - 1,
+              onTriggered: () => { MiniDisc.tracks.currentIndex = row; MiniDisc.moveTrack(1); } },
+            ContextMenus.separator(),
+            { text: marked ? qsTr("Unmark") : qsTr("Mark"), hint: "v", enabled: !MiniDisc.recording,
+              onTriggered: () => MiniDisc.tracks.toggleMark(row) },
+        ];
+        if (n > 0)
+            entries.push({ text: qsTr("Clear marks (%1)").arg(n), enabled: !MiniDisc.recording,
+                           onTriggered: () => MiniDisc.tracks.clearMarks() });
+        entries.push(ContextMenus.separator(), {
+            text: batch ? qsTr("Delete %1 tracks…").arg(n) : locked ? qsTr("Delete… (protected)") : qsTr("Delete…"),
+            hint: "d", destructive: true, enabled: canEdit && (batch || !locked),
+            onTriggered: () => root.askDeleteMdTracks(batch ? null : [row]) });
+        return entries;
+    }
+
+    function mdQueueEntries(row: int): var {
+        const entries = [];
+        if (row >= 0)
+            entries.push({ text: qsTr("Remove"), hint: "x", enabled: !MiniDisc.recording, onTriggered: () => MiniDisc.removeQueued(row) });
+        entries.push({ text: qsTr("Clear list"), hint: "X", enabled: !MiniDisc.recording && MiniDisc.queue.count > 0,
+                       onTriggered: () => MiniDisc.clearQueue() });
+        return entries;
+    }
+
+    // The disc (its header, or the space under its tracks).
+    function mdDiscEntries(): var {
+        const modes = [qsTr("Record in SP"), qsTr("Record in LP2"), qsTr("Record in LP4")];
+        const entries = [
+            { text: qsTr("Rename disc…"), hint: "N", enabled: MiniDisc.canEdit, onTriggered: () => root.renameMdRequested(true, -1) },
+            ContextMenus.separator(),
+        ];
+        for (let m = 0; m < 3; ++m) {
+            const mode = m;
+            entries.push({ text: modes[m], checked: MiniDisc.recordMode === m,
+                           enabled: !MiniDisc.recording && (m === 0 || MiniDisc.lpAvailable),
+                           onTriggered: () => { MiniDisc.recordMode = mode; } });
+        }
+        entries.push(ContextMenus.separator(),
+                     { text: qsTr("Refresh"), hint: "R", enabled: !MiniDisc.busy && !MiniDisc.recording, onTriggered: () => MiniDisc.refresh() },
+                     ContextMenus.separator(),
+                     { text: qsTr("Wipe disc…"), hint: "D", destructive: true, enabled: MiniDisc.canEdit, onTriggered: () => root.askEraseMd() });
+        return entries;
+    }
+
+    // An on-device row (`item`: its delegate: kind 0 artist / 1 album / 2 track, expanded).
+    function onDeviceEntries(row: int, item: Item): var {
+        const r = { kind: item.kind, expanded: item.expanded };
+        const path = OnDevice.pathAt(row);
+        const entries = [];
+        if (r.kind !== 2)
+            entries.push({ text: r.expanded ? qsTr("Collapse") : qsTr("Expand"), onTriggered: () => OnDevice.model.toggle(row) });
+        entries.push({ text: qsTr("Open in file manager"), enabled: path !== "",
+                       onTriggered: () => r.kind === 2 ? Desktop.showFile(path) : Desktop.openFolder(path) },
+                     ContextMenus.separator(),
+                     { text: qsTr("Refresh"), hint: "R", enabled: Sync.state !== Sync.Syncing, onTriggered: () => OnDevice.refresh() });
+        return entries;
+    }
+
+    // A pane's right-click (or `,`): `what` says which menu.
+    function openPaneMenu(what: string, row: int, item: Item, x: real, y: real) {
+        let entries = [];
+        switch (what) {
+        case "mdTrack":
+            MiniDisc.tracks.currentIndex = row;
+            entries = mdTrackEntries(row, item);
+            break;
+        case "mdDisc":
+            entries = mdDiscEntries();
+            break;
+        case "mdQueue":
+            MiniDisc.queue.currentIndex = row;
+            entries = mdQueueEntries(row);
+            break;
+        case "mdQueueSpace":
+            entries = mdQueueEntries(-1);
+            break;
+        case "selection":
+            entries = [{ text: qsTr("Remove"), hint: "x", enabled: Sync.state === Sync.Idle, onTriggered: () => Sync.removeAt(row) }];
+            break;
+        case "onDevice":
+            OnDevice.model.currentIndex = row;
+            entries = onDeviceEntries(row, item);
+            break;
+        }
+        if (what !== "mdDisc" && what !== "mdQueueSpace")
+            root.focusedPane = ExportView.Selection;
+        ContextMenus.open(item, x, y, entries, null);
+    }
+
+    function openDeviceMenu(index: int, item: Item, x: real, y: real) {
+        Devices.currentIndex = index;
+        root.focusedPane = ExportView.DeviceList;
+        root.interacted();
+        ContextMenus.open(item, x, y, deviceEntries(), null);
+    }
+
+    // `,` / Menu: the menu for the cursor's row in the pane with the keys.
+    function openContextMenu() {
+        const below = it => [it, Math.min(it.width * 0.35, 220), it.height];
+        switch (pane) {
+        case ExportView.DeviceList: {
+            if (Devices.currentIndex < 0)
+                return;
+            deviceView.positionViewAtIndex(Devices.currentIndex, ListView.Contain);
+            const it = deviceView.itemAtIndex(Devices.currentIndex);
+            if (it)
+                openDeviceMenu(Devices.currentIndex, ...below(it));
+            return;
+        }
+        case ExportView.Browse:
+            browsePane.openContextMenuForCurrent();
+            return;
+        }
+        // The right pane.
+        if (mdSelected) {
+            if (MiniDisc.recordView) {
+                const it = miniDiscPane.queueItem(MiniDisc.queue.currentIndex);
+                if (it)
+                    openPaneMenu("mdQueue", MiniDisc.queue.currentIndex, ...below(it));
+                return;
+            }
+            const it = miniDiscPane.trackItem(MiniDisc.tracks.currentIndex);
+            if (it)
+                openPaneMenu("mdTrack", MiniDisc.tracks.currentIndex, ...below(it));
+            else if (MiniDisc.hasDisc)
+                openPaneMenu("mdDisc", -1, ...below(miniDiscPane.discHeader));
+            return;
+        }
+        if (OnDevice.active) {
+            const it = onDevicePane.deviceRowItem(OnDevice.model.currentIndex);
+            if (it)
+                openPaneMenu("onDevice", OnDevice.model.currentIndex, ...below(it));
+            return;
+        }
+        const it = syncPane.selectionItem(syncPane.selectionIndex);
+        if (it && !syncPane.showsPlan)
+            openPaneMenu("selection", syncPane.selectionIndex, ...below(it));
     }
 
     function handleAction(action: int): bool {
@@ -499,6 +693,10 @@ Item {
                                 root.interacted();
                             }
                             onDoubleClicked: root.editProfileRequested(deviceRow.deviceId)
+                            TapHandler {
+                                acceptedButtons: Qt.RightButton
+                                onTapped: point => root.openDeviceMenu(deviceRow.index, deviceRow, point.position.x, point.position.y)
+                            }
 
                             contentItem: RowLayout {
                                 spacing: Theme.spaceSM
@@ -551,6 +749,8 @@ Item {
                 Layout.fillHeight: true
                 showPlaylistTools: false
                 paneActive: root.active && root.pane === ExportView.Browse
+                contextMenus: true
+                entriesFor: (kind, id, name) => root.browseEntries(kind, id, name)
                 onInteracted: {
                     root.focusedPane = ExportView.Browse;
                     root.interacted();
@@ -658,6 +858,7 @@ Item {
                         root.focusedPane = ExportView.Selection;
                         root.interacted();
                     }
+                    onMenuRequested: (what, row, item, x, y) => root.openPaneMenu(what, row, item, x, y)
                 }
                 OnDevicePane {
                     id: onDevicePane
@@ -667,6 +868,7 @@ Item {
                         root.focusedPane = ExportView.Selection;
                         root.interacted();
                     }
+                    onMenuRequested: (what, row, item, x, y) => root.openPaneMenu(what, row, item, x, y)
                 }
                 MiniDiscPane {
                     id: miniDiscPane
@@ -678,6 +880,7 @@ Item {
                     }
                     onRenameTrackRequested: index => root.renameMdRequested(false, index)
                     onRenameDiscRequested: root.renameMdRequested(true, -1)
+                    onMenuRequested: (what, row, item, x, y) => root.openPaneMenu(what, row, item, x, y)
                 }
             }
 

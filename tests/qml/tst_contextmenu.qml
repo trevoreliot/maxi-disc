@@ -227,8 +227,9 @@ TestCase {
         const before = openedUrls.all().length;
         pick(menu, "Open containing folder");
         tryVerify(() => openedUrls.all().length === before + 1);
-        verify(openedUrls.all()[before].endsWith("/Radiohead/Kid%20A") || openedUrls.all()[before].endsWith("/Radiohead/Kid A"),
-               openedUrls.all()[before]);
+        // Shown selected in the file manager (the stand-in records it).
+        verify(openedUrls.all()[before].startsWith("show:file://"), openedUrls.all()[before]);
+        verify(openedUrls.all()[before].endsWith("/Radiohead/Kid%20A/01.flac"), openedUrls.all()[before]);
 
         // From the queue: Go to album opens it in the library.
         Playback.playFromModel(page.tracksModel, 0);

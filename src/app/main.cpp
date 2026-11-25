@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
     listenBrainzOptions.databasePath = QFileInfo(databasePath).dir().filePath(QStringLiteral("scrobbles.db"));
     ListenBrainz listenBrainz(listenBrainzOptions);
     Discord discord(Discord::Options{}); // after Playback too
-    Desktop desktop(Desktop::Options{});
+    Desktop desktop(Desktop::Options{{}, &Desktop::fileManagerShowItems}); // files shown selected
     Devices devices({.databasePath = databasePath, .monitor = !parser.isSet(noDevicesOpt)});
     Sync sync({.databasePath = databasePath, .cacheDir = {}});
     OnDevice onDevice({.databasePath = databasePath});

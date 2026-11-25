@@ -211,6 +211,8 @@ public:
     bool canEdit() const { return m_manager->canEdit(); }
     // Deletes the marked tracks, else the one under the cursor.
     Q_INVOKABLE bool deleteTracks();
+    // These rows (Q2: a right-clicked track, even with others marked).
+    Q_INVOKABLE bool deleteTrackRows(const QList<int> &rows);
     // Moves the cursor's track down (+1) or up (-1) a place; the cursor goes with it.
     Q_INVOKABLE bool moveTrack(int delta);
     Q_INVOKABLE bool eraseDisc();
