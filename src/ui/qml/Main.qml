@@ -34,6 +34,7 @@ ApplicationWindow {
     readonly property alias renameMdDialog: mdRenameDialog
     readonly property alias confirmDialog: confirm
     readonly property alias listenBrainzDialog: listenBrainz
+    readonly property alias discordDialog: discord
     readonly property alias chrome: topChrome
     readonly property alias toast: toast
 
@@ -197,6 +198,7 @@ ApplicationWindow {
         onQueueToggled: root.toggleQueue()
         onAddFolderRequested: folderDialog.open()
         onListenBrainzRequested: listenBrainz.open()
+        onDiscordRequested: discord.open()
         onSearchAccepted: {
             root.leaveSearchField();
             libraryScreen.searchResults.moveSelection(0);
@@ -274,6 +276,7 @@ ApplicationWindow {
         TransportBar {
             Layout.fillWidth: true
             onListenBrainzSetupRequested: listenBrainz.open()
+            onDiscordSetupRequested: discord.open()
         }
     }
 
@@ -302,6 +305,10 @@ ApplicationWindow {
 
     ListenBrainzDialog {
         id: listenBrainz
+    }
+
+    DiscordDialog {
+        id: discord
     }
     // It only asks about the MiniDisc so far: a different disc (unplugged, another recorder)
     // under an open question mustn't get the answer.

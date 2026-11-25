@@ -11,6 +11,7 @@
 #include "apppaths.h"
 #include "coverimageprovider.h"
 #include "devices.h"
+#include "discord.h"
 #include "listenbrainz.h"
 #include "library.h"
 #include "minidisc.h"
@@ -74,6 +75,7 @@ int main(int argc, char *argv[])
     // Its own file next to the library's: a long scan writing the library never holds it up.
     listenBrainzOptions.databasePath = QFileInfo(databasePath).dir().filePath(QStringLiteral("scrobbles.db"));
     ListenBrainz listenBrainz(listenBrainzOptions);
+    Discord discord(Discord::Options{}); // after Playback too
     Devices devices({.databasePath = databasePath, .monitor = !parser.isSet(noDevicesOpt)});
     Sync sync({.databasePath = databasePath, .cacheDir = {}});
     OnDevice onDevice({.databasePath = databasePath});

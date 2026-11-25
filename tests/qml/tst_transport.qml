@@ -78,11 +78,7 @@ TestCase {
         verify(!findChild(bar, "nextButton").enabled);
         compare(findChild(bar, "nowPlayingLabel").text, "Not playing");
 
-        // Stubs for features that aren't built yet: visible, but inert.
-        const discord = findChild(bar, "discordToggle");
-        verify(!discord.interactive);
-        mouseClick(discord, discord.width / 2, discord.height - 8);
-        verify(!discord.checked);
+        verify(findChild(bar, "discordToggle").interactive); // M15 (tst_discord.qml)
         verify(findChild(bar, "listenbrainzToggle").interactive); // M14 (tst_listenbrainz.qml)
         verify(findChild(bar, "shuffleButton") !== null);
 

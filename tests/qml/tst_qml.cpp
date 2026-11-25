@@ -12,6 +12,8 @@
 #include "ondevice.h"
 #include "sync.h"
 #include "fixturelibrary.h"
+#include "discord.h"
+#include "fakediscord.h"
 #include "library.h"
 #include "listenbrainz.h"
 #include "playback.h"
@@ -46,6 +48,28 @@ class OpenedUrls : public QObject
 public:
     Q_INVOKABLE QStringList all() const { return urls; }
     QStringList urls;
+};
+
+// The stand-in Discord (M15) as QML sees it: `fakeDiscord.activities()` (SET_ACTIVITY args, oldest
+// first), `.connections()`, `.clear()`.
+class FakeDiscordControl : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit FakeDiscordControl(mmm::test::FakeDiscord *discord) : m_discord(discord) {}
+    Q_INVOKABLE QVariantList activities() const
+    {
+        QVariantList out;
+        for (const QJsonObject &a : m_discord->activities())
+            out << a.toVariantMap();
+        return out;
+    }
+    Q_INVOKABLE int connections() const { return m_discord->connections(); }
+    Q_INVOKABLE void clear() { m_discord->clear(); }
+
+private:
+    mmm::test::FakeDiscord *m_discord;
 };
 
 // A stand-in ListenBrainz for the dialog tests (M14): the token "GOOD" is alice's, any other is
@@ -89,6 +113,19 @@ public Q_SLOTS:
         lb.openUrl = [this](const QUrl &url) { m_openedUrls.urls << url.toString(); };
         lb.watchNetwork = false;
         m_listenBrainz = std::make_unique<ListenBrainz>(lb);
+        // Discord: a stand-in Discord app in a temp dir (application id 123456789012345678).
+        QDir(m_dir.path()).mkpath(QStringLiteral("discord"));
+        m_fakeDiscord = std::make_unique<mmm::test::FakeDiscord>(m_dir.filePath(QStringLiteral("discord")));
+        if (!m_fakeDiscord->listen())
+            qFatal("could not start the fake Discord");
+        m_fakeDiscordControl = std::make_unique<FakeDiscordControl>(m_fakeDiscord.get());
+        Discord::Options discord;
+        discord.persistSettings = false;
+        discord.ipcDirs = QStringList{m_dir.filePath(QStringLiteral("discord"))};
+        discord.openUrl = [this](const QUrl &url) { m_openedUrls.urls << url.toString(); };
+        discord.firstRetryMs = 100;
+        discord.coalesceMs = 50;
+        m_discord = std::make_unique<Discord>(discord);
         // No device detection: tests set devices with Devices.setTestDevices().
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
@@ -107,6 +144,7 @@ public Q_SLOTS:
         engine->rootContext()->setContextProperty(QStringLiteral("fixtureDir"), m_dir.path());
         engine->rootContext()->setContextProperty(QStringLiteral("fakeRecorder"), &m_recorderControl);
         engine->rootContext()->setContextProperty(QStringLiteral("openedUrls"), &m_openedUrls);
+        engine->rootContext()->setContextProperty(QStringLiteral("fakeDiscord"), m_fakeDiscordControl.get());
     }
 
     void cleanupTestCase()
@@ -116,6 +154,9 @@ public Q_SLOTS:
         m_onDevice.reset();
         m_sync.reset();
         m_devices.reset();
+        m_discord.reset();
+        m_fakeDiscordControl.reset();
+        m_fakeDiscord.reset();
         m_listenBrainz.reset();
         m_listenBrainzServer.reset();
         m_playback.reset();
@@ -129,6 +170,9 @@ private:
     std::unique_ptr<mmm::test::TestHttpServer> m_listenBrainzServer;
     std::unique_ptr<ListenBrainz> m_listenBrainz;
     OpenedUrls m_openedUrls;
+    std::unique_ptr<mmm::test::FakeDiscord> m_fakeDiscord;
+    std::unique_ptr<FakeDiscordControl> m_fakeDiscordControl;
+    std::unique_ptr<Discord> m_discord;
     std::unique_ptr<Devices> m_devices;
     std::unique_ptr<Sync> m_sync;
     std::unique_ptr<OnDevice> m_onDevice;

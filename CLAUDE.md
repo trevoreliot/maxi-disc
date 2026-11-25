@@ -116,6 +116,12 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     store, an `openUrl` that only records, so no browser opens), `ListenBrainzDialog`, the transport-bar
     toggle (`PillToggle.autoToggle: false`). `PlaybackController::playStarted` / `currentTrackRetagged`
     tell a new play from a tag edit. tst_qml's Setup runs a stand-in ListenBrainz ("GOOD" is alice's token).
+  - Discord status (M15): core `DiscordIpc` (QLocalSocket to the Discord app's `discord-ipc-N`; framing,
+    handshake, reconnect; `MMM_DISCORD_IPC_DIR` overrides where it looks) + `DiscordPresence` (the
+    activity JSON, merging + 5-per-20-s limit; no sockets) → `Discord` singleton (construct after
+    Playback; QSettings `discord/appId` / `discord/enabled`; tests: `persistSettings = false`, `ipcDirs`
+    = the fake's dir) + `DiscordDialog` + the transport-bar toggle. decisions/0009. Tests use
+    `tests/core/fakediscord.h`; tst_qml's Setup runs one (application id 123456789012345678).
   - Send to device (M11b): `SendToDevice` (QML singleton; construct after Devices, Playback, Sync,
     MiniDisc; its constructor has no default argument so QML uses `create()`) → `MiniDisc::addItems` /
     `Sync::addItems` (counts via `DeviceAddResult`) → `notice` → `Toast` in Main. USB selections take
@@ -228,6 +234,7 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - Tests must never reach the internet: network clients get a base URL (`setBaseUrl`) pointed at
   `tests/core/testhttpserver.h` (loopback server; it reads POST bodies too). ctest also sets
   `MMM_MUSICBRAINZ_URL` / `MMM_COVERARTARCHIVE_URL` / `MMM_LISTENBRAINZ_URL` to a closed local port, so
-  anything that slips through fails offline. Tests never use the real keyring or open a browser.
+  anything that slips through fails offline. Tests never use the real keyring or open a browser, and
+  never find the real Discord (ctest sets `MMM_DISCORD_IPC_DIR` to an empty dir).
   moc can't parse raw strings containing `//` (URLs): write such JSON fixtures as plain literals.
 - SPDX header `GPL-3.0-or-later` on every source file.

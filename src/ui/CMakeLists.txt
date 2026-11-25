@@ -38,6 +38,7 @@ qt_add_qml_module(mmm_ui
         qml/RenameMdDialog.qml
         qml/ConfirmDialog.qml
         qml/ListenBrainzDialog.qml
+        qml/DiscordDialog.qml
         qml/Toast.qml
         qml/SendToDeviceButton.qml
     SOURCES
@@ -47,6 +48,7 @@ qt_add_qml_module(mmm_ui
         coverimageprovider.h coverimageprovider.cpp
         playback.h playback.cpp
         listenbrainz.h listenbrainz.cpp
+        discord.h discord.cpp
         keyrouter.h keyrouter.cpp
         tageditor.h tageditor.cpp
         artfinder.h artfinder.cpp

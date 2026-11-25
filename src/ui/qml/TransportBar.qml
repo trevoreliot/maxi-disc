@@ -10,6 +10,7 @@ Rectangle {
     id: root
 
     signal listenBrainzSetupRequested() // Main opens the ListenBrainz dialog
+    signal discordSetupRequested() // ... and the Discord one
 
     implicitHeight: 104
     color: Theme.surfaceChrome
@@ -233,7 +234,7 @@ Rectangle {
                 color: Theme.borderSubtle
             }
 
-            // 4. Online services (M14 ListenBrainz; M15 Discord isn't built yet).
+            // 4. Online services (M15 Discord, M14 ListenBrainz).
             RowLayout {
                 Layout.preferredWidth: 220
                 Layout.leftMargin: Theme.spaceLG
@@ -241,11 +242,19 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 spacing: Theme.spaceLG
 
+                // Set up: switches the status on / off. Not (yet): opens the Discord dialog.
                 PillToggle {
                     objectName: "discordToggle"
                     text: qsTr("Discord")
-                    interactive: false
-                    toolTip: qsTr("Discord status arrives in a later version (M15)")
+                    autoToggle: false
+                    checked: Discord.enabled && Discord.hasAppId
+                    toolTip: Discord.toolTip
+                    onClicked: {
+                        if (Discord.hasAppId)
+                            Discord.enabled = !Discord.enabled;
+                        else
+                            root.discordSetupRequested();
+                    }
                 }
                 // Connected: switches submitting on / off. Not (yet): opens the ListenBrainz dialog.
                 PillToggle {

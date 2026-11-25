@@ -59,7 +59,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | MiniDisc transport | libnetmd (linux-minidisc) + libusb | Wrap C API in one C++ class; document udev rule |
 | ATRAC encoding | atracdenc | LP2/LP4; SP is encoded by the recorder |
 | ListenBrainz | QNetworkAccessManager; JSON | User token (validate-token); a listen after 50% or 4 min for tracks > 30 s; offline queue in SQLite |
-| Discord | QLocalSocket to $XDG_RUNTIME_DIR/discord-ipc-0 | No SDK. Also check Flatpak Discord socket path. SET_ACTIVITY with track, artist, album, elapsed |
+| Discord | QLocalSocket to $XDG_RUNTIME_DIR/discord-ipc-N (+ Flatpak / Snap / Vesktop dirs) | No SDK. SET_ACTIVITY (Listening) with track, artist, album, time bar; the user's own application ID (decisions/0009) |
 | Secrets | QtKeychain | ListenBrainz user token |
 | Packaging (later) | AppImage (linuxdeploy Qt plugin) or Flatpak | |
 
@@ -135,7 +135,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 
 ### Phase 6: Online services (depend only on M5; may be pulled earlier)
 - [x] **M14 ListenBrainz scrobbling** (was Last.fm: dropped before it shipped, decisions/0008) — Done when: connect account in settings; now-playing updates; listens follow the half-or-4-minutes rule; queued listens retry when back online; unit tests on listen timing. User test: play a few tracks, including some offline; all appear on ListenBrainz.
-- [ ] **M15 Discord status** — Done when: shows track, artist, album and progress while playing; clears on pause or quit; reconnects if Discord restarts; on/off toggle. User test: Discord profile shows what's playing and clears on stop.
+- [x] **M15 Discord status** — Done when: shows track, artist, album and progress while playing; clears on pause or quit; reconnects if Discord restarts; on/off toggle. User test: Discord profile shows what's playing and clears on stop.
 
 ### Phase 7: Emacs integration (depends on M5)
 - [ ] **M16 Doom Emacs client** — Done when: an Emacs package (in `contrib/emacs/`, loadable from
@@ -153,8 +153,8 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | Risk | Mitigation |
 | --- | --- |
 | MiniDisc bugs only appear on real hardware | Do it last; scratch discs; compare against Web MiniDisc Pro AppImage |
-| libnetmd lacks some netmd-js features | Port one at a time (M13) using netmd-js as reference |
-| Memory bugs | RAII, sanitizers, warnings as errors, tests per milestone |
+| libnetmd lacks some netmd-js features | Port one at a time (M13) using netmd-js as referenre |
+uiuwiiqwquiwquwuquwqwiqiwqiwiwqiiiui121 32 21 2g1g2g121g21g21!A2    QWexrzzresdwzdsn esn esrtaqf mr  mcactcatv hjty6bnnnnoiwed'c5d0tfurtipot8ugjki5ouuuuu8yygturhgrfgdnzvGVzNJ| Memory bugs | RAII, sanitizers, warnings as errors, tests per milestone |
 | Tag writing damages files | Test on copies; user keeps a library backup before M6 |
 | QML stutters on huge lists | Models in C++, simple delegates, async cached thumbnails |
 | Pro usage limits | One milestone per session, fresh sessions, ccache |
@@ -337,6 +337,19 @@ and the user has run the "User test". Tick the box, commit, then stop.
     set MMM_ATRACDENC); a single track over ~3 hours makes a > 2 GB temporary WAV.
   - atracdenc's RIFF header undercounts its frames (the encoder's delay frames follow): trusting it
     would cut ~46 ms off every track's end, so the data is read to the end of the file.
+- M15 notes / follow-ups:
+  - You create your own Discord application (its name is what Discord shows: "Listening to …") and
+    paste its ID in ☰ → Discord… (or the toggle when not set up); kept in QSettings (decisions/0009).
+  - Core: `DiscordIpc` (finds the socket in the runtime dir, Flatpak / Snap / Vesktop dirs, the temp
+    dirs; handshake, PING / PONG, frames split or joined; reconnects 5 → 60 s; a refused ID stops it;
+    `MMM_DISCORD_IPC_DIR` overrides where it looks — ctest: an empty dir), `DiscordPresence` (the
+    activity: "Song - Artist" (also the one-line status), the album under it, time bar in Unix seconds;
+    cleared when paused / stopped; ≤ 5 updates per 20 s, changes within 250 ms merged, ≤ 2 s drift
+    not re-sent). UI: `Discord` singleton (fed by PlaybackController + Player, position ticks too),
+    `DiscordDialog`, the transport-bar toggle. Tests: `tests/core/fakediscord.h` (a stand-in Discord).
+  - Not done: cover art (needs public URLs: Cover Art Archive once release MBIDs are stored); a
+    project application ID for packaged builds (build-time, never committed); a "paused" status
+    instead of clearing; buttons (e.g. a link to the release on MusicBrainz).
 - M14 notes / follow-ups:
   - Built for Last.fm first, then switched to ListenBrainz before it shipped: Last.fm API keys need
     Last.fm Pro from 2026-12-01 (decisions/0008). No Last.fm code is left.

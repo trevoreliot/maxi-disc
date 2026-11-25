@@ -56,6 +56,8 @@ add_library(mmm_core STATIC
     scrobbletypes.h
     scrobbletracker.h scrobbletracker.cpp
     listenbrainzclient.h listenbrainzclient.cpp
+    discordipc.h discordipc.cpp
+    discordpresence.h discordpresence.cpp
     secretstore.h secretstore.cpp
     scrobbler.h scrobbler.cpp
     mdupload.h

@@ -19,6 +19,7 @@ ToolBar {
     signal queueToggled()
     signal addFolderRequested()
     signal listenBrainzRequested() // the ListenBrainz dialog (M14)
+    signal discordRequested() // the Discord dialog (M15)
     signal searchAccepted() // Enter in the search field
 
     function focusSearch() {
@@ -128,6 +129,11 @@ ToolBar {
                     objectName: "listenbrainzMenuItem"
                     text: qsTr("ListenBrainz…")
                     onTriggered: root.listenBrainzRequested()
+                }
+                MenuItem {
+                    objectName: "discordMenuItem"
+                    text: qsTr("Discord…")
+                    onTriggered: root.discordRequested()
                 }
                 MenuSeparator {}
                 Menu {
