@@ -111,7 +111,9 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   - ListenBrainz (M14; replaced Last.fm, decisions/0008): core `ScrobbleTracker` (when a play counts;
     injectable clocks) → `Scrobbler` (token check, playing now, the `pending_scrobbles` queue, retries,
     ≤ 1 request/s) → `ListenBrainzClient` (JSON, `Authorization: Token …`; base URL `MMM_LISTENBRAINZ_URL`,
-    ctest: a closed port). The token via `SecretStore` (QtKeychain; tests `MemorySecretStore`). UI:
+    ctest: a closed port). The token via `SecretStore`: QtKeychain, or `PassSecretStore` (the `pass` program,
+    M14b) when there's no keyring (`makeDefaultSecretStore`; QSettings `secrets/backend`,
+    `MMM_SECRET_BACKEND`; tests `MemorySecretStore`, fake `pass` scripts). UI:
     `ListenBrainz` singleton (construct after Playback; tests pass `persistSettings = false`, a memory
     store, an `openUrl` that only records, so no browser opens), `ListenBrainzDialog`, the transport-bar
     toggle (`PillToggle.autoToggle: false`). `PlaybackController::playStarted` / `currentTrackRetagged`
@@ -235,6 +237,7 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   `tests/core/testhttpserver.h` (loopback server; it reads POST bodies too). ctest also sets
   `MMM_MUSICBRAINZ_URL` / `MMM_COVERARTARCHIVE_URL` / `MMM_LISTENBRAINZ_URL` to a closed local port, so
   anything that slips through fails offline. Tests never use the real keyring or open a browser, and
-  never find the real Discord (ctest sets `MMM_DISCORD_IPC_DIR` to an empty dir).
+  never find the real Discord (ctest sets `MMM_DISCORD_IPC_DIR` to an empty dir) or the real pass store
+  (ctest: `MMM_SECRET_BACKEND=pass`, `PASSWORD_STORE_DIR` / `GNUPGHOME` empty dirs).
   moc can't parse raw strings containing `//` (URLs): write such JSON fixtures as plain literals.
 - SPDX header `GPL-3.0-or-later` on every source file.

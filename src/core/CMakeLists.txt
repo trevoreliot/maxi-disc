@@ -59,6 +59,7 @@ add_library(mmm_core STATIC
     discordipc.h discordipc.cpp
     discordpresence.h discordpresence.cpp
     secretstore.h secretstore.cpp
+    passsecretstore.h passsecretstore.cpp
     scrobbler.h scrobbler.cpp
     mdupload.h
     mduploadplanner.h mduploadplanner.cpp

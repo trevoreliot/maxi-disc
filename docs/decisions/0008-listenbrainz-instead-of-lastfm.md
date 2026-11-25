@@ -48,4 +48,27 @@ out, as other scrobblers do).
   tier for personal scrobblers.
 - Users want another server that speaks the same API (Maloja, Koito, a self-hosted ListenBrainz):
   a "server address" setting is all it takes (PLAN follow-up).
-- Users without a keyring ask for it: an opt-in, clearly labelled plain-file store.
+- Users without a keyring ask for it: an opt-in, clearly labelled plain-file store. (Asked
+  2026-11-24; answered with pass instead, below.)
+
+## Revisited 2026-11-24 (M14b): pass when there's no keyring
+
+The user's KDE Wallet is turned off (kwalletd6 exits at once, no Secret Service on the bus), so
+the token couldn't be saved and ListenBrainz needed connecting again on every launch. They keep
+their passwords in pass (with QtPass), and chose that over turning the wallet on or a plain file.
+
+- `PassSecretStore` runs `pass` (`show` / `insert --multiline --force` / `rm --force`), one call at
+  a time, the value on stdin (never on a command line). Entry `music-md-manager/listenbrainz/token`.
+  Writing only encrypts (no passphrase); reading at launch may bring up the user's pinentry while
+  plays wait in the queue; a cancelled prompt is shown as "Can't use pass: …" and the account
+  waits for a reconnect, as with a locked keyring.
+- Which store: the keyring if `QKeychain::isAvailable()`, else pass if it's set up (`pass` runs and
+  the store has a `.gpg-id`), else the keyring (its errors say what's wrong). `isAvailable()` said
+  yes on the user's machine while every call failed ("The name is not activatable"), so with pass
+  set up the keyring is tried and `FallbackSecretStore` hands over to pass when it turns out
+  unusable (the call is made again there; the user cancelling an unlock prompt isn't a switch,
+  and a keyring that has worked once stays). QSettings
+  `secrets/backend` = auto / keyring / pass overrides it (no UI); `MMM_SECRET_BACKEND` does too
+  (ctest: pass with an empty store, so tests never probe the real keyring).
+- No moving between stores: switching (e.g. turning the wallet back on) means connecting once more.
+- Still no plain-file store.

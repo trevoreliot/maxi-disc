@@ -28,7 +28,7 @@ Scrobbler::Scrobbler(Options options, QObject *parent)
     , m_tracker(m_options.monotonicMs, m_options.utcSeconds)
 {
     if (!m_options.secrets)
-        m_options.secrets = makeKeychainSecretStore();
+        m_options.secrets = makeDefaultSecretStore();
     if (!m_options.baseUrl.isEmpty())
         m_client.setBaseUrl(m_options.baseUrl);
     m_requestClock.start();

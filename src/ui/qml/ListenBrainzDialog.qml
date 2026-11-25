@@ -98,7 +98,7 @@ Dialog {
             visible: root.setup
             text: qsTr("Paste your ListenBrainz user token. It's on your "
                        + "<a href=\"settings\">ListenBrainz settings page</a> "
-                       + "(sign in, or create a free account, first). It's kept in your keyring.")
+                       + "(sign in, or create a free account, first). ") + ListenBrainz.secretStoreHint
             textFormat: Text.StyledText
             wrapMode: Text.Wrap
             color: Theme.textSecondary

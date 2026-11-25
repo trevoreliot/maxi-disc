@@ -20,6 +20,11 @@ ListenBrainz::ListenBrainz(Options options, QObject *parent)
     s_instance = this;
     if (!m_options.openUrl)
         m_options.openUrl = [](const QUrl &url) { QDesktopServices::openUrl(url); };
+    // The token's store: the keyring, or pass without one (QSettings secrets/backend overrides).
+    if (!m_options.secrets) {
+        const QString preference = m_options.persistSettings ? QSettings().value(QStringLiteral("secrets/backend")).toString() : QString();
+        m_options.secrets = mmm::makeDefaultSecretStore(mmm::parseSecretBackendPreference(preference));
+    }
     mmm::Scrobbler::Options so;
     so.databasePath = m_options.databasePath;
     so.secrets = m_options.secrets;
@@ -115,8 +120,11 @@ QString ListenBrainz::state() const
 
 QString ListenBrainz::errorText() const
 {
-    if (!m_s->keyringError().isEmpty())
-        return QStringLiteral("The keyring can't be used: %1").arg(m_s->keyringError());
+    if (!m_s->keyringError().isEmpty()) {
+        return m_options.secrets->backend() == mmm::SecretBackend::Pass
+            ? QStringLiteral("Can't use pass: %1").arg(m_s->keyringError())
+            : QStringLiteral("The keyring can't be used: %1").arg(m_s->keyringError());
+    }
     return m_s->lastError();
 }
 
@@ -157,6 +165,14 @@ QString ListenBrainz::toolTip() const
         return QStringLiteral("ListenBrainz: checking the token…");
     }
     return {};
+}
+
+QString ListenBrainz::secretStoreHint() const
+{
+    if (m_options.secrets->backend() == mmm::SecretBackend::Pass)
+        return QStringLiteral("It's kept in pass (%1).")
+            .arg(m_options.secrets->entryLocation(QString::fromLatin1(mmm::Scrobbler::kTokenKey)));
+    return QStringLiteral("It's kept in your keyring.");
 }
 
 void ListenBrainz::openTokenPage()

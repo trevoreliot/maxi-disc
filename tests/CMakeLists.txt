@@ -112,7 +112,10 @@ add_test(NAME tst_listenbrainzclient COMMAND tst_listenbrainzclient)
 qt_add_executable(tst_scrobbler core/tst_scrobbler.cpp core/testhttpserver.h)
 target_link_libraries(tst_scrobbler PRIVATE mmm_core Qt6::Network Qt6::Test mmm_build_flags)
 add_test(NAME tst_scrobbler COMMAND tst_scrobbler)
-set(MMM_LISTENBRAINZ_TESTS tst_scrobbletracker tst_listenbrainzclient tst_scrobbler)
+qt_add_executable(tst_passsecretstore core/tst_passsecretstore.cpp)
+target_link_libraries(tst_passsecretstore PRIVATE mmm_core Qt6::Test mmm_build_flags)
+add_test(NAME tst_passsecretstore COMMAND tst_passsecretstore)
+set(MMM_LISTENBRAINZ_TESTS tst_scrobbletracker tst_listenbrainzclient tst_scrobbler tst_passsecretstore)
 
 # --- Discord (M15): a stand-in Discord in a temp dir; ctest hides the real one (MMM_DISCORD_IPC_DIR). ---
 qt_add_executable(tst_discordipc core/tst_discordipc.cpp core/fakediscord.h)
@@ -164,7 +167,7 @@ add_test(NAME app_smoke COMMAND music-md-manager --quit-after-load --no-scan --n
     --database "${MMM_TEST_HOME}/smoke.db")
 
 set_tests_properties(tst_appinfo tst_player tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml app_smoke ${MMM_ARTWORK_TESTS} ${MMM_DEVICE_TESTS} ${MMM_SYNC_TESTS} ${MMM_NETMD_TESTS} ${MMM_LISTENBRAINZ_TESTS} ${MMM_DISCORD_TESTS} PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;XDG_DATA_HOME=${MMM_TEST_HOME}/data;XDG_CACHE_HOME=${MMM_TEST_HOME}/cache;XDG_CONFIG_HOME=${MMM_TEST_HOME}/config;MMM_MUSICBRAINZ_URL=http://127.0.0.1:9;MMM_COVERARTARCHIVE_URL=http://127.0.0.1:9;MMM_LISTENBRAINZ_URL=http://127.0.0.1:9/;MMM_DISCORD_IPC_DIR=${MMM_TEST_HOME}/no-discord")
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;XDG_DATA_HOME=${MMM_TEST_HOME}/data;XDG_CACHE_HOME=${MMM_TEST_HOME}/cache;XDG_CONFIG_HOME=${MMM_TEST_HOME}/config;MMM_MUSICBRAINZ_URL=http://127.0.0.1:9;MMM_COVERARTARCHIVE_URL=http://127.0.0.1:9;MMM_LISTENBRAINZ_URL=http://127.0.0.1:9/;MMM_DISCORD_IPC_DIR=${MMM_TEST_HOME}/no-discord;MMM_SECRET_BACKEND=pass;PASSWORD_STORE_DIR=${MMM_TEST_HOME}/no-pass-store;GNUPGHOME=${MMM_TEST_HOME}/no-gnupg")
 
 # --- qmllint: any warning fails the test ---
 add_test(NAME qmllint

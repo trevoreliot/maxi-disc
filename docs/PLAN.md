@@ -135,6 +135,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 
 ### Phase 6: Online services (depend only on M5; may be pulled earlier)
 - [x] **M14 ListenBrainz scrobbling** (was Last.fm: dropped before it shipped, decisions/0008) — Done when: connect account in settings; now-playing updates; listens follow the half-or-4-minutes rule; queued listens retry when back online; unit tests on listen timing. User test: play a few tracks, including some offline; all appear on ListenBrainz.
+- [x] **M14b ListenBrainz token in pass** (decisions/0008, revisited) — Done when: without a working keyring and with pass set up, the token is kept in pass (`music-md-manager/listenbrainz/token`, value on stdin, one `pass` call at a time); the dialog says where it's kept; gpg's own error is shown when reading fails; tests use a fake `pass` (never the real store, GPG or keyring). User test: connect ListenBrainz, the entry shows in QtPass; restart: still connected (after a pinentry prompt, perhaps), both toggles on; disconnect: the entry is gone.
 - [x] **M15 Discord status** — Done when: shows track, artist, album and progress while playing; clears on pause or quit; reconnects if Discord restarts; on/off toggle. User test: Discord profile shows what's playing and clears on stop.
 
 ### Phase 7: Emacs integration (depends on M5)

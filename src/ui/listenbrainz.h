@@ -36,13 +36,16 @@ class ListenBrainz : public QObject
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusChanged FINAL)
     Q_PROPERTY(QString toolTip READ toolTip NOTIFY statusChanged FINAL)
     Q_PROPERTY(QString lastListen READ lastListen NOTIFY changed FINAL)
+    // Where the token is kept: "It's kept in your keyring." / "It's kept in pass (…)." (Can change
+    // once: a keyring that fails hands over to pass.)
+    Q_PROPERTY(QString secretStoreHint READ secretStoreHint NOTIFY changed FINAL)
 
 public:
     struct Options
     {
         QString databasePath;                       // the queue (its own file: main.cpp)
         bool persistSettings = true;                // QSettings; tests: false
-        std::shared_ptr<mmm::SecretStore> secrets;  // default: the keyring
+        std::shared_ptr<mmm::SecretStore> secrets;  // default: the keyring, or pass without one
         QUrl baseUrl;                               // default: ListenBrainz (MMM_LISTENBRAINZ_URL)
         std::function<void(const QUrl &)> openUrl;  // default: the desktop's browser
         bool watchNetwork = true;
@@ -65,6 +68,7 @@ public:
     QString statusText() const;
     QString toolTip() const;
     QString lastListen() const { return m_s->lastListen(); }
+    QString secretStoreHint() const;
 
     Q_INVOKABLE void connectAccount(const QString &token) { m_s->connectAccount(token); }
     Q_INVOKABLE void cancelConnect() { m_s->cancelConnect(); }
