@@ -4,10 +4,12 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 // Bottom bar on every screen (docs/ui-draft/main-menu.jpeg): a now-playing + seek strip,
-// then four sections: media buttons | audio analyzer | volume | Discord / Last.fm.
+// then four sections: media buttons | audio analyzer | volume | Discord / ListenBrainz.
 // Every command goes through the Playback singleton (the same commands MPRIS uses).
 Rectangle {
     id: root
+
+    signal listenBrainzSetupRequested() // Main opens the ListenBrainz dialog
 
     implicitHeight: 104
     color: Theme.surfaceChrome
@@ -231,7 +233,7 @@ Rectangle {
                 color: Theme.borderSubtle
             }
 
-            // 4. Online services (not built yet: M15 Discord, M14 Last.fm).
+            // 4. Online services (M14 ListenBrainz; M15 Discord isn't built yet).
             RowLayout {
                 Layout.preferredWidth: 220
                 Layout.leftMargin: Theme.spaceLG
@@ -245,11 +247,19 @@ Rectangle {
                     interactive: false
                     toolTip: qsTr("Discord status arrives in a later version (M15)")
                 }
+                // Connected: switches submitting on / off. Not (yet): opens the ListenBrainz dialog.
                 PillToggle {
-                    objectName: "lastfmToggle"
-                    text: qsTr("Last.fm")
-                    interactive: false
-                    toolTip: qsTr("Last.fm scrobbling arrives in a later version (M14)")
+                    objectName: "listenbrainzToggle"
+                    text: qsTr("ListenBrainz")
+                    autoToggle: false
+                    checked: ListenBrainz.connected && ListenBrainz.enabled
+                    toolTip: ListenBrainz.toolTip
+                    onClicked: {
+                        if (ListenBrainz.connected)
+                            ListenBrainz.enabled = !ListenBrainz.enabled;
+                        else
+                            root.listenBrainzSetupRequested();
+                    }
                 }
             }
         }

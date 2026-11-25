@@ -18,6 +18,7 @@ ToolBar {
     signal backRequested()
     signal queueToggled()
     signal addFolderRequested()
+    signal listenBrainzRequested() // the ListenBrainz dialog (M14)
     signal searchAccepted() // Enter in the search field
 
     function focusSearch() {
@@ -122,6 +123,11 @@ ToolBar {
                     text: qsTr("Rescan library")
                     enabled: Library.folders.length > 0
                     onTriggered: Library.rescan()
+                }
+                MenuItem {
+                    objectName: "listenbrainzMenuItem"
+                    text: qsTr("ListenBrainz…")
+                    onTriggered: root.listenBrainzRequested()
                 }
                 MenuSeparator {}
                 Menu {

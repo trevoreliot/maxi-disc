@@ -2,8 +2,9 @@
 import QtQuick
 import QtQuick.Controls
 
-// Labelled [off | on] rocker switch (Discord / Last.fm). With `interactive: false` it's
-// greyed out but still shows its tooltip (a disabled control gets no hover events).
+// Labelled [off | on] rocker switch (Discord / ListenBrainz). With `interactive: false` it's
+// greyed out but still shows its tooltip (a disabled control gets no hover events). With
+// `autoToggle: false` a tap only says so (clicked()): `checked` stays bound to the real state.
 Item {
     id: root
 
@@ -11,8 +12,10 @@ Item {
     property bool checked: false
     property bool interactive: true
     property string toolTip
+    property bool autoToggle: true
 
     signal toggled(bool checked)
+    signal clicked()
 
     implicitWidth: 88
     implicitHeight: 44
@@ -73,6 +76,9 @@ Item {
             TapHandler {
                 enabled: root.interactive
                 onTapped: {
+                    root.clicked();
+                    if (!root.autoToggle)
+                        return;
                     root.checked = !root.checked;
                     root.toggled(root.checked);
                 }

@@ -52,8 +52,13 @@ public Q_SLOTS:
 
 Q_SIGNALS:
     // The current track changed (new track started, or cleared → null). For now-playing UI,
-    // MPRIS metadata, and later Last.fm / Discord.
+    // MPRIS metadata, ListenBrainz and later Discord.
     void currentTrackChanged();
+    // A play began (M14, scrobbling): a track started, a gapless advance, a repeat-one loop. Not
+    // a re-announce after a tag edit: that's currentTrackRetagged. After currentTrackChanged.
+    void playStarted();
+    // The playing track's tags changed (refreshTracks): the same play goes on.
+    void currentTrackRetagged();
 
 private:
     void startCurrent();

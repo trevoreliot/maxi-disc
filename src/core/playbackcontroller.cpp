@@ -152,8 +152,10 @@ void PlaybackController::clearQueue()
 
 void PlaybackController::refreshTracks(const QList<TrackRow> &rows)
 {
-    if (m_queue.updateTracks(rows) && m_announcedTrackId != -1)
+    if (m_queue.updateTracks(rows) && m_announcedTrackId != -1) {
         Q_EMIT currentTrackChanged();
+        Q_EMIT currentTrackRetagged();
+    }
 }
 
 void PlaybackController::startCurrent()
@@ -169,6 +171,7 @@ void PlaybackController::startCurrent()
     m_player.play();
     m_announcedTrackId = t->id;
     Q_EMIT currentTrackChanged();
+    Q_EMIT playStarted();
 }
 
 void PlaybackController::syncNextSource()
@@ -212,6 +215,7 @@ void PlaybackController::onAdvanced(const QUrl &url)
     syncNextSource();                  // repeat-one: index unchanged, still needs re-queuing
     m_announcedTrackId = e->id;
     Q_EMIT currentTrackChanged();
+    Q_EMIT playStarted();
 }
 
 void PlaybackController::deferCorrection()

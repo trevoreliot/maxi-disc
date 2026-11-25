@@ -2,6 +2,7 @@
 #pragma once
 
 #include "deviceprofile.h"
+#include "scrobbletypes.h"
 #include "synctypes.h"
 #include "tracktags.h"
 
@@ -143,6 +144,16 @@ public:
     bool setPlaylistPaths(qint64 id, const QStringList &paths, QString *error = nullptr);
     bool appendToPlaylist(qint64 id, const QStringList &paths, QString *error = nullptr);
     QStringList playlistPaths(qint64 id) const;
+
+    // --- Scrobbling (M14): plays waiting to be sent to ListenBrainz ---
+    // Queues one; beyond `keepAtMost` the oldest go (a very long time offline). Returns its id.
+    std::optional<qint64> addPendingScrobble(const PendingScrobble &s, int keepAtMost = 5000, QString *error = nullptr);
+    // The oldest first (by when they were played).
+    QList<PendingScrobble> pendingScrobbles(int limit) const;
+    int pendingScrobbleCount() const;
+    bool removePendingScrobbles(const QList<qint64> &ids);
+    // A send failed for a reason worth retrying: counted, with why.
+    bool notePendingScrobbleFailure(const QList<qint64> &ids, const QString &error);
 
     // Full-text search over title / artist / album / album artist / genre / composer.
     // Every word is a prefix match ("beat abb" finds "The Beatles – Abbey Road").

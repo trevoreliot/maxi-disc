@@ -83,7 +83,7 @@ TestCase {
         verify(!discord.interactive);
         mouseClick(discord, discord.width / 2, discord.height - 8);
         verify(!discord.checked);
-        verify(!findChild(bar, "lastfmToggle").interactive);
+        verify(findChild(bar, "listenbrainzToggle").interactive); // M14 (tst_listenbrainz.qml)
         verify(findChild(bar, "shuffleButton") !== null);
 
         // Repeat cycles off → all → one → off.

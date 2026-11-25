@@ -16,7 +16,7 @@
 
 namespace mmm::test {
 
-// A minimal HTTP/1.1 server on 127.0.0.1 for network tests: GET only, one request per
+// A minimal HTTP/1.1 server on 127.0.0.1 for network tests: GET / POST, one request per
 // connection ("Connection: close"). Routes match the path exactly; unknown paths get 404.
 // Tests must never reach the real internet: point clients' base URLs at url().
 class TestHttpServer : public QObject
@@ -24,8 +24,10 @@ class TestHttpServer : public QObject
 public:
     struct Request
     {
+        QByteArray method;                      // "GET", "POST", ...
         QString path;
         QUrlQuery query;
+        QByteArray body;                        // a POST's (Content-Length bytes)
         QHash<QByteArray, QByteArray> headers; // names lower-cased
         qint64 atMs = 0;                        // since the server started
     };
@@ -82,10 +84,21 @@ private:
             if (end < 0)
                 return;
             const QList<QByteArray> lines = buffer->left(end).split('\n');
+            // A body follows the headers (POST): wait for all of it.
+            qsizetype bodyLength = 0;
+            for (const QByteArray &line : lines) {
+                if (line.trimmed().toLower().startsWith("content-length:"))
+                    bodyLength = line.mid(line.indexOf(':') + 1).trimmed().toLongLong();
+            }
+            if (buffer->size() < end + 4 + bodyLength)
+                return;
+            const QByteArray body = buffer->mid(end + 4, bodyLength);
             buffer->clear();
             const QList<QByteArray> first = lines.value(0).trimmed().split(' ');
             const QUrl target(QStringLiteral("http://x") + QString::fromLatin1(first.value(1)));
             Request req;
+            req.method = first.value(0);
+            req.body = body;
             req.path = target.path();
             req.query = QUrlQuery(target);
             req.atMs = m_clock.elapsed();

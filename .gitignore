@@ -17,7 +17,7 @@ compile_commands.json
 *.swp
 *~
 
-# Secrets (Last.fm / Discord keys are supplied at runtime, never committed)
+# Secrets (ListenBrainz tokens / Discord keys are supplied at runtime, never committed)
 .env
 *.secret
 secrets.*

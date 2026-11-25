@@ -108,6 +108,14 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     `MiniDisc.deleteTracks()` / `moveTrack(±1)` / `eraseDisc()`, `ConfirmDialog` (Main owns it; ExportView
     asks via `confirmRequested`). Keys (disc view): `v` mark, `d` / `x` delete, `J` / `K` move, `D` wipe.
     QML tests put the shared fake back with `fakeRecorder.reset()`.
+  - ListenBrainz (M14; replaced Last.fm, decisions/0008): core `ScrobbleTracker` (when a play counts;
+    injectable clocks) → `Scrobbler` (token check, playing now, the `pending_scrobbles` queue, retries,
+    ≤ 1 request/s) → `ListenBrainzClient` (JSON, `Authorization: Token …`; base URL `MMM_LISTENBRAINZ_URL`,
+    ctest: a closed port). The token via `SecretStore` (QtKeychain; tests `MemorySecretStore`). UI:
+    `ListenBrainz` singleton (construct after Playback; tests pass `persistSettings = false`, a memory
+    store, an `openUrl` that only records, so no browser opens), `ListenBrainzDialog`, the transport-bar
+    toggle (`PillToggle.autoToggle: false`). `PlaybackController::playStarted` / `currentTrackRetagged`
+    tell a new play from a tag edit. tst_qml's Setup runs a stand-in ListenBrainz ("GOOD" is alice's token).
   - Send to device (M11b): `SendToDevice` (QML singleton; construct after Devices, Playback, Sync,
     MiniDisc; its constructor has no default argument so QML uses `create()`) → `MiniDisc::addItems` /
     `Sync::addItems` (counts via `DeviceAddResult`) → `notice` → `Toast` in Main. USB selections take
@@ -149,7 +157,7 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - RAII everywhere; no owning raw pointers outside Qt parent/child ownership.
 - Long work (scan, fetch, copy, transcode, MD upload, network) runs on QThreadPool;
   results come back via queued signals. Workers never touch QML objects.
-- Last.fm / Discord keys and secrets are supplied at runtime. **Never commit them.**
+- ListenBrainz tokens and Discord keys / secrets are supplied at runtime. **Never commit them.**
 - QML files inside the `MusicMdManager` module must not `import MusicMdManager`
   (qmllint flags it); same-module types are visible already.
 - Add a test for every new core class. Tests that need media generate it with
@@ -218,7 +226,8 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
 - Tests must never touch the user's real library: ctest sets `XDG_DATA_HOME`/`XDG_CACHE_HOME`
   to `build/*/test-home`, and the app smoke test uses `--database` + `--no-scan`.
 - Tests must never reach the internet: network clients get a base URL (`setBaseUrl`) pointed at
-  `tests/core/testhttpserver.h` (loopback server). ctest also sets `MMM_MUSICBRAINZ_URL` /
-  `MMM_COVERARTARCHIVE_URL` to a closed local port, so anything that slips through fails offline.
+  `tests/core/testhttpserver.h` (loopback server; it reads POST bodies too). ctest also sets
+  `MMM_MUSICBRAINZ_URL` / `MMM_COVERARTARCHIVE_URL` / `MMM_LISTENBRAINZ_URL` to a closed local port, so
+  anything that slips through fails offline. Tests never use the real keyring or open a browser.
   moc can't parse raw strings containing `//` (URLs): write such JSON fixtures as plain literals.
 - SPDX header `GPL-3.0-or-later` on every source file.

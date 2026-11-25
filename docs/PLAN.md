@@ -12,7 +12,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - Artwork: embedded or folder art first, then fetch missing covers from MusicBrainz + Cover Art Archive
 - USB sync: mass-storage devices, per-device profiles, transcode on sync, incremental updates, .m3u playlists
 - MiniDisc: NetMD upload in SP, LP2 and LP4, disc and track titling, built into the app
-- Desktop/online: MPRIS media keys, Last.fm scrobbling, Discord "now playing" status
+- Desktop/online: MPRIS media keys, ListenBrainz scrobbling, Discord "now playing" status
 
 **Not in v1**
 - MTP phone sync
@@ -32,7 +32,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | DAP artwork | On sync, shrink embedded art to 500 px baseline JPEG |
 | Artwork storage | Both: cover.jpg in album folder and embedded in files |
 | Library size | < 1 TB (~30k+ tracks). Design for 100k tracks: first scan < 10 min, browse/search < 100 ms |
-| Online services | Last.fm scrobbling, Discord Rich Presence. Requires a Last.fm API key + secret and a Discord application ID (supplied by user at runtime/config, never committed) |
+| Online services | ListenBrainz scrobbling, Discord Rich Presence. Requires the user's ListenBrainz token and a Discord application ID (supplied by user at runtime/config, never committed) |
 | Album art | Folder file beats embedded; the finder saves both, 1200 px CAA JPEG, no file in folders shared with other albums. See `docs/decisions/0003-album-art-precedence-and-storage.md` |
 | Devices / profiles | UDisks2 (USB or SD-card volumes with a filesystem, not system disks); profiles in the library DB keyed by filesystem UUID. See `docs/decisions/0004-device-detection-and-profiles.md` |
 | USB sync | Per-device selection (playlists, albums, artists, genres) mirrored to the device; only files the app wrote (manifest) are ever replaced/moved/removed; playlists in `<musicDir>/Playlists/*.m3u8`. See `docs/decisions/0005-usb-sync-manifest-and-mirror.md` |
@@ -58,9 +58,9 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | Media keys | MPRIS over QtDBus | |
 | MiniDisc transport | libnetmd (linux-minidisc) + libusb | Wrap C API in one C++ class; document udev rule |
 | ATRAC encoding | atracdenc | LP2/LP4; SP is encoded by the recorder |
-| Last.fm | QNetworkAccessManager; QCryptographicHash (MD5 signing) | Desktop auth flow; scrobble after 50% or 4 min for tracks > 30 s; offline queue in SQLite |
+| ListenBrainz | QNetworkAccessManager; JSON | User token (validate-token); a listen after 50% or 4 min for tracks > 30 s; offline queue in SQLite |
 | Discord | QLocalSocket to $XDG_RUNTIME_DIR/discord-ipc-0 | No SDK. Also check Flatpak Discord socket path. SET_ACTIVITY with track, artist, album, elapsed |
-| Secrets | QtKeychain | Last.fm session key |
+| Secrets | QtKeychain | ListenBrainz user token |
 | Packaging (later) | AppImage (linuxdeploy Qt plugin) or Flatpak | |
 
 ## Architecture
@@ -75,7 +75,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 │ Core (src/core) — C++ and Qt Core only, no QML/GUI                  │
 │  Player        Library        Artwork       USB sync     MiniDisc   │
 │  playback      scanner,tags   find missing  profiles     TOC,titles │
-│  MPRIS,Last.fm database,FTS   fetch, embed  diff, copy,  SP/LP      │
+│  MPRIS,LB      database,FTS   fetch, embed  diff, copy,  SP/LP      │
 │  Discord                                    transcode    upload     │
 └──────┬──────────────┬─────────────┬────────────┬────────────┬───────┘
    GStreamer     SQLite,TagLib  QtNetwork   UDisks2/QtDBus  libnetmd,libusb
@@ -87,7 +87,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
   workers and report progress through queued signals. No worker touches QML objects.
 - USB sync and MiniDisc share one "job" abstraction (plan, run, progress, cancel);
   MiniDisc is just another sync target.
-- Last.fm and Discord listen to the Player's track-change signals; playback never waits on the network.
+- ListenBrainz and Discord listen to the Player's track-change signals; playback never waits on the network.
 - External control: everything the user can do to playback (and, later, the queue and library
   search) must be reachable from outside the GUI over D-Bus: MPRIS for standard controls (M5)
   plus an app-specific interface for the rest (M16). Keep these operations as core methods
@@ -134,7 +134,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 - [ ] **M13 (Optional, deferred) netmd-js extras** — Port device-quirk fixes only if the MZ-NE410 needs them. netmd-exploits features wait until requested.
 
 ### Phase 6: Online services (depend only on M5; may be pulled earlier)
-- [ ] **M14 Last.fm scrobbling** — Done when: connect account in settings; now-playing updates; scrobbles follow Last.fm rules; queued scrobbles retry when back online; unit tests on scrobble timing. User test: play a few tracks, including some offline; all appear on Last.fm.
+- [x] **M14 ListenBrainz scrobbling** (was Last.fm: dropped before it shipped, decisions/0008) — Done when: connect account in settings; now-playing updates; listens follow the half-or-4-minutes rule; queued listens retry when back online; unit tests on listen timing. User test: play a few tracks, including some offline; all appear on ListenBrainz.
 - [ ] **M15 Discord status** — Done when: shows track, artist, album and progress while playing; clears on pause or quit; reconnects if Discord restarts; on/off toggle. User test: Discord profile shows what's playing and clears on stop.
 
 ### Phase 7: Emacs integration (depends on M5)
@@ -337,6 +337,25 @@ and the user has run the "User test". Tick the box, commit, then stop.
     set MMM_ATRACDENC); a single track over ~3 hours makes a > 2 GB temporary WAV.
   - atracdenc's RIFF header undercounts its frames (the encoder's delay frames follow): trusting it
     would cut ~46 ms off every track's end, so the data is read to the end of the file.
+- M14 notes / follow-ups:
+  - Built for Last.fm first, then switched to ListenBrainz before it shipped: Last.fm API keys need
+    Last.fm Pro from 2026-12-01 (decisions/0008). No Last.fm code is left.
+  - You paste your ListenBrainz user token (listenbrainz.org/settings); it's checked and kept in the
+    keyring (QtKeychain, `SecretStore`), the user name and on/off in QSettings.
+  - Core: `ScrobbleTracker` (the rules, fake-clock tests), `ListenBrainzClient` (JSON, the token in
+    the Authorization header; `MMM_LISTENBRAINZ_URL` — ctest points it at a closed port), `Scrobbler`
+    (account check, debounced "playing now", the queue in `pending_scrobbles` (v7, ≤ 5000; in
+    `scrobbles.db` beside the library's), 50 per request ("single" / "import"), one request a second
+    and the server's rate-limit window respected, retries 1 → 30 min, at once when the network is
+    back (QNetworkInformation), a refused batch resent one by one (one refused listen dropped per
+    try, so a server refusing everything can't empty the queue)). UI: `ListenBrainz` singleton
+    (feeds it PlaybackController's `playStarted` / `currentTrackRetagged` and the Player's state),
+    `ListenBrainzDialog` (☰ → ListenBrainz…, or the toggle when not connected), the transport-bar
+    toggle.
+  - Not done: a server address setting (Maloja, Koito and self-hosted ListenBrainz speak the same
+    API); MusicBrainz ids in listens (the library doesn't read them yet); love / hate feedback; a
+    listen history view; scrobbling files played from devices; plays queued under one account go
+    to the next one connected (switching accounts is rare).
 - M12c notes / follow-ups:
   - `MdEncodeWorker` on its own thread prepares tracks; `NetMdManager::pumpUpload()` is the one
     scheduler: upload the next track when it's ready, prepare one ahead of the upload (≤ 2 tracks
@@ -389,7 +408,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
     or a theme file, and keep Main.qml's palette mapping as the single place roles are set.
   - Stubs in the UI waiting on core work: shuffle (PlayQueue shuffle order + MPRIS `Shuffle`);
     audio analyzer (GStreamer `spectrum` element in the Player, levels throttled to ~25 fps,
-    paused when hidden; `AudioAnalyzerStub.levels` is ready for them); Discord / Last.fm toggles
+    paused when hidden; `AudioAnalyzerStub.levels` is ready for them); Discord / ListenBrainz toggles
     (M15 / M14); Export screen devices, sync and MD options (M8–M12).
   - MD Visualizer (main-menu tile 3) isn't designed yet: a disabled placeholder tile.
   - Keyboard ideas not done: switch the browse dropdown mode from the keyboard (it needs a click

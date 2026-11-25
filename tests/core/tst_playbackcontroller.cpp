@@ -70,6 +70,7 @@ private Q_SLOTS:
     {
         PlaybackController pc(silent());
         QSignalSpy changed(&pc, &PlaybackController::currentTrackChanged);
+        QSignalSpy plays(&pc, &PlaybackController::playStarted);
         QSignalSpy states(pc.player(), &Player::playbackStateChanged);
         pc.playTracks({m_a, m_b, m_c}, 0);
         QTRY_COMPARE_WITH_TIMEOUT(pc.player()->playbackState(), State::Playing, kTimeoutMs);
@@ -77,6 +78,7 @@ private Q_SLOTS:
         QCOMPARE(pc.currentTrack()->id, 1);
 
         QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 3, kTimeoutMs); // start + 2 gapless advances
+        QCOMPARE(plays.count(), 3); // each a play (M14)
         QCOMPARE(pc.queue()->currentIndex(), 2);
         QVERIFY(waitStopped(pc));
         QCOMPARE(states.count(), 1); // only the final Stopped: no restarts between tracks
@@ -143,8 +145,10 @@ private Q_SLOTS:
         PlaybackController pc(silent());
         pc.queue()->setRepeatMode(Repeat::One);
         QSignalSpy changed(&pc, &PlaybackController::currentTrackChanged);
+        QSignalSpy plays(&pc, &PlaybackController::playStarted);
         pc.playTracks({m_a, m_b}, 0);
         QTRY_VERIFY_WITH_TIMEOUT(changed.count() >= 3, kTimeoutMs); // start + 2 loops of the same track
+        QVERIFY(plays.count() >= 3); // each loop is a new play (M14)
         QCOMPARE(pc.queue()->currentIndex(), 0);
         QVERIFY(pc.player()->nextSource().isEmpty()); // loops restart; no self-gapless
         QTRY_COMPARE_WITH_TIMEOUT(pc.player()->playbackState(), State::Playing, kTimeoutMs);
@@ -214,6 +218,25 @@ private Q_SLOTS:
         pc.playTracks({m_missing, m_missing}, 0);
         QTest::qWait(1500);
         QCOMPARE(pc.player()->playbackState(), State::Stopped);
+    }
+
+    // M14: new tags for the playing track re-announce it, but it's the same play.
+    void aTagEditIsNotANewPlay()
+    {
+        PlaybackController pc(silent());
+        pc.playTracks({m_long}, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(pc.player()->playbackState(), State::Playing, kTimeoutMs);
+        QSignalSpy changed(&pc, &PlaybackController::currentTrackChanged);
+        QSignalSpy plays(&pc, &PlaybackController::playStarted);
+        QSignalSpy retagged(&pc, &PlaybackController::currentTrackRetagged);
+        TrackRow edited = m_long;
+        edited.title = QStringLiteral("Renamed");
+        pc.refreshTracks({edited});
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(retagged.count(), 1);
+        QCOMPARE(plays.count(), 0);
+        QCOMPARE(pc.currentTrack()->title, QStringLiteral("Renamed"));
+        pc.stop();
     }
 
     void playPauseAndClear()

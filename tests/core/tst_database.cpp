@@ -8,6 +8,8 @@
 
 using mmm::Database;
 using mmm::TrackTags;
+using mmm::PendingScrobble;
+using mmm::ScrobbleTrack;
 
 namespace {
 
@@ -360,6 +362,7 @@ private Q_SLOTS:
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_sync_items")));
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_manifest")));
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_file_tags")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE pending_scrobbles")));
             QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 1")));
         }
         Database db;
@@ -385,13 +388,14 @@ private Q_SLOTS:
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_sync_items")));
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_manifest")));
             QVERIFY(q.exec(QStringLiteral("DROP TABLE device_file_tags")));
+            QVERIFY(q.exec(QStringLiteral("DROP TABLE pending_scrobbles")));
             QVERIFY(q.exec(QStringLiteral("PRAGMA user_version = 2")));
         }
         Database db;
         QString error;
         QVERIFY2(db.open(path, &error), qPrintable(error));
         QCOMPARE(db.schemaVersion(), Database::latestSchemaVersion());
-        QCOMPARE(Database::latestSchemaVersion(), 6);
+        QCOMPARE(Database::latestSchemaVersion(), 7);
         const qint64 album = scalar(db, QStringLiteral("SELECT id FROM albums")).toLongLong();
         QVERIFY(scalar(db, QStringLiteral("SELECT art_skipped_at FROM albums")).isNull());
         QVERIFY(db.setAlbumArtSkipped(album, true));
@@ -402,6 +406,53 @@ private Q_SLOTS:
         QVERIFY(db.setAlbumCover(album, QString()));
         QVERIFY(scalar(db, QStringLiteral("SELECT cover_path FROM albums")).isNull());
         QVERIFY(!db.setAlbumArtSkipped(album + 100, true)); // no such album
+    }
+
+    // --- Scrobbling (M14) ---
+
+    void pendingScrobblesKeepTheirOrderAndSurviveAReopen()
+    {
+        const QString path = dbPath("scrobbles.db");
+        const auto play = [](const QString &title, qint64 at) {
+            return PendingScrobble{0, ScrobbleTrack{QStringLiteral("Björk"), title, QStringLiteral("Homogenic"), QString(), 3, 240'000}, at, 0};
+        };
+        {
+            Database db;
+            QVERIFY(db.open(path));
+            QCOMPARE(db.pendingScrobbleCount(), 0);
+            QString error;
+            const auto later = db.addPendingScrobble(play(QStringLiteral("Jóga"), 2000), 5000, &error);
+            QVERIFY2(later, qPrintable(error));
+            QVERIFY(db.addPendingScrobble(play(QStringLiteral("Hunter"), 1000)));
+            QVERIFY(db.notePendingScrobbleFailure({*later}, QStringLiteral("offline")));
+        }
+        Database db;
+        QVERIFY(db.open(path));
+        const QList<PendingScrobble> pending = db.pendingScrobbles(50);
+        QCOMPARE(pending.size(), 2);
+        QCOMPARE(pending[0].track.title, QStringLiteral("Hunter")); // played first
+        QCOMPARE(pending[1].track.title, QStringLiteral("Jóga"));
+        QCOMPARE(pending[1].track.artist, QStringLiteral("Björk"));
+        QCOMPARE(pending[1].track.durationMs, 240'000);
+        QCOMPARE(pending[1].startedAt, 2000);
+        QCOMPARE(pending[1].attempts, 1);
+        QCOMPARE(pending[0].attempts, 0);
+        QCOMPARE(db.pendingScrobbles(1).size(), 1);
+        QVERIFY(db.removePendingScrobbles({pending[0].id}));
+        QCOMPARE(db.pendingScrobbleCount(), 1);
+        QVERIFY(db.removePendingScrobbles({}));
+    }
+
+    void pendingScrobblesAreCapped()
+    {
+        Database db;
+        QVERIFY(db.open(QStringLiteral(":memory:")));
+        for (int i = 0; i < 5; ++i)
+            QVERIFY(db.addPendingScrobble(PendingScrobble{0, ScrobbleTrack{QStringLiteral("A"), QString::number(i), {}, {}, 0, 60'000}, 100 + i, 0}, 3));
+        const QList<PendingScrobble> kept = db.pendingScrobbles(10);
+        QCOMPARE(kept.size(), 3); // the newest three
+        QCOMPARE(kept.first().track.title, QStringLiteral("2"));
+        QCOMPARE(kept.last().track.title, QStringLiteral("4"));
     }
 
     void playlists()

@@ -37,6 +37,7 @@ qt_add_qml_module(mmm_ui
         qml/MiniDiscPane.qml
         qml/RenameMdDialog.qml
         qml/ConfirmDialog.qml
+        qml/ListenBrainzDialog.qml
         qml/Toast.qml
         qml/SendToDeviceButton.qml
     SOURCES
@@ -45,6 +46,7 @@ qt_add_qml_module(mmm_ui
         librarymodels.h librarymodels.cpp
         coverimageprovider.h coverimageprovider.cpp
         playback.h playback.cpp
+        listenbrainz.h listenbrainz.cpp
         keyrouter.h keyrouter.cpp
         tageditor.h tageditor.cpp
         artfinder.h artfinder.cpp

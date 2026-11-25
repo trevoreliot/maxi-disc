@@ -13,7 +13,10 @@
 #include "sync.h"
 #include "fixturelibrary.h"
 #include "library.h"
+#include "listenbrainz.h"
 #include "playback.h"
+#include "secretstore.h"
+#include "testhttpserver.h"
 
 // Gives the QML tests a real (fixture) Library and the cover image provider.
 // QML can save screenshots of views to $MMM_SCREENSHOT_DIR (context property `screenshotDir`).
@@ -35,6 +38,33 @@ private:
     std::shared_ptr<mmm::test::FakeRecorder> m_recorder;
 };
 
+// The web pages the app asked the browser to open (none really opens): `openedUrls.all()`.
+class OpenedUrls : public QObject
+{
+    Q_OBJECT
+
+public:
+    Q_INVOKABLE QStringList all() const { return urls; }
+    QStringList urls;
+};
+
+// A stand-in ListenBrainz for the dialog tests (M14): the token "GOOD" is alice's, any other is
+// unknown; listens are always taken.
+std::unique_ptr<mmm::test::TestHttpServer> makeFakeListenBrainz()
+{
+    using Server = mmm::test::TestHttpServer;
+    auto server = std::make_unique<Server>();
+    if (!server->listen())
+        qFatal("could not start the fake ListenBrainz");
+    server->route(QStringLiteral("/1/validate-token"), [](const Server::Request &r) {
+        if (r.headers.value("authorization") == "Token GOOD")
+            return Server::Response{200, "{\"code\":200,\"message\":\"Token valid.\",\"valid\":true,\"user_name\":\"alice\"}", {}, 0, -1};
+        return Server::Response{200, "{\"code\":200,\"message\":\"Token invalid.\",\"valid\":false}", {}, 0, -1};
+    });
+    server->route(QStringLiteral("/1/submit-listens"), 200, "{\"status\":\"ok\"}");
+    return server;
+}
+
 class Setup : public QObject
 {
     Q_OBJECT
@@ -48,6 +78,17 @@ public Q_SLOTS:
         m_library = std::make_unique<Library>(Library::Options{.databasePath = db, .scanOnStart = false, .watch = false});
         m_playback = std::make_unique<Playback>(Playback::Options{
             .player = {.audioSink = "fakesink sync=true"}, .mpris = false, .persistSettings = false});
+        // ListenBrainz: a stand-in server, an in-memory keyring, no browser (the pages it would
+        // open are counted in `openedUrls`).
+        m_listenBrainzServer = makeFakeListenBrainz();
+        ListenBrainz::Options lb;
+        lb.databasePath = m_dir.filePath(QStringLiteral("scrobbles.db"));
+        lb.persistSettings = false;
+        lb.secrets = std::make_shared<mmm::MemorySecretStore>();
+        lb.baseUrl = m_listenBrainzServer->url(QStringLiteral("/"));
+        lb.openUrl = [this](const QUrl &url) { m_openedUrls.urls << url.toString(); };
+        lb.watchNetwork = false;
+        m_listenBrainz = std::make_unique<ListenBrainz>(lb);
         // No device detection: tests set devices with Devices.setTestDevices().
         m_devices = std::make_unique<Devices>(Devices::Options{.databasePath = db, .monitor = false});
         m_sync = std::make_unique<Sync>(Sync::Options{.databasePath = db, .cacheDir = m_dir.filePath(QStringLiteral("transcode"))});
@@ -65,6 +106,7 @@ public Q_SLOTS:
                                                   qEnvironmentVariable("MMM_SCREENSHOT_DIR"));
         engine->rootContext()->setContextProperty(QStringLiteral("fixtureDir"), m_dir.path());
         engine->rootContext()->setContextProperty(QStringLiteral("fakeRecorder"), &m_recorderControl);
+        engine->rootContext()->setContextProperty(QStringLiteral("openedUrls"), &m_openedUrls);
     }
 
     void cleanupTestCase()
@@ -74,6 +116,8 @@ public Q_SLOTS:
         m_onDevice.reset();
         m_sync.reset();
         m_devices.reset();
+        m_listenBrainz.reset();
+        m_listenBrainzServer.reset();
         m_playback.reset();
         m_library.reset();
     }
@@ -82,6 +126,9 @@ private:
     QTemporaryDir m_dir;
     std::unique_ptr<Library> m_library;
     std::unique_ptr<Playback> m_playback;
+    std::unique_ptr<mmm::test::TestHttpServer> m_listenBrainzServer;
+    std::unique_ptr<ListenBrainz> m_listenBrainz;
+    OpenedUrls m_openedUrls;
     std::unique_ptr<Devices> m_devices;
     std::unique_ptr<Sync> m_sync;
     std::unique_ptr<OnDevice> m_onDevice;

@@ -11,6 +11,7 @@
 #include "apppaths.h"
 #include "coverimageprovider.h"
 #include "devices.h"
+#include "listenbrainz.h"
 #include "library.h"
 #include "minidisc.h"
 #include "ondevice.h"
@@ -69,6 +70,10 @@ int main(int argc, char *argv[])
     // Created before (and so destroyed after) the QML engine that uses it.
     Library library({.databasePath = databasePath, .scanOnStart = scan, .watch = scan});
     Playback playback({.player = {}, .mpris = !parser.isSet(noMprisOpt), .persistSettings = true});
+    ListenBrainz::Options listenBrainzOptions; // after Playback (it follows its plays)
+    // Its own file next to the library's: a long scan writing the library never holds it up.
+    listenBrainzOptions.databasePath = QFileInfo(databasePath).dir().filePath(QStringLiteral("scrobbles.db"));
+    ListenBrainz listenBrainz(listenBrainzOptions);
     Devices devices({.databasePath = databasePath, .monitor = !parser.isSet(noDevicesOpt)});
     Sync sync({.databasePath = databasePath, .cacheDir = {}});
     OnDevice onDevice({.databasePath = databasePath});

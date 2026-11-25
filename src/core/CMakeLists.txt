@@ -3,6 +3,8 @@
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.22)
 find_package(TagLib 2.0 REQUIRED)
+# M14: the ListenBrainz token goes in the desktop keyring (Qt Core + DBus only, no GUI).
+find_package(Qt6Keychain REQUIRED)
 
 # MusicBrainz asks clients to identify themselves: "app/version ( contact )". The project's
 # public page identifies the app (not a person). Forks that ship their own builds: set your own.
@@ -51,6 +53,11 @@ add_library(mmm_core STATIC
     netmdmonitor.h netmdmonitor.cpp
     netmdmanager.h netmdmanager.cpp
     mdencodeworker.h mdencodeworker.cpp
+    scrobbletypes.h
+    scrobbletracker.h scrobbletracker.cpp
+    listenbrainzclient.h listenbrainzclient.cpp
+    secretstore.h secretstore.cpp
+    scrobbler.h scrobbler.cpp
     mdupload.h
     mduploadplanner.h mduploadplanner.cpp
     gstpcmencoder.h gstpcmencoder.cpp
@@ -63,7 +70,7 @@ target_include_directories(mmm_core PUBLIC
 target_link_libraries(mmm_core
     PUBLIC Qt6::Core Qt6::Sql Qt6::DBus Qt6::Network
     PRIVATE Qt6::Concurrent
-    PRIVATE PkgConfig::GST TagLib::tag netmd mmm_build_flags)
+    PRIVATE PkgConfig::GST TagLib::tag netmd Qt6Keychain::Qt6Keychain mmm_build_flags)
 # M12: the vendored atracdenc (third_party/atracdenc.cmake) is built with core, and its build-tree
 # path is AtracEncoder's fallback when it isn't next to the running program (tests, tools).
 add_dependencies(mmm_core atracdenc_build)

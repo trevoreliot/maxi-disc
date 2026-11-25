@@ -200,6 +200,25 @@ QStringList migrationV6()
     };
 }
 
+// v7 (M14): plays waiting to be sent to ListenBrainz (played offline, or not sent yet).
+QStringList migrationV7()
+{
+    return {
+        QStringLiteral(R"(CREATE TABLE pending_scrobbles (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            artist        TEXT NOT NULL,
+            title         TEXT NOT NULL,
+            album         TEXT NOT NULL DEFAULT '',
+            album_artist  TEXT NOT NULL DEFAULT '',
+            track_number  INTEGER NOT NULL DEFAULT 0,
+            duration_ms   INTEGER NOT NULL DEFAULT 0,
+            started_at    INTEGER NOT NULL,
+            attempts      INTEGER NOT NULL DEFAULT 0,
+            last_error    TEXT NOT NULL DEFAULT ''))"),
+        QStringLiteral("CREATE INDEX pending_scrobbles_order ON pending_scrobbles (started_at, id)"),
+    };
+}
+
 using Migration = QStringList (*)();
 constexpr Migration kMigrations[] = {
     &migrationV1,
@@ -208,6 +227,7 @@ constexpr Migration kMigrations[] = {
     &migrationV4,
     &migrationV5,
     &migrationV6,
+    &migrationV7,
 };
 
 QVariant nullIfEmpty(const QString &s) { return s.isEmpty() ? QVariant() : QVariant(s); }
@@ -1343,6 +1363,105 @@ QList<qint64> Database::search(const QString &text, int limit) const
     while (q.next())
         ids << q.value(0).toLongLong();
     return ids;
+}
+
+// --- Scrobbling (M14) ---
+
+std::optional<qint64> Database::addPendingScrobble(const PendingScrobble &s, int keepAtMost, QString *error)
+{
+    if (!exec(QStringLiteral("SAVEPOINT add_scrobble"), error))
+        return std::nullopt;
+    auto fail = [&](const QSqlQuery &q) -> std::optional<qint64> {
+        if (error)
+            *error = describe(q);
+        exec(QStringLiteral("ROLLBACK TO add_scrobble"), nullptr);
+        exec(QStringLiteral("RELEASE add_scrobble"), nullptr);
+        return std::nullopt;
+    };
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("INSERT INTO pending_scrobbles (artist, title, album, album_artist, track_number, "
+                             "duration_ms, started_at, attempts) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"));
+    q.addBindValue(text(s.track.artist));
+    q.addBindValue(text(s.track.title));
+    q.addBindValue(text(s.track.album));
+    q.addBindValue(text(s.track.albumArtist));
+    q.addBindValue(s.track.trackNumber);
+    q.addBindValue(s.track.durationMs);
+    q.addBindValue(s.startedAt);
+    q.addBindValue(s.attempts);
+    if (!q.exec() || !q.next())
+        return fail(q);
+    const qint64 id = q.value(0).toLongLong();
+    q.finish();
+    QSqlQuery trim(m_db);
+    trim.prepare(QStringLiteral("DELETE FROM pending_scrobbles WHERE id NOT IN "
+                                "(SELECT id FROM pending_scrobbles ORDER BY started_at DESC, id DESC LIMIT ?)"));
+    trim.addBindValue(std::max(1, keepAtMost));
+    if (!trim.exec())
+        return fail(trim);
+    if (!exec(QStringLiteral("RELEASE add_scrobble"), error))
+        return std::nullopt;
+    return id;
+}
+
+QList<PendingScrobble> Database::pendingScrobbles(int limit) const
+{
+    QList<PendingScrobble> out;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT id, artist, title, album, album_artist, track_number, duration_ms, started_at, attempts "
+                             "FROM pending_scrobbles ORDER BY started_at, id LIMIT ?"));
+    q.addBindValue(limit);
+    if (!q.exec())
+        return out;
+    while (q.next()) {
+        PendingScrobble s;
+        s.id = q.value(0).toLongLong();
+        s.track = ScrobbleTrack{q.value(1).toString(), q.value(2).toString(), q.value(3).toString(), q.value(4).toString(),
+                                q.value(5).toInt(), q.value(6).toLongLong()};
+        s.startedAt = q.value(7).toLongLong();
+        s.attempts = q.value(8).toInt();
+        out << s;
+    }
+    return out;
+}
+
+int Database::pendingScrobbleCount() const
+{
+    QSqlQuery q(m_db);
+    if (q.exec(QStringLiteral("SELECT COUNT(*) FROM pending_scrobbles")) && q.next())
+        return q.value(0).toInt();
+    return 0;
+}
+
+namespace {
+
+QString idList(const QList<qint64> &ids)
+{
+    QStringList parts;
+    for (const qint64 id : ids)
+        parts << QString::number(id);
+    return parts.join(QLatin1Char(','));
+}
+
+} // namespace
+
+bool Database::removePendingScrobbles(const QList<qint64> &ids)
+{
+    if (ids.isEmpty())
+        return true;
+    QSqlQuery q(m_db);
+    return q.exec(QStringLiteral("DELETE FROM pending_scrobbles WHERE id IN (%1)").arg(idList(ids)));
+}
+
+bool Database::notePendingScrobbleFailure(const QList<qint64> &ids, const QString &error)
+{
+    if (ids.isEmpty())
+        return true;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE pending_scrobbles SET attempts = attempts + 1, last_error = ? WHERE id IN (%1)")
+                  .arg(idList(ids)));
+    q.addBindValue(text(error));
+    return q.exec();
 }
 
 } // namespace mmm
