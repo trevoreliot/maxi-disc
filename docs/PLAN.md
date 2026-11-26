@@ -141,6 +141,39 @@ and the user has run the "User test". Tick the box, commit, then stop.
 ### Quality of life (user-requested, between milestones)
 - [x] **Q1 Right-click menus: Library and queue** — Done when: right-click (or `,` / Menu / Shift+F10 on the cursor's row) opens a menu fitting what's under it: browse artist / genre / album / playlist rows, album tiles, tracks on the album page / playlist / search, queue rows and the queue's empty space; Play / Play next / Add to queue / Add to playlist ▸ (New playlist… + playlists) / Send to <device> / Find cover… / Edit tags… / Open folder / Go to album / Remove from playlist / Mark, queue Move to play next / up / down / Remove, playlist Rename / Export / Delete; marked tracks act together when the clicked one is marked; j / k / h / l / Enter / Esc drive the menu; nothing leaks behind it. User test: right-click each kind of row and use a few entries each; `,` then j / l / Enter into "Add to playlist"; marked tracks; queue reorder.
 - [x] **Q2 Right-click menus: Export and transport** — Done when: the now-playing area (go to album, add to playlist, send, cover, tags, show the file); Export: device rows (mount / unmount, set up / edit profile, open in file manager, refresh; a recorder: show tracks, refresh), browse rows (add to the device, play), sync selection rows (remove), on-device rows (expand / collapse, open in file manager, refresh), MiniDisc tracks (rename, move, mark, delete: a right-clicked unmarked track alone, a marked one with the others), "to record" (remove, clear), the disc (rename, record mode SP / LP2 / LP4, refresh, wipe); `,` by pane; files shown selected in the file manager (FileManager1 ShowItems, else the folder). User test: each Export menu on a USB stick and the MZ-NE410; delete an unmarked track while others are marked; the now-playing menu; "Open containing folder" selects the file in Dolphin.
+- [ ] **Q3 Real audio analyser** (user asked, 2026-11-25; replaces `AudioAnalyzerStub`) — Done when:
+  `Player` adds a GStreamer `spectrum` element to its `audio-filter` bin (after `rgvolume ! rglimiter`
+  when ReplayGain is on, on its own when it's off). That puts it before playbin's volume, so the volume
+  knob doesn't move the bars. It posts about 30 times a second. A pure core function (tested headless)
+  turns the linear bins into about 24 log-spaced bands (≈ 40 Hz–16 kHz, dB → 0..1). Levels reach QML as
+  `Playback.levels` through engine events that carry the stream epoch (stale ones are dropped). Each one
+  is held back until its audio is heard (the message's timestamp against the playback position), so the
+  bars don't run ahead of the sound by the sink's latency. The look is segmented LED columns, like an
+  MD deck's meter: unlit segments dim, lit ones in Theme tokens and brighter near the top, peak caps that
+  hang about 0.5 s and then fall. Attack is fast and decay is smooth, animated per frame between
+  messages. The bars fall to rest on pause / stop and stay still when nothing is playing. Levels keep
+  coming across gapless advances, seeks and ReplayGain mode changes. Right-click → "Turn analyser off /
+  on" (QSettings); while it's off or the window is minimised, nothing is posted. Tests: band mapping on
+  generated tones (a 1 kHz tone lands in its band, silence = 0); `tst_player`: levels while playing, none
+  while paused, they continue across a gapless advance (debug and release presets); a QML test for the
+  segments and the peak fall; screenshot checked. User test: play a bass-heavy and a treble-heavy track:
+  the bars follow the music in time; pause, seek, skip; turn it off and on; note the app's CPU % while
+  playing, analyser on vs off.
+- [ ] **Q4 Spinning MiniDisc in the transport bar** (user asked, 2026-11-25) — Done when: a bare
+  MiniDisc, as tall as the bar's lower row allows (≈ 60 px), sits right after the analyser (media
+  buttons | analyser | disc | volume | toggles). The playing track's cover (`Playback.coverUrl`, the
+  128 px bucket) is clipped to the disc, with a thin rim and the metal MD hub in the centre. No cover,
+  or nothing loaded, shows a plain dark disc with a faint sheen. It spins while playing (a
+  `RotationAnimator`, on the render thread, about one turn every 2–3 s), eases to a stop on pause and
+  keeps its angle, stops on Stop, and resumes from where it was. A new album cross-fades the art, with
+  no flash of the plain disc between tracks of one album. Hover shows album — artist; left click goes
+  to the album; right click opens the now-playing menu (Q2) plus "Stop / Start spinning" (QSettings).
+  Nothing animates while paused, stopped, minimised or with spinning off, so the window isn't redrawn
+  every frame for it. Theme tokens only; the analyser keeps its minimum width in the smallest window.
+  Tests: QML (rotation advances while playing and holds while paused; cover vs plain disc by
+  `coverUrl`; the menu entries); screenshot checked. User test: play an album with art and a track
+  without; pause, resume, stop; skip from one album to another; on the real display (not just
+  offscreen) the disc reads as a MiniDisc at that size; note the CPU %, spinning on vs off.
 
 ### Phase 7: Emacs integration (depends on M5)
 - [ ] **M16 Doom Emacs client** — Done when: an Emacs package (in `contrib/emacs/`, loadable from
@@ -158,8 +191,8 @@ and the user has run the "User test". Tick the box, commit, then stop.
 | Risk | Mitigation |
 | --- | --- |
 | MiniDisc bugs only appear on real hardware | Do it last; scratch discs; compare against Web MiniDisc Pro AppImage |
-| libnetmd lacks some netmd-js features | Port one at a time (M13) using netmd-js as referenre |
-uiuwiiqwquiwquwuquwqwiqiwqiwiwqiiiui121 32 21 2g1g2g121g21g21!A2    QWexrzzresdwzdsn esn esrtaqf mr  mcactcatv hjty6bnnnnoiwed'c5d0tfurtipot8ugjki5ouuuuu8yygturhgrfgdnzvGVzNJ| Memory bugs | RAII, sanitizers, warnings as errors, tests per milestone |
+| libnetmd lacks some netmd-js features | Port one at a time (M13) using netmd-js as reference |
+| Memory bugs | RAII, sanitizers, warnings as errors, tests per milestone |
 | Tag writing damages files | Test on copies; user keeps a library backup before M6 |
 | QML stutters on huge lists | Models in C++, simple delegates, async cached thumbnails |
 | Pro usage limits | One milestone per session, fresh sessions, ccache |
@@ -448,8 +481,7 @@ uiuwiiqwquiwquwuquwqwiqiwqiwiwqiiiui121 32 21 2g1g2g121g21g21!A2    QWexrzzresdw
     a constant C++ singleton today: give its properties NOTIFY signals, load values from QSettings
     or a theme file, and keep Main.qml's palette mapping as the single place roles are set.
   - Stubs in the UI waiting on core work: shuffle (PlayQueue shuffle order + MPRIS `Shuffle`);
-    audio analyzer (GStreamer `spectrum` element in the Player, levels throttled to ~25 fps,
-    paused when hidden; `AudioAnalyzerStub.levels` is ready for them); Discord / ListenBrainz toggles
+    audio analyzer (now Q3); Discord / ListenBrainz toggles
     (M15 / M14); Export screen devices, sync and MD options (M8–M12).
   - MD Visualizer (main-menu tile 3) isn't designed yet: a disabled placeholder tile.
   - Keyboard ideas not done: switch the browse dropdown mode from the keyboard (it needs a click
