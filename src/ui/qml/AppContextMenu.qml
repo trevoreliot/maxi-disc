@@ -15,6 +15,10 @@ Menu {
     property bool fromKeyboard: false
     readonly property Menu openSubmenu: playlistMenu && playlistMenu.opened ? playlistMenu : null
     property Menu playlistMenu: null
+    // The shown items, held from JS. They're created parentless (a Menu isn't an Item, so as their
+    // parent Qt warns "not placed in the graphics scene"), and the menu's content model doesn't
+    // count as a reference: unheld, the garbage collector could delete them while the menu shows.
+    property var heldItems: []
 
     function show(item: Item, x: real, y: real, entries: var, closed: var, keyboard: bool) {
         if (opened)
@@ -37,16 +41,17 @@ Menu {
                 closed();
             return;
         }
-        // Items get the menu as their QObject parent: parentless (JS-owned) ones can be garbage
-        // collected while the menu shows them (the menu's model doesn't keep them alive).
+        const held = [];
         for (const e of list) {
-            if (e.separator)
-                addItem(separatorComponent.createObject(root));
-            else if (e.playlists)
+            if (e.playlists) {
                 addPlaylistMenu(e);
-            else
-                addItem(itemComponent.createObject(root, { entry: e }));
+                continue;
+            }
+            const it = e.separator ? separatorComponent.createObject(null) : itemComponent.createObject(null, { entry: e });
+            held.push(it);
+            addItem(it);
         }
+        heldItems = held;
         popup(item, x, y);
         if (keyboard)
             currentIndex = nextEnabled(root, -1, 1);
@@ -64,10 +69,11 @@ Menu {
             if (it)
                 it.destroy();
         }
+        heldItems = [];
     }
 
     function addPlaylistMenu(e: var) {
-        const menu = playlistComponent.createObject(root, { entry: e, title: e.text });
+        const menu = playlistComponent.createObject(root, { entry: e, title: e.text }); // a Popup: no warning
         addMenu(menu);
         menu.enabled = e.enabled !== false;
         playlistMenu = menu;

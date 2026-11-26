@@ -38,7 +38,9 @@ the analyser; a bare disc (no cartridge).
   a cover visibly turns. The hub is about 32 % of the disc, plus a spindle hole in
   `Theme.surfaceChrome`.
 - **Missing picture:** if the image provider fails, the disc stays plain. The analyser's extra JS allocations made that show
-  (tst_contextmenu_export failed in release). Items now get the menu as parent.
+  (tst_contextmenu_export failed in release). The menu now holds its items from JS (`heldItems`). Giving
+  them the menu as their parent also worked, but Qt warned "not placed in the graphics scene": a
+  Menu isn't an Item.
 
 ## Facts checked before planning
 
