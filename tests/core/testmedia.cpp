@@ -7,7 +7,7 @@
 
 namespace mmm::test {
 
-QString generateTone(const QString &path, const QString &encoder, int durationMs, const QString &tags)
+QString generateTone(const QString &path, const QString &encoder, int durationMs, const QString &tags, double freqHz)
 {
     gst::ensureInitialized();
 
@@ -16,13 +16,14 @@ QString generateTone(const QString &path, const QString &encoder, int durationMs
     const int buffers = durationMs / 10;
 
     const QString desc =
-        QStringLiteral("audiotestsrc wave=sine freq=440 volume=0.3 num-buffers=%1 samplesperbuffer=%2 "
+        QStringLiteral("audiotestsrc wave=sine freq=%5 volume=0.3 num-buffers=%1 samplesperbuffer=%2 "
                        "! audio/x-raw,rate=%3,channels=2 ! taginject name=tagger "
                        "! audioconvert ! audioresample ! %4 ! filesink name=sink")
             .arg(buffers)
             .arg(kSamplesPerBuffer)
             .arg(kRate)
-            .arg(encoder);
+            .arg(encoder)
+            .arg(freqHz);
 
     GError *err = nullptr;
     GstElement *pipeline = gst_parse_launch(desc.toUtf8().constData(), &err);

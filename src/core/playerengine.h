@@ -4,6 +4,7 @@
 // Internal to Player: not part of mmm_core's public API.
 
 #include "player.h"
+#include "spectrum.h"
 
 #include <QList>
 #include <QMutex>
@@ -11,7 +12,9 @@
 #include <QUrl>
 
 #include <atomic>
+#include <deque>
 #include <memory>
+#include <vector>
 
 class QTimer;
 typedef struct _GstElement GstElement;
@@ -60,6 +63,8 @@ public Q_SLOTS:
     void seek(quint64 seq, qint64 positionMs);
     void setVolume(quint64 seq, double volume);
     void setReplayGainMode(quint64 seq, mmm::Player::ReplayGainMode mode);
+    // Q3: the analyser's `spectrum` element posts (and spectrumLevels is emitted) only while active.
+    void setSpectrumActive(quint64 seq, bool active);
     // Tears the pipeline down and quits the engine's thread.
     void shutdown();
 
@@ -73,12 +78,21 @@ Q_SIGNALS:
     void advanced(quint64 epoch, const QUrl &url);
     void endOfStream(quint64 epoch);
     void errorOccurred(quint64 epoch, const QString &message);
+    // Spectrum bands of the audio being heard now (each result is held until its running-time
+    // is reached on the pipeline clock, so the bars don't run ahead of the sound).
+    void spectrumLevels(quint64 epoch, const mmm::SpectrumLevels &levels);
 
 private:
     friend struct EngineCallbacks; // GStreamer callbacks (exact C signatures, in the .cpp)
-    void handleMessage(GstMessage *msg);
+    // `spectrumRate`: for a spectrum message, the rate it analysed (read where it was posted).
+    void handleMessage(GstMessage *msg, quint64 spectrumGeneration, int spectrumRate);
+    void handleSpectrum(GstMessage *msg, quint64 spectrumGeneration, int sampleRate);
+    void flushDueSpectrum();
+    // Drops held results and any still on their way (they belong to audio that won't be heard).
+    void resetSpectrum();
     bool changeState(int gstState);
     void applyAudioFilter();
+    void releaseFilter();
     void setEngineState(Player::PlaybackState s);
     void updatePosition();
     void queryDurationAndSeekable();
@@ -91,9 +105,28 @@ private:
     std::atomic<bool> m_abandoned{false};
 
     GstElement *m_pipeline = nullptr;
-    GstElement *m_rgVolume = nullptr; // our ref while the ReplayGain filter is installed
+    // The audio-filter bin: [rgvolume ! rglimiter !] [audioconvert ! capsfilter ! spectrum].
+    GstElement *m_rgVolume = nullptr; // our ref while the ReplayGain part is installed
+    GstElement *m_spectrum = nullptr; // our ref while the spectrum part is installed
+    bool m_filterInstalled = false;
     bool m_rgFilterActive = false;
+    bool m_haveReplayGain = false; // the elements exist (gst-plugins-good)
+    bool m_haveSpectrum = false;
     Player::ReplayGainMode m_rgMode = Player::ReplayGainMode::Album;
+
+    struct PendingSpectrum
+    {
+        quint64 heardAtNs; // running-time when the analysed audio has all been heard
+        SpectrumLevels levels;
+    };
+    std::atomic<bool> m_spectrumActive{false};      // read by busSync (streaming threads)
+    std::atomic<quint64> m_spectrumGeneration{0};  // bumped by resetSpectrum()
+    std::deque<PendingSpectrum> m_pendingSpectrum;  // oldest first
+    std::vector<float> m_spectrumBins;              // reused for each message
+    QTimer *m_spectrumTimer = nullptr;
+    // From a seek until playback runs again: the pipeline re-prerolls while still "playing" with
+    // the old base time, so clock − base_time isn't the new running-time yet. Results wait.
+    bool m_spectrumSeeking = false;
 
     QTimer *m_positionTimer = nullptr;
     std::atomic<quint64> m_streamEpoch{0}; // read by about-to-finish (streaming thread)

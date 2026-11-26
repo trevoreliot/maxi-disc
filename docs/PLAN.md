@@ -141,7 +141,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
 ### Quality of life (user-requested, between milestones)
 - [x] **Q1 Right-click menus: Library and queue** — Done when: right-click (or `,` / Menu / Shift+F10 on the cursor's row) opens a menu fitting what's under it: browse artist / genre / album / playlist rows, album tiles, tracks on the album page / playlist / search, queue rows and the queue's empty space; Play / Play next / Add to queue / Add to playlist ▸ (New playlist… + playlists) / Send to <device> / Find cover… / Edit tags… / Open folder / Go to album / Remove from playlist / Mark, queue Move to play next / up / down / Remove, playlist Rename / Export / Delete; marked tracks act together when the clicked one is marked; j / k / h / l / Enter / Esc drive the menu; nothing leaks behind it. User test: right-click each kind of row and use a few entries each; `,` then j / l / Enter into "Add to playlist"; marked tracks; queue reorder.
 - [x] **Q2 Right-click menus: Export and transport** — Done when: the now-playing area (go to album, add to playlist, send, cover, tags, show the file); Export: device rows (mount / unmount, set up / edit profile, open in file manager, refresh; a recorder: show tracks, refresh), browse rows (add to the device, play), sync selection rows (remove), on-device rows (expand / collapse, open in file manager, refresh), MiniDisc tracks (rename, move, mark, delete: a right-clicked unmarked track alone, a marked one with the others), "to record" (remove, clear), the disc (rename, record mode SP / LP2 / LP4, refresh, wipe); `,` by pane; files shown selected in the file manager (FileManager1 ShowItems, else the folder). User test: each Export menu on a USB stick and the MZ-NE410; delete an unmarked track while others are marked; the now-playing menu; "Open containing folder" selects the file in Dolphin.
-- [ ] **Q3 Real audio analyser** (user asked, 2026-11-25; replaces `AudioAnalyzerStub`; design:
+- [x] **Q3 Real audio analyser** (user asked, 2026-11-25; replaces `AudioAnalyzerStub`; design:
   `docs/plans/q3-q4-analyser-and-disc.md`) — Done when: `Player` always has a GStreamer `spectrum`
   element (1024 bins, a message every 33 ms) in its `audio-filter` bin: after `rgvolume ! rglimiter`
   when ReplayGain is on, on its own when it's off. That puts it before playbin's volume, so the volume
@@ -210,6 +210,15 @@ and the user has run the "User test". Tick the box, commit, then stop.
 
 ## Follow-ups
 (Claude Code: append notes here instead of expanding the current milestone.)
+- Q3 notes / follow-ups (decisions/0010):
+  - `PlayerEngine`'s constructor runs on the creating (UI) thread: it makes playbin3 and the
+    audio-filter (registry lookups, `gst_parse_bin_from_description`) before moving to its thread.
+    That predates Q3 and has never stalled; if it ever does, build the pipeline in an init slot on the
+    engine thread (raised in Neon's review).
+  - The meter's floor / top (−66 / −15 dB, `SpectrumMapping`) were measured on two tracks; retune
+    if the bars sit too low or stay pinned across the library.
+  - After a seek, results wait until playback reports Playing again (Neon's review: a stale base
+    time during the re-preroll). It didn't reproduce with fakesink; kept as a safeguard.
 - M0: ctest runs offscreen, so GPU-driver leaks (NVIDIA EGL/GBM) only appear on a real display.
   Suppressed in `src/sanitizer/sanitizer_defaults.cpp`; full unwinding costs ~1 s debug startup.
   Revisit if debug runs get too slow during large scans (M3+).

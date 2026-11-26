@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "spectrum.h"
+
 #include <QByteArray>
 #include <QObject>
 #include <QUrl>
@@ -38,6 +40,7 @@ class Player : public QObject
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged FINAL)
     Q_PROPERTY(ReplayGainMode replayGainMode READ replayGainMode WRITE setReplayGainMode
                    NOTIFY replayGainModeChanged FINAL)
+    Q_PROPERTY(bool analyzerActive READ analyzerActive WRITE setAnalyzerActive NOTIFY analyzerActiveChanged FINAL)
 
 public:
     enum class PlaybackState { Stopped, Playing, Paused };
@@ -89,6 +92,12 @@ public:
     // Gain currently applied by ReplayGain, in dB (0 when off or untagged).
     double replayGainDb() const;
 
+    // Q3: while active, spectrumLevels() reports the audio being heard, ~30 times a second while
+    // playing (an analyser in the filter chain before the volume, so volume doesn't change it).
+    // Off by default; switches immediately; a replaced engine keeps it.
+    bool analyzerActive() const;
+    void setAnalyzerActive(bool active);
+
 public Q_SLOTS:
     void play();
     void pause();
@@ -106,6 +115,9 @@ Q_SIGNALS:
     void seekableChanged(bool seekable);
     void volumeChanged(double volume);
     void replayGainModeChanged(mmm::Player::ReplayGainMode mode);
+    void analyzerActiveChanged(bool active);
+    // The spectrum of what's being heard now (only while analyzerActive and playing).
+    void spectrumLevels(const mmm::SpectrumLevels &levels);
     // The next source started playing gaplessly; source() is now `url` (sourceChanged
     // is emitted too). Not emitted for setSource().
     void advancedToNext(const QUrl &url);

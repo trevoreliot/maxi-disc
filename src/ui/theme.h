@@ -47,6 +47,12 @@ class Theme : public QObject
     Q_PROPERTY(QColor infoBg MEMBER m_infoBg CONSTANT FINAL)
     Q_PROPERTY(QColor infoText MEMBER m_infoText CONSTANT FINAL)
     Q_PROPERTY(double watermarkOpacity MEMBER m_watermarkOpacity CONSTANT FINAL)
+    // Analyser (Q3): LED segments, unlit and lit (brighter up the column), and the peak hold.
+    Q_PROPERTY(QColor analyzerUnlit MEMBER m_analyzerUnlit CONSTANT FINAL)
+    Q_PROPERTY(QColor analyzerLow MEMBER m_analyzerLow CONSTANT FINAL)
+    Q_PROPERTY(QColor analyzerMid MEMBER m_analyzerMid CONSTANT FINAL)
+    Q_PROPERTY(QColor analyzerHigh MEMBER m_analyzerHigh CONSTANT FINAL)
+    Q_PROPERTY(QColor analyzerPeak MEMBER m_analyzerPeak CONSTANT FINAL)
     // Spacing
     Q_PROPERTY(int spaceXS MEMBER m_spaceXS CONSTANT FINAL)
     Q_PROPERTY(int spaceSM MEMBER m_spaceSM CONSTANT FINAL)
@@ -95,6 +101,11 @@ private:
     QColor m_infoBg{0x1F, 0x32, 0x42};
     QColor m_infoText{0xD2, 0xE9, 0xFF};
     double m_watermarkOpacity = 0.10;
+    QColor m_analyzerUnlit{0x1F, 0x22, 0x29};
+    QColor m_analyzerLow{0xE0, 0x9F, 0x3E}; // = accent
+    QColor m_analyzerMid{0xF2, 0xBC, 0x57};
+    QColor m_analyzerHigh{0xFF, 0xE0, 0x8A};
+    QColor m_analyzerPeak{0xFF, 0xF4, 0xCC};
     int m_spaceXS = 4;
     int m_spaceSM = 8;
     int m_spaceMD = 12;

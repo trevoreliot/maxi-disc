@@ -13,6 +13,10 @@ qt_add_executable(tst_player core/tst_player.cpp core/testmedia.h core/testmedia
 target_link_libraries(tst_player PRIVATE mmm_core PkgConfig::GST TagLib::tag Qt6::Test mmm_build_flags)
 add_test(NAME tst_player COMMAND tst_player)
 
+qt_add_executable(tst_spectrum core/tst_spectrum.cpp)
+target_link_libraries(tst_spectrum PRIVATE mmm_core Qt6::Test mmm_build_flags)
+add_test(NAME tst_spectrum COMMAND tst_spectrum)
+
 qt_add_executable(tst_tagreader core/tst_tagreader.cpp core/testmedia.h core/testmedia.cpp)
 target_link_libraries(tst_tagreader PRIVATE mmm_core PkgConfig::GST TagLib::tag Qt6::Test mmm_build_flags)
 add_test(NAME tst_tagreader COMMAND tst_tagreader)
@@ -156,7 +160,7 @@ target_compile_definitions(tst_qml PRIVATE
     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
 add_test(NAME tst_qml COMMAND tst_qml)
 
-foreach(t tst_appinfo tst_player tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml ${MMM_ARTWORK_TESTS} ${MMM_DEVICE_TESTS} ${MMM_SYNC_TESTS} ${MMM_NETMD_TESTS} ${MMM_LISTENBRAINZ_TESTS} ${MMM_DISCORD_TESTS})
+foreach(t tst_appinfo tst_player tst_spectrum tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml ${MMM_ARTWORK_TESTS} ${MMM_DEVICE_TESTS} ${MMM_SYNC_TESTS} ${MMM_NETMD_TESTS} ${MMM_LISTENBRAINZ_TESTS} ${MMM_DISCORD_TESTS})
     mmm_add_sanitizer_defaults(${t})
 endforeach()
 
@@ -166,7 +170,7 @@ set(MMM_TEST_HOME "${CMAKE_BINARY_DIR}/test-home")
 add_test(NAME app_smoke COMMAND music-md-manager --quit-after-load --no-scan --no-mpris --no-devices
     --database "${MMM_TEST_HOME}/smoke.db")
 
-set_tests_properties(tst_appinfo tst_player tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml app_smoke ${MMM_ARTWORK_TESTS} ${MMM_DEVICE_TESTS} ${MMM_SYNC_TESTS} ${MMM_NETMD_TESTS} ${MMM_LISTENBRAINZ_TESTS} ${MMM_DISCORD_TESTS} PROPERTIES
+set_tests_properties(tst_appinfo tst_player tst_spectrum tst_tagreader tst_tagwriter tst_database tst_libraryscanner tst_libraryquery tst_playqueue tst_m3u tst_playbackcontroller tst_uimodels tst_qml app_smoke ${MMM_ARTWORK_TESTS} ${MMM_DEVICE_TESTS} ${MMM_SYNC_TESTS} ${MMM_NETMD_TESTS} ${MMM_LISTENBRAINZ_TESTS} ${MMM_DISCORD_TESTS} PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;XDG_DATA_HOME=${MMM_TEST_HOME}/data;XDG_CACHE_HOME=${MMM_TEST_HOME}/cache;XDG_CONFIG_HOME=${MMM_TEST_HOME}/config;MMM_MUSICBRAINZ_URL=http://127.0.0.1:9;MMM_COVERARTARCHIVE_URL=http://127.0.0.1:9;MMM_LISTENBRAINZ_URL=http://127.0.0.1:9/;MMM_DISCORD_IPC_DIR=${MMM_TEST_HOME}/no-discord;MMM_SECRET_BACKEND=pass;PASSWORD_STORE_DIR=${MMM_TEST_HOME}/no-pass-store;GNUPGHOME=${MMM_TEST_HOME}/no-gnupg")
 
 # --- qmllint: any warning fails the test ---

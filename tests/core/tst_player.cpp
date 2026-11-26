@@ -19,6 +19,36 @@ namespace {
 
 constexpr int kToneMs = 2000;
 constexpr int kTimeoutMs = 10000;
+// Q3 analyser tones: long enough to pause, seek and toggle in; each at its band's centre.
+constexpr int kAnalyzerToneMs = 5000;
+constexpr double kMidHz = 550.0;    // band 10 (486-623 Hz)
+constexpr double kBassHz = 123.0;   // band 4 (109-139 Hz)
+constexpr double kTrebleHz = 4050.0; // band 18 (3578-4592 Hz)
+
+int bandOf(double hz)
+{
+    const auto edges = mmm::spectrumBandEdges(40.0, 16000.0);
+    for (std::size_t b = 0; b + 1 < edges.size(); ++b) {
+        if (hz >= edges[b] && hz < edges[b + 1])
+            return static_cast<int>(b);
+    }
+    return -1;
+}
+
+int peakBand(const mmm::SpectrumLevels &levels)
+{
+    std::size_t best = 0;
+    for (std::size_t b = 1; b < levels.size(); ++b) {
+        if (levels[b] > levels[best])
+            best = b;
+    }
+    return static_cast<int>(best);
+}
+
+mmm::SpectrumLevels lastLevels(const QSignalSpy &spy)
+{
+    return spy.isEmpty() ? mmm::SpectrumLevels{} : spy.last().at(0).value<mmm::SpectrumLevels>();
+}
 
 // Real-time sink so position advances like on real hardware, but silent.
 mmm::PlayerOptions testOptions()
@@ -55,6 +85,7 @@ class TestPlayer : public QObject
 private:
     QTemporaryDir m_dir;
     QString m_flac, m_mp3, m_wav;
+    QString m_mid, m_bass, m_treble; // analyser tones
 
     void waitForState(Player &p, State s)
     {
@@ -75,6 +106,13 @@ private Q_SLOTS:
                      kToneMs),
                  QString());
         QCOMPARE(mmm::test::generateTone(m_wav, QStringLiteral("wavenc"), kToneMs), QString());
+
+        m_mid = m_dir.filePath(QStringLiteral("mid.flac"));
+        m_bass = m_dir.filePath(QStringLiteral("bass.flac"));
+        m_treble = m_dir.filePath(QStringLiteral("treble.wav"));
+        QCOMPARE(mmm::test::generateTone(m_mid, QStringLiteral("flacenc"), kAnalyzerToneMs, {}, kMidHz), QString());
+        QCOMPARE(mmm::test::generateTone(m_bass, QStringLiteral("flacenc"), kAnalyzerToneMs, {}, kBassHz), QString());
+        QCOMPARE(mmm::test::generateTone(m_treble, QStringLiteral("wavenc"), kAnalyzerToneMs, {}, kTrebleHz), QString());
     }
 
     void initialState()
@@ -403,6 +441,157 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(qAbs(p.replayGainDb() - (-9.0)) < 0.01, kTimeoutMs);
     }
 
+    // --- Analyser (Q3) ---
+
+    void analyzerFollowsPlayback()
+    {
+        Player p(testOptions());
+        QSignalSpy levels(&p, &Player::spectrumLevels);
+        p.setSource(QUrl::fromLocalFile(m_mid));
+        p.play();
+        waitForState(p, State::Playing);
+        QTest::qWait(300);
+        QCOMPARE(levels.count(), 0); // off by default
+
+        QSignalSpy active(&p, &Player::analyzerActiveChanged);
+        p.setAnalyzerActive(true);
+        QCOMPARE(active.count(), 1);
+        QVERIFY(p.analyzerActive());
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 5, kTimeoutMs);
+        const mmm::SpectrumLevels l = lastLevels(levels);
+        QCOMPARE(peakBand(l), bandOf(kMidHz));
+        QVERIFY2(l[static_cast<std::size_t>(bandOf(kMidHz))] > 0.6f,
+                 qPrintable(QString::number(l[static_cast<std::size_t>(bandOf(kMidHz))])));
+
+        // About 30 a second.
+        levels.clear();
+        QTest::qWait(1000);
+        QVERIFY2(levels.count() >= 15 && levels.count() <= 45, qPrintable(QString::number(levels.count())));
+
+        // None while paused; they come back on resume.
+        p.pause();
+        waitForState(p, State::Paused);
+        QTest::qWait(50);
+        levels.clear();
+        QTest::qWait(300);
+        QCOMPARE(levels.count(), 0);
+        p.play();
+        waitForState(p, State::Playing);
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 3, kTimeoutMs);
+
+        // Off: nothing more (after what was already on its way), on again: they return.
+        p.setAnalyzerActive(false);
+        QTest::qWait(100);
+        levels.clear();
+        QTest::qWait(300);
+        QCOMPARE(levels.count(), 0);
+        p.setAnalyzerActive(true);
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 3, kTimeoutMs);
+    }
+
+    // The element runs ~1.25 s ahead of the sink (playsink's queue): without holding each result
+    // until its audio is heard, that much would arrive at once when playback starts.
+    void analyzerIsHeldUntilHeard()
+    {
+        Player p(testOptions());
+        p.setAnalyzerActive(true);
+        QSignalSpy levels(&p, &Player::spectrumLevels);
+        p.setSource(QUrl::fromLocalFile(m_mid));
+        p.play();
+        waitForState(p, State::Playing);
+        QElapsedTimer t;
+        t.start();
+        QTest::qWait(500);
+        const qint64 elapsed = t.elapsed();
+        // ~30 a second of what's been heard; 1.25 s ahead would be ~37 more.
+        QVERIFY2(levels.count() <= (elapsed + 400) * 30 / 1000,
+                 qPrintable(QStringLiteral("%1 in %2 ms").arg(levels.count()).arg(elapsed)));
+        QVERIFY(levels.count() >= 3);
+    }
+
+    void analyzerContinuesAcrossGaplessAdvance()
+    {
+        Player p(testOptions());
+        p.setAnalyzerActive(true);
+        QSignalSpy levels(&p, &Player::spectrumLevels);
+        QSignalSpy advanced(&p, &Player::advancedToNext);
+        p.setSource(QUrl::fromLocalFile(m_bass));
+        p.setNextSource(QUrl::fromLocalFile(m_treble));
+        p.play();
+        waitForState(p, State::Playing);
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 5, kTimeoutMs);
+        QCOMPARE(peakBand(lastLevels(levels)), bandOf(kBassHz));
+
+        QTRY_COMPARE_WITH_TIMEOUT(advanced.count(), 1, kTimeoutMs);
+        levels.clear();
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 5 && peakBand(lastLevels(levels)) == bandOf(kTrebleHz), kTimeoutMs);
+    }
+
+    void analyzerAfterSeekAndReplayGainChanges()
+    {
+        Player p(testOptions());
+        p.setAnalyzerActive(true);
+        p.setReplayGainMode(Player::ReplayGainMode::Off); // spectrum on its own in the filter
+        QSignalSpy levels(&p, &Player::spectrumLevels);
+        p.setSource(QUrl::fromLocalFile(m_mid));
+        p.play();
+        waitForState(p, State::Playing);
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 3, kTimeoutMs);
+
+        // After a seek the levels keep coming (results from the re-preroll wait for playback to
+        // run again, instead of all showing at once on the old clock and leaving a ~1 s gap).
+        p.seek(1500);
+        QTest::qWait(300);
+        levels.clear();
+        QTest::qWait(1000);
+        QVERIFY2(levels.count() >= 15, qPrintable(QString::number(levels.count())));
+        QCOMPARE(peakBand(lastLevels(levels)), bandOf(kMidHz));
+
+        // Track ↔ Album only changes rgvolume (absent here) / Off → Track waits for a stop:
+        // levels keep coming either way.
+        p.setReplayGainMode(Player::ReplayGainMode::Track);
+        levels.clear();
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 3, kTimeoutMs);
+
+        // Rebuilt at stop with rgvolume ! rglimiter in front: the new spectrum element posts.
+        p.stop();
+        waitForState(p, State::Stopped);
+        p.play();
+        waitForState(p, State::Playing);
+        levels.clear();
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 3, kTimeoutMs);
+        p.setReplayGainMode(Player::ReplayGainMode::Album);
+        levels.clear();
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 3, kTimeoutMs);
+        QCOMPARE(peakBand(lastLevels(levels)), bandOf(kMidHz));
+    }
+
+    // The analyser sits before playbin's volume: turning it down doesn't move the bars.
+    void volumeDoesNotChangeLevels()
+    {
+        Player p(testOptions());
+        p.setAnalyzerActive(true);
+        QSignalSpy levels(&p, &Player::spectrumLevels);
+        p.setSource(QUrl::fromLocalFile(m_mid));
+        p.play();
+        waitForState(p, State::Playing);
+        const auto band = static_cast<std::size_t>(bandOf(kMidHz));
+        auto average = [&] {
+            QTest::qWait(150); // what was on its way
+            levels.clear();
+            if (!QTest::qWaitFor([&] { return levels.count() >= 8; }, kTimeoutMs))
+                return -1.0f;
+            float sum = 0.0f;
+            for (const QList<QVariant> &args : std::as_const(levels))
+                sum += args.at(0).value<mmm::SpectrumLevels>()[band];
+            return sum / static_cast<float>(levels.count());
+        };
+        const float loud = average();
+        p.setVolume(0.1); // -20 dB: ~0.4 lower on the meter if it were after the volume
+        const float quiet = average();
+        QVERIFY2(loud > 0.6f && qAbs(loud - quiet) < 0.05f, qPrintable(QStringLiteral("%1 vs %2").arg(loud).arg(quiet)));
+    }
+
     // --- Stall recovery (docs/decisions/0001) ---
 
     void stalledEngineIsReplaced()
@@ -435,6 +624,32 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(eos.count(), 1, kTimeoutMs);
 
         stall->releaseAll(); // let the abandoned engine finish and clean itself up
+        QTest::qWait(300);
+    }
+
+    void analyzerSurvivesEngineReplacement()
+    {
+        auto stall = std::make_shared<StallInjector>();
+        Player p(stall->options(stall));
+        p.setAnalyzerActive(true);
+        QSignalSpy recovered(&p, &Player::engineRecovered);
+        QSignalSpy levels(&p, &Player::spectrumLevels);
+        p.setSource(QUrl::fromLocalFile(m_mid));
+        p.play();
+        waitForState(p, State::Playing);
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 3, kTimeoutMs);
+
+        stall->armed = true;
+        p.pause(); // the engine blocks in this state change and gets replaced
+        QTRY_COMPARE_WITH_TIMEOUT(recovered.count(), 1, kTimeoutMs);
+        waitForState(p, State::Paused);
+        QVERIFY(p.analyzerActive());
+        levels.clear();
+        p.play();
+        waitForState(p, State::Playing);
+        QTRY_VERIFY_WITH_TIMEOUT(levels.count() >= 3, kTimeoutMs); // the new engine posts too
+
+        stall->releaseAll();
         QTest::qWait(300);
     }
 

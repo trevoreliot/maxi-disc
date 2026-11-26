@@ -209,8 +209,9 @@ Rectangle {
                 color: Theme.borderSubtle
             }
 
-            // 2. Audio analyzer.
-            AudioAnalyzerStub {
+            // 2. Audio analyser (Q3).
+            AudioAnalyzer {
+                objectName: "audioAnalyzer"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: 160

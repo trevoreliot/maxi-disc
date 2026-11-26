@@ -43,6 +43,11 @@ ApplicationWindow {
     readonly property alias chrome: topChrome
     readonly property alias toast: toast
 
+    // Minimised or hidden: Playback stops analysing (Q3) and animating for nobody.
+    readonly property bool windowShown: visible && visibility !== Window.Minimized && visibility !== Window.Hidden
+    onWindowShownChanged: Playback.windowVisible = windowShown
+    Component.onCompleted: Playback.windowVisible = windowShown
+
     width: 1280
     height: 800
     minimumWidth: 900

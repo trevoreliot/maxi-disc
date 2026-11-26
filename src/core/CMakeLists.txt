@@ -17,6 +17,7 @@ add_library(mmm_core STATIC
     gstinit.h gstinit.cpp
     player.h player.cpp
     playerengine.h playerengine.cpp
+    spectrum.h spectrum.cpp
     tracktags.h
     tagreader.h tagreader.cpp
     tagwriter.h tagwriter.cpp

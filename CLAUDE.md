@@ -139,6 +139,13 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     `Sync::addItems` (counts via `DeviceAddResult`) → `notice` → `Toast` in Main. USB selections take
     `SyncItem::Kind::Track`. Keys: `i` (`AddToDevice`) on Library and Export, `I` the play queue
     (anywhere); `SendToDeviceButton` shows the disabled reason as its tooltip.
+  - Audio analyser (Q3, decisions/0010, docs/plans/q3-q4-analyser-and-disc.md): `PlayerEngine`'s audio-filter
+    always ends in `audioconvert ! {S16,S32,F32,F64} ! spectrum` (its S24LE path is broken); results are mapped
+    to 24 bands (core `mapSpectrumToBands`) and **held until heard** (running-time vs clock − base time:
+    playsink runs ~1.25 s ahead), then `Player::spectrumLevels` → `Playback.levels`. `Playback.analyzerEnabled`
+    (QSettings) && `windowVisible` (Main: minimised / hidden) → `Player::analyzerActive`. UI: `SpectrumMeter`
+    (C++, QSGRectangleNodes, so the software renderer offscreen draws it; `step()` from a FrameAnimation only
+    while `animating`) in `AudioAnalyzer.qml`. Tests: `tst_spectrum`, tst_player's analyser cases, `tst_analyzer.qml`.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).

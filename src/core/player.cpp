@@ -92,6 +92,7 @@ struct Player::Private
     bool seekable = false;
     double volume = 1.0;
     ReplayGainMode rgMode = ReplayGainMode::Album;
+    bool analyzerActive = false;
     quint64 epoch = 0; // current stream; events for older ones are ignored
 
     // Watchdog.
@@ -189,10 +190,15 @@ void Player::Private::createEngine()
         setState(PlaybackState::Stopped);
         Q_EMIT q->errorOccurred(message);
     });
+    connect(e, &E::spectrumLevels, q, [this, e](quint64 ev, const SpectrumLevels &levels) {
+        if (isCurrent(e, ev) && analyzerActive)
+            Q_EMIT q->spectrumLevels(levels);
+    });
 
     // Bring the new engine up to date (no-ops for a fresh Player).
     send(&E::setVolume, volume);
     send(&E::setReplayGainMode, rgMode);
+    send(&E::setSpectrumActive, analyzerActive);
 }
 
 // Hands the engine over to shut down. With `waitForIt` (destruction), waits briefly for a
@@ -414,6 +420,17 @@ void Player::setReplayGainMode(ReplayGainMode mode)
 double Player::replayGainDb() const
 {
     return d->rgMode == ReplayGainMode::Off ? 0.0 : d->gapless->replayGainDb.load();
+}
+
+bool Player::analyzerActive() const { return d->analyzerActive; }
+
+void Player::setAnalyzerActive(bool active)
+{
+    if (d->analyzerActive == active)
+        return;
+    d->analyzerActive = active;
+    d->send(&detail::PlayerEngine::setSpectrumActive, active);
+    Q_EMIT analyzerActiveChanged(active);
 }
 
 Player::PlaybackState Player::playbackState() const { return d->state; }

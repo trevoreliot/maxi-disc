@@ -25,7 +25,7 @@ qt_add_qml_module(mmm_ui
         qml/TransportButton.qml
         qml/Glyph.qml
         qml/VolumeWedge.qml
-        qml/AudioAnalyzerStub.qml
+        qml/AudioAnalyzer.qml
         qml/PillToggle.qml
         qml/NavRow.qml
         qml/FocusBar.qml
@@ -52,6 +52,7 @@ qt_add_qml_module(mmm_ui
         librarymodels.h librarymodels.cpp
         coverimageprovider.h coverimageprovider.cpp
         playback.h playback.cpp
+        spectrummeter.h spectrummeter.cpp
         listenbrainz.h listenbrainz.cpp
         desktop.h desktop.cpp
         discord.h discord.cpp

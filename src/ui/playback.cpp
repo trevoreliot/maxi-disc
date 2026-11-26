@@ -27,6 +27,7 @@ double linearToSlider(double v) { return std::cbrt(std::clamp(v, 0.0, 1.0)); }
 const QString kVolumeKey = QStringLiteral("playback/volume");
 const QString kRepeatKey = QStringLiteral("playback/repeat");
 const QString kReplayGainKey = QStringLiteral("playback/replayGain");
+const QString kAnalyzerKey = QStringLiteral("analyzer/enabled");
 
 } // namespace
 
@@ -46,7 +47,17 @@ Playback::Playback(const Options &options, QObject *parent)
         p->setVolume(sliderToLinear(s.value(kVolumeKey, 0.8).toDouble()));
         q->setRepeatMode(static_cast<mmm::PlayQueue::RepeatMode>(std::clamp(s.value(kRepeatKey, 0).toInt(), 0, 2)));
         p->setReplayGainMode(static_cast<mmm::Player::ReplayGainMode>(std::clamp(s.value(kReplayGainKey, 2).toInt(), 0, 2)));
+        m_analyzerEnabled = s.value(kAnalyzerKey, true).toBool();
     }
+    m_levels.fill(0.0, mmm::kSpectrumBandCount);
+    updateAnalyzer();
+    connect(p, &mmm::Player::spectrumLevels, this, &Playback::setLevels);
+    connect(p, &mmm::Player::playbackStateChanged, this, [this](mmm::Player::PlaybackState s) {
+        if (s != mmm::Player::PlaybackState::Playing)
+            clearLevels(); // the meter falls to rest
+    });
+    // What was showing is no longer what's heard (the new position's levels follow shortly).
+    connect(p, &mmm::Player::seeked, this, &Playback::clearLevels);
 
     connect(p, &mmm::Player::playbackStateChanged, this, &Playback::stateChanged);
     connect(p, &mmm::Player::positionChanged, this, &Playback::positionChanged);
@@ -67,6 +78,7 @@ Playback::Playback(const Options &options, QObject *parent)
         connect(this, &Playback::volumeChanged, this, &Playback::saveSettings);
         connect(this, &Playback::repeatModeChanged, this, &Playback::saveSettings);
         connect(this, &Playback::replayGainModeChanged, this, &Playback::saveSettings);
+        connect(this, &Playback::analyzerEnabledChanged, this, &Playback::saveSettings);
     }
 
     if (options.mpris) {
@@ -102,6 +114,51 @@ void Playback::saveSettings() const
     s.setValue(kVolumeKey, volume());
     s.setValue(kRepeatKey, repeatMode());
     s.setValue(kReplayGainKey, replayGainMode());
+    s.setValue(kAnalyzerKey, m_analyzerEnabled);
+}
+
+void Playback::setAnalyzerEnabled(bool enabled)
+{
+    if (m_analyzerEnabled == enabled)
+        return;
+    m_analyzerEnabled = enabled;
+    updateAnalyzer();
+    Q_EMIT analyzerEnabledChanged();
+}
+
+void Playback::setWindowVisible(bool visible)
+{
+    if (m_windowVisible == visible)
+        return;
+    m_windowVisible = visible;
+    updateAnalyzer();
+    Q_EMIT windowVisibleChanged();
+}
+
+// The Player analyses only when someone can see it.
+void Playback::updateAnalyzer()
+{
+    const bool active = m_analyzerEnabled && m_windowVisible;
+    m_controller.player()->setAnalyzerActive(active);
+    if (!active)
+        clearLevels();
+}
+
+void Playback::setLevels(const mmm::SpectrumLevels &levels)
+{
+    if (!isPlaying())
+        return; // one that was on its way when playback paused
+    for (qsizetype i = 0; i < m_levels.size(); ++i)
+        m_levels[i] = static_cast<qreal>(levels[static_cast<std::size_t>(i)]);
+    Q_EMIT levelsChanged();
+}
+
+void Playback::clearLevels()
+{
+    if (std::all_of(m_levels.cbegin(), m_levels.cend(), [](qreal v) { return v == 0.0; }))
+        return;
+    m_levels.fill(0.0);
+    Q_EMIT levelsChanged();
 }
 
 bool Playback::isPlaying() const { return m_controller.player()->playbackState() == mmm::Player::PlaybackState::Playing; }

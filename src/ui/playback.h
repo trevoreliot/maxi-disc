@@ -57,6 +57,14 @@ class Playback : public QObject
     // 0 off, 1 track, 2 album (Player::ReplayGainMode)
     Q_PROPERTY(int replayGainMode READ replayGainMode WRITE setReplayGainMode NOTIFY replayGainModeChanged FINAL)
     Q_PROPERTY(mmm::PlayQueue *queue READ queue CONSTANT FINAL)
+    // Q3, the transport bar's analyser: kSpectrumBandCount band levels (0..1) of what's being
+    // heard, ~30 times a second while playing; all 0 when paused, stopped or off.
+    Q_PROPERTY(QList<qreal> levels READ levels NOTIFY levelsChanged FINAL)
+    // The user's on/off switch (persisted).
+    Q_PROPERTY(bool analyzerEnabled READ analyzerEnabled WRITE setAnalyzerEnabled NOTIFY analyzerEnabledChanged FINAL)
+    // Main sets it: false while the window is minimised or hidden, so nothing is analysed or
+    // animated for nobody (the analyser, Q4's disc).
+    Q_PROPERTY(bool windowVisible READ windowVisible WRITE setWindowVisible NOTIFY windowVisibleChanged FINAL)
 
 public:
     struct Options
@@ -97,6 +105,11 @@ public:
     int replayGainMode() const;
     void setReplayGainMode(int mode);
     mmm::PlayQueue *queue() { return m_controller.queue(); }
+    QList<qreal> levels() const { return m_levels; }
+    bool analyzerEnabled() const { return m_analyzerEnabled; }
+    void setAnalyzerEnabled(bool enabled);
+    bool windowVisible() const { return m_windowVisible; }
+    void setWindowVisible(bool visible);
 
     // Play `model`'s rows (replacing the queue), starting at `index`.
     Q_INVOKABLE void playFromModel(TrackListModel *model, int index = 0);
@@ -136,6 +149,9 @@ Q_SIGNALS:
     void volumeChanged();
     void repeatModeChanged();
     void replayGainModeChanged();
+    void levelsChanged();
+    void analyzerEnabledChanged();
+    void windowVisibleChanged();
     void raiseRequested(); // MPRIS Raise
     void quitRequested();  // MPRIS Quit
 
@@ -147,6 +163,9 @@ private:
         QList<mmm::TrackRow> rows;
     };
     void saveSettings() const;
+    void updateAnalyzer();
+    void setLevels(const mmm::SpectrumLevels &levels);
+    void clearLevels();
     void request(Pending::Op op, const QString &kind, int id);
     void add(Pending::Op op, const QList<mmm::TrackRow> &rows); // in turn after the pending ones
     void flushPending();
@@ -157,4 +176,7 @@ private:
     bool m_persist;
     std::deque<std::shared_ptr<Pending>> m_pending; // oldest first
     quint64 m_pendingEpoch = 0;
+    QList<qreal> m_levels;
+    bool m_analyzerEnabled = true;
+    bool m_windowVisible = true;
 };

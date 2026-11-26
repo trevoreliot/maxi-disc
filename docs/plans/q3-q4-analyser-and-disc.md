@@ -8,6 +8,26 @@ contract. This file is the how. If the two disagree, PLAN.md wins: fix this file
 User's choices: segmented LED bars (not the filled curve in the old pencil sketch); the disc right after
 the analyser; a bare disc (no cartridge).
 
+**Q3 as built (2026-11-25)**: the plan held, with these changes; decision record 0010 has the evidence:
+- **Hold limits:** Neon's 5 s was right and my 1 s correction was wrong. playsink queues ~1 s after the
+  audio-filter, so results arrive ~1.25 s before they're heard. Held: up to 192 (~6 s); dropped when
+  due more than 5 s ahead.
+- **Formats:** `spectrum`'s packed 24-bit (S24LE) path reads ~44 dB too loud, and 24-bit FLAC would
+  get it. The chain is `audioconvert ! audio/x-raw,format={S16,S32,F32,F64} ! spectrum …`.
+- **When a result counts as heard:** at running-time + duration, the interval's end. Bars may trail
+  by one interval, never lead.
+- **Scale:** floor −66 dB and top −15 dB (measured on real tracks), not −60 / −3. The names are
+  `floorDb` / `topDb`.
+- **New engines:** no constructor parameter. `createEngine()` sends `setSpectrumActive` like the volume.
+- **Neon's review of the code:** fixed: results wait for Playing after a seek's re-preroll; invalid
+  (NONE) times are skipped; levels clear on a seek; the meter's node list lives in its root node;
+  the sample rate is read where the message is posted (busSync, from the message's element); null
+  checks after `gst_bin_get_by_name`; the meter resets when the window hides; segment gaps are
+  symmetric. Not done: engine construction off the UI thread (pre-existing; PLAN.md follow-ups).
+- **Menu bug:** `AppContextMenu` made its items parentless (JS-owned), so the garbage collector could
+  collect them while the menu was open. The analyser's extra JS allocations made that show
+  (tst_contextmenu_export failed in release). Items now get the menu as parent.
+
 ## Facts checked before planning
 
 - **`spectrum` posts at 30 Hz at any bin count.** It keeps a ring buffer of the last `nfft` samples and
@@ -76,8 +96,8 @@ using SpectrumLevels = std::array<float, kSpectrumBandCount>;
 struct SpectrumMappingConfig {
     double minFreqHz = 40.0;
     double maxFreqHz = 16000.0;
-    float minDb = -60.0f;     // display floor  (tune by eye in the user test)
-    float maxDb = -3.0f;      // display top    (tune by eye in the user test)
+    float minDb = -60.0f;     // display floor  (as built: floorDb = -66, measured)
+    float maxDb = -3.0f;      // display top    (as built: topDb = -15, measured)
     float thresholdDb = -80.0f; // = the element's threshold; bins at/below it count as silence
 };
 
@@ -119,8 +139,8 @@ Q_DECLARE_METATYPE(mmm::SpectrumLevels)
 - **New command** (acked like the rest, watched by the watchdog):
   `void setSpectrumActive(quint64 seq, bool active);` sets `post-messages` on `spec`, stores the atomic
   `m_spectrumActive` (read by busSync), and when turning off clears the queue and stops the timer.
-  Constructor: `PlayerEngine(const PlayerOptions &, std::shared_ptr<GaplessState>, bool spectrumActive)`,
-  so a replacement engine starts with the same setting.
+  (As built: no constructor parameter; `createEngine()` sends this command to every new engine, like
+  the volume, so a replacement engine starts with the same setting.)
 - **New signal:** `void spectrumLevels(quint64 epoch, const mmm::SpectrumLevels &levels);`
 - **busSync:** for an `GST_MESSAGE_ELEMENT` whose structure is named `"spectrum"`, drop it right away
   when `!m_spectrumActive`. Otherwise capture `m_spectrumGeneration` alongside `m_busGeneration` and
@@ -137,9 +157,9 @@ Q_DECLARE_METATYPE(mmm::SpectrumLevels)
   (a child of the engine, like the position timer). Guards:
   - an entry whose running-time is > 50 ms *older* than the last one queued (a discontinuity) clears
     the queue first;
-  - **(changed)** drop an entry due more than 1 s ahead of now (Neon's draft: 5 s). Real sink buffering
-    is ≤ ~0.5 s, so anything further out is stale;
-  - cap at 64 entries (≈ 2 s).
+  - drop an entry due more than 5 s ahead of now (Neon's figure; a 1 s cut dropped everything,
+    because playsink queues ~1 s after the filter);
+  - cap at 192 entries (≈ 6 s).
 - **When to clear / keep the queue:**
 
   | Event | Queue | Timer | `m_spectrumGeneration` |

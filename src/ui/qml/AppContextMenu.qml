@@ -37,13 +37,15 @@ Menu {
                 closed();
             return;
         }
+        // Items get the menu as their QObject parent: parentless (JS-owned) ones can be garbage
+        // collected while the menu shows them (the menu's model doesn't keep them alive).
         for (const e of list) {
             if (e.separator)
-                addItem(separatorComponent.createObject(null));
+                addItem(separatorComponent.createObject(root));
             else if (e.playlists)
                 addPlaylistMenu(e);
             else
-                addItem(itemComponent.createObject(null, { entry: e }));
+                addItem(itemComponent.createObject(root, { entry: e }));
         }
         popup(item, x, y);
         if (keyboard)
@@ -65,7 +67,7 @@ Menu {
     }
 
     function addPlaylistMenu(e: var) {
-        const menu = playlistComponent.createObject(null, { entry: e, title: e.text });
+        const menu = playlistComponent.createObject(root, { entry: e, title: e.text });
         addMenu(menu);
         menu.enabled = e.enabled !== false;
         playlistMenu = menu;
