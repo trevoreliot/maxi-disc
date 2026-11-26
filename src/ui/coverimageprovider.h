@@ -27,21 +27,32 @@ public:
     // "image://cover/<key>[.<revision>]/<base64url(folderCover \n artTrack)>", or "" when both
     // are empty. `key` (the album id) only keeps URLs of different albums apart in QML's image cache.
     static QString url(qint64 key, const QString &folderCover, const QString &artTrack);
+    // Q4, the transport bar's disc: the same picture from the "coverround" provider (cut round),
+    // and the part of a cover URL that only changes with the picture ("<key>[.<revision>]"; the
+    // rest includes the track's path when the art is embedded). Both "" for "".
+    static QString roundUrl(const QString &coverUrl);
+    static QString key(const QString &coverUrl);
+    // `image` centre-cropped to a square and cut to a smooth-edged circle (transparent corners).
+    static QImage round(const QImage &image);
     // Call after an album's art changed in place (same files, new pictures): its URLs change,
     // so QML loads the new picture instead of its cached one. Thread-safe.
     static void bumpRevision(qint64 key);
 };
 
-// QML image provider "cover": image://cover/<id>. Loads on its own thread pool.
+// QML image provider "cover": image://cover/<id>. Loads on its own thread pool. With
+// Shape::Round (registered as "coverround") the picture comes cut round (CoverLoader::round),
+// from the same (square) cache.
 class CoverImageProvider : public QQuickAsyncImageProvider
 {
 public:
-    explicit CoverImageProvider(QString cacheDir);
+    enum class Shape { Square, Round };
+    explicit CoverImageProvider(QString cacheDir, Shape shape = Shape::Square);
     ~CoverImageProvider() override;
 
     QQuickImageResponse *requestImageResponse(const QString &id, const QSize &requestedSize) override;
 
 private:
     QString m_cacheDir;
+    Shape m_shape;
     QThreadPool m_pool;
 };

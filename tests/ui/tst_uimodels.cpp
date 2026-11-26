@@ -302,6 +302,47 @@ private Q_SLOTS:
         QVERIFY(CoverLoader::load(QStringLiteral("garbage"), QSize(), m_cacheDir).isNull());
     }
 
+    // Q4: the transport bar's disc gets the cover cut round, keyed by the picture, not the track.
+    void roundCover()
+    {
+        const QString url = coverUrlOf(QStringLiteral("OK Computer"));
+        const QString id = url.mid(QStringLiteral("image://cover/").size());
+        QCOMPARE(CoverLoader::roundUrl(url), QStringLiteral("image://coverround/") + id);
+        QCOMPARE(CoverLoader::key(url), id.section(QLatin1Char('/'), 0, 0));
+        QVERIFY(!CoverLoader::key(url).isEmpty());
+        QVERIFY(CoverLoader::roundUrl(QString()).isEmpty());
+        QVERIFY(CoverLoader::key(QString()).isEmpty());
+
+        // Two tracks of one album with embedded art: different URLs, the same key.
+        const QString a = CoverLoader::url(42, QString(), QStringLiteral("/m/Album/01.flac"));
+        const QString b = CoverLoader::url(42, QString(), QStringLiteral("/m/Album/02.flac"));
+        QVERIFY(a != b);
+        QCOMPARE(CoverLoader::key(a), CoverLoader::key(b));
+        QVERIFY(CoverLoader::key(a) != CoverLoader::key(CoverLoader::url(43, QString(), QStringLiteral("/m/Album/01.flac"))));
+
+        // Round: square, transparent corners, opaque centre.
+        const QImage round = CoverLoader::round(CoverLoader::load(id, QSize(100, 100), m_cacheDir));
+        QCOMPARE(round.size(), QSize(128, 128));
+        for (const QPoint corner : {QPoint(0, 0), QPoint(127, 0), QPoint(0, 127), QPoint(127, 127), QPoint(8, 8)})
+            QCOMPARE(qAlpha(round.pixel(corner)), 0);
+        QCOMPARE(qAlpha(round.pixel(64, 64)), 255);
+        QCOMPARE(qAlpha(round.pixel(64, 2)), 255); // inside, near the top edge
+        // A wide picture (Kid A's 128×64 bucket) is centre-cropped first.
+        const QString kidA = coverUrlOf(QStringLiteral("Kid A")).mid(QStringLiteral("image://cover/").size());
+        QCOMPARE(CoverLoader::round(CoverLoader::load(kidA, QSize(100, 100), m_cacheDir)).size(), QSize(64, 64));
+        QVERIFY(CoverLoader::round(QImage()).isNull());
+
+        // Through the provider.
+        CoverImageProvider provider(m_cacheDir, CoverImageProvider::Shape::Round);
+        std::unique_ptr<QQuickImageResponse> response(provider.requestImageResponse(id, QSize(100, 100)));
+        QSignalSpy finished(response.get(), &QQuickImageResponse::finished);
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, kTimeoutMs);
+        std::unique_ptr<QQuickTextureFactory> tf(response->textureFactory());
+        QVERIFY(tf);
+        QCOMPARE(tf->image().size(), QSize(128, 128));
+        QCOMPARE(qAlpha(tf->image().pixel(0, 0)), 0);
+    }
+
     void asyncProvider()
     {
         CoverImageProvider provider(m_cacheDir);

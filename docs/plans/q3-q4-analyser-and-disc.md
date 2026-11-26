@@ -25,7 +25,19 @@ the analyser; a bare disc (no cartridge).
   checks after `gst_bin_get_by_name`; the meter resets when the window hides; segment gaps are
   symmetric. Not done: engine construction off the UI thread (pre-existing; PLAN.md follow-ups).
 - **Menu bug:** `AppContextMenu` made its items parentless (JS-owned), so the garbage collector could
-  collect them while the menu was open. The analyser's extra JS allocations made that show
+  collect them while the menu was open.
+
+**Q4 as built (2026-11-25)**: the plan held, with these changes; decision record 0011 has the details:
+- **Size:** 56 px, the analyser box's height in a 72 px row. There's no separator between them, and a
+  `Theme.spaceSM` gap after the disc.
+- **Inputs:** plain properties (`coverKey`, `coverUrl`, `playing`, `paused`, `spinEnabled`, `shown`)
+  bound to Playback, so tests can drive the disc directly.
+- **Settling:** spin and cover decisions wait a `Qt.callLater`, because `playing` / `paused` (and
+  `coverKey` / `coverUrl`) share one NOTIFY and can update in either order.
+- **The turning mark:** a faint printed wedge (`Theme.discSheen`) under the cover, so a disc without
+  a cover visibly turns. The hub is about 32 % of the disc, plus a spindle hole in
+  `Theme.surfaceChrome`.
+- **Missing picture:** if the image provider fails, the disc stays plain. The analyser's extra JS allocations made that show
   (tst_contextmenu_export failed in release). Items now get the menu as parent.
 
 ## Facts checked before planning

@@ -50,7 +50,7 @@ ApplicationWindow {
 
     width: 1280
     height: 800
-    minimumWidth: 900
+    minimumWidth: 960 // the transport bar's fixed parts + the disc + the analyser's 160 px
     minimumHeight: 600
     visible: true
     color: Theme.bg

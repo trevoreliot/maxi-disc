@@ -16,6 +16,8 @@
 #include <QRunnable>
 #include <QSaveFile>
 
+#include <algorithm>
+
 Q_LOGGING_CATEGORY(lcCover, "mmm.cover")
 
 namespace {
@@ -55,12 +57,16 @@ class CoverRunnable : public QObject, public QRunnable
 {
     Q_OBJECT
 public:
-    CoverRunnable(QString id, QSize size, QString cacheDir)
-        : m_id(std::move(id)), m_size(size), m_cacheDir(std::move(cacheDir))
+    CoverRunnable(QString id, QSize size, QString cacheDir, bool round)
+        : m_id(std::move(id)), m_size(size), m_cacheDir(std::move(cacheDir)), m_round(round)
     {
         setAutoDelete(true);
     }
-    void run() override { Q_EMIT done(CoverLoader::load(m_id, m_size, m_cacheDir)); }
+    void run() override
+    {
+        const QImage image = CoverLoader::load(m_id, m_size, m_cacheDir);
+        Q_EMIT done(m_round ? CoverLoader::round(image) : image);
+    }
 
 Q_SIGNALS:
     void done(const QImage &image);
@@ -69,15 +75,16 @@ private:
     QString m_id;
     QSize m_size;
     QString m_cacheDir;
+    bool m_round;
 };
 
 class CoverResponse : public QQuickImageResponse
 {
     Q_OBJECT
 public:
-    CoverResponse(const QString &id, const QSize &size, const QString &cacheDir, QThreadPool *pool)
+    CoverResponse(const QString &id, const QSize &size, const QString &cacheDir, bool round, QThreadPool *pool)
     {
-        auto *runnable = new CoverRunnable(id, size, cacheDir);
+        auto *runnable = new CoverRunnable(id, size, cacheDir, round);
         // Queued: if QML deletes this response first, the connection simply goes away.
         m_connection = connect(runnable, &CoverRunnable::done, this, &CoverResponse::onDone, Qt::QueuedConnection);
         pool->start(runnable); // the pool owns and deletes the runnable
@@ -160,6 +167,40 @@ QString CoverLoader::url(qint64 key, const QString &folderCover, const QString &
         .arg(QString::fromLatin1(payload.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)));
 }
 
+QString CoverLoader::roundUrl(const QString &coverUrl)
+{
+    static const QString square = QStringLiteral("image://cover/");
+    if (!coverUrl.startsWith(square))
+        return {};
+    return QStringLiteral("image://coverround/") + QStringView(coverUrl).mid(square.size());
+}
+
+QString CoverLoader::key(const QString &coverUrl)
+{
+    static const QString square = QStringLiteral("image://cover/");
+    if (!coverUrl.startsWith(square))
+        return {};
+    const qsizetype slash = coverUrl.indexOf(QLatin1Char('/'), square.size());
+    return slash < 0 ? QString() : coverUrl.mid(square.size(), slash - square.size());
+}
+
+QImage CoverLoader::round(const QImage &image)
+{
+    if (image.isNull())
+        return {};
+    const int side = std::min(image.width(), image.height());
+    const QImage square = image.copy((image.width() - side) / 2, (image.height() - side) / 2, side, side);
+    QImage out(side, side, QImage::Format_ARGB32_Premultiplied);
+    out.fill(Qt::transparent);
+    QPainter p(&out);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QBrush(square)); // the brush's texture starts at (0, 0), like the ellipse
+    p.drawEllipse(QRectF(0, 0, side, side));
+    p.end();
+    return out;
+}
+
 std::pair<QString, QString> CoverLoader::decodeId(const QString &id)
 {
     const qsizetype slash = id.indexOf(QLatin1Char('/'));
@@ -237,8 +278,9 @@ QImage CoverLoader::load(const QString &id, const QSize &requested, const QStrin
     return img;
 }
 
-CoverImageProvider::CoverImageProvider(QString cacheDir)
+CoverImageProvider::CoverImageProvider(QString cacheDir, Shape shape)
     : m_cacheDir(std::move(cacheDir))
+    , m_shape(shape)
 {
     // Decoding is CPU-bound; leave cores for the UI and the scanner.
     m_pool.setMaxThreadCount(std::clamp(QThread::idealThreadCount() / 2, 2, 4));
@@ -252,7 +294,7 @@ CoverImageProvider::~CoverImageProvider()
 
 QQuickImageResponse *CoverImageProvider::requestImageResponse(const QString &id, const QSize &requestedSize)
 {
-    return new CoverResponse(id, requestedSize, m_cacheDir, &m_pool);
+    return new CoverResponse(id, requestedSize, m_cacheDir, m_shape == Shape::Round, &m_pool);
 }
 
 #include "coverimageprovider.moc"

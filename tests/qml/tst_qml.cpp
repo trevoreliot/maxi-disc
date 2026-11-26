@@ -149,6 +149,8 @@ public Q_SLOTS:
     void qmlEngineAvailable(QQmlEngine *engine)
     {
         engine->addImageProvider(QStringLiteral("cover"), new CoverImageProvider(m_dir.filePath(QStringLiteral("covers"))));
+        engine->addImageProvider(QStringLiteral("coverround"), new CoverImageProvider(m_dir.filePath(QStringLiteral("covers")),
+                                                                                      CoverImageProvider::Shape::Round));
         engine->rootContext()->setContextProperty(QStringLiteral("screenshotDir"),
                                                   qEnvironmentVariable("MMM_SCREENSHOT_DIR"));
         engine->rootContext()->setContextProperty(QStringLiteral("fixtureDir"), m_dir.path());

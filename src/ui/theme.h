@@ -53,6 +53,14 @@ class Theme : public QObject
     Q_PROPERTY(QColor analyzerMid MEMBER m_analyzerMid CONSTANT FINAL)
     Q_PROPERTY(QColor analyzerHigh MEMBER m_analyzerHigh CONSTANT FINAL)
     Q_PROPERTY(QColor analyzerPeak MEMBER m_analyzerPeak CONSTANT FINAL)
+    // The transport bar's MiniDisc (Q4): the bare disc, a printed mark that shows it turning,
+    // its rim, and the metal hub (a gradient, a ring).
+    Q_PROPERTY(QColor discBase MEMBER m_discBase CONSTANT FINAL)
+    Q_PROPERTY(QColor discSheen MEMBER m_discSheen CONSTANT FINAL)
+    Q_PROPERTY(QColor discRim MEMBER m_discRim CONSTANT FINAL)
+    Q_PROPERTY(QColor discHub MEMBER m_discHub CONSTANT FINAL)
+    Q_PROPERTY(QColor discHubHighlight MEMBER m_discHubHighlight CONSTANT FINAL)
+    Q_PROPERTY(QColor discHubBorder MEMBER m_discHubBorder CONSTANT FINAL)
     // Spacing
     Q_PROPERTY(int spaceXS MEMBER m_spaceXS CONSTANT FINAL)
     Q_PROPERTY(int spaceSM MEMBER m_spaceSM CONSTANT FINAL)
@@ -106,6 +114,12 @@ private:
     QColor m_analyzerMid{0xF2, 0xBC, 0x57};
     QColor m_analyzerHigh{0xFF, 0xE0, 0x8A};
     QColor m_analyzerPeak{0xFF, 0xF4, 0xCC};
+    QColor m_discBase{0x2A, 0x2F, 0x39};
+    QColor m_discSheen{0xFF, 0xFF, 0xFF, 0x26};
+    QColor m_discRim{0x56, 0x5E, 0x70};
+    QColor m_discHub{0x8C, 0x94, 0xA3};
+    QColor m_discHubHighlight{0xD3, 0xD8, 0xE1};
+    QColor m_discHubBorder{0x5A, 0x62, 0x72};
     int m_spaceXS = 4;
     int m_spaceSM = 8;
     int m_spaceMD = 12;

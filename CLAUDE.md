@@ -146,6 +146,12 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     (QSettings) && `windowVisible` (Main: minimised / hidden) → `Player::analyzerActive`. UI: `SpectrumMeter`
     (C++, QSGRectangleNodes, so the software renderer offscreen draws it; `step()` from a FrameAnimation only
     while `animating`) in `AudioAnalyzer.qml`. Tests: `tst_spectrum`, tst_player's analyser cases, `tst_analyzer.qml`.
+  - Spinning MiniDisc (Q4, decisions/0011): `SpinningDisc.qml` after the analyser. Covers come cut round from the
+    `"coverround"` provider (`CoverImageProvider::Shape::Round`, `CoverLoader::round`; register it wherever
+    "cover" is: main.cpp, tst_qml's Setup) as `Playback.discCoverUrl`; reloads only when `Playback.coverKey` changes
+    (coverUrl names the track for embedded art). Spin = a FrameAnimation integrating an animated `speed` (no
+    RotationAnimator); `Playback.discSpinEnabled` (QSettings). Its inputs are plain properties (bound to Playback)
+    so tests drive it directly (`tst_disc.qml`). `Main.minimumWidth` 960 keeps the analyser at 160 px.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).

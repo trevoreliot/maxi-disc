@@ -87,6 +87,8 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("cover"), new CoverImageProvider(mmm::AppPaths::coverCacheDir()));
+    engine.addImageProvider(QStringLiteral("coverround"), // Q4: the transport bar's disc
+                            new CoverImageProvider(mmm::AppPaths::coverCacheDir(), CoverImageProvider::Shape::Round));
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
         [] { QCoreApplication::exit(EXIT_FAILURE); }, Qt::QueuedConnection);

@@ -163,7 +163,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
   hold / fall; screenshot checked. User test: play a bass-heavy and a treble-heavy track: the bars
   follow the music in time; pause, seek, skip; turn it off and on; minimise; note the app's CPU % while
   playing, analyser on vs off.
-- [ ] **Q4 Spinning MiniDisc in the transport bar** (user asked, 2026-11-25; design:
+- [x] **Q4 Spinning MiniDisc in the transport bar** (user asked, 2026-11-25; design:
   `docs/plans/q3-q4-analyser-and-disc.md`) — Done when: a bare MiniDisc, as tall as the bar's lower
   row allows (≈ 60 px), sits right after the analyser (media buttons | analyser | disc | volume |
   toggles). It shows the playing track's cover already cut round by the cover provider (a "round"
@@ -219,6 +219,16 @@ and the user has run the "User test". Tick the box, commit, then stop.
     if the bars sit too low or stay pinned across the library.
   - After a seek, results wait until playback reports Playing again (Neon's review: a stale base
     time during the re-preroll). It didn't reproduce with fakesink; kept as a safeguard.
+- Q4 notes / follow-ups (decisions/0011):
+  - The disc (like the transport's small cover) doesn't pick up art changed in place mid-track
+    (`CoverLoader::bumpRevision`): Playback would need to announce it. Albums whose tracks embed
+    different art show the first track's (the key is the album's).
+  - Seen once in ~15 runs: `tst_mpris` passed every test, then crashed at exit in Qt's D-Bus thread
+    (`QObject::disconnect` on a null object while the private bus connection is torn down). Not
+    reproducible on its own (10/10) or under load (3/3); look at the test's connection teardown order.
+  - `Player::stop()` with no source sets playbin3's `uri` to NULL, which logs GStreamer-CRITICALs
+    (`gst_uri_is_valid: assertion 'uri != NULL'`) in the QML tests' cleanups. Harmless noise; skip the
+    set when there's no source.
 - M0: ctest runs offscreen, so GPU-driver leaks (NVIDIA EGL/GBM) only appear on a real display.
   Suppressed in `src/sanitizer/sanitizer_defaults.cpp`; full unwinding costs ~1 s debug startup.
   Revisit if debug runs get too slow during large scans (M3+).

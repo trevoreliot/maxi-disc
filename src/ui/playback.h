@@ -45,6 +45,10 @@ class Playback : public QObject
     Q_PROPERTY(QString artist READ artist NOTIFY currentChanged FINAL)
     Q_PROPERTY(QString album READ album NOTIFY currentChanged FINAL)
     Q_PROPERTY(QString coverUrl READ coverUrl NOTIFY currentChanged FINAL)
+    // Q4, the transport bar's disc: the cover cut round, and the part of the cover URL that only
+    // changes with the picture (coverUrl changes per track when the art is embedded).
+    Q_PROPERTY(QString discCoverUrl READ discCoverUrl NOTIFY currentChanged FINAL)
+    Q_PROPERTY(QString coverKey READ coverKey NOTIFY currentChanged FINAL)
     Q_PROPERTY(qint64 position READ position NOTIFY positionChanged FINAL)
     Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged FINAL)
     Q_PROPERTY(bool seekable READ isSeekable NOTIFY seekableChanged FINAL)
@@ -65,6 +69,8 @@ class Playback : public QObject
     // Main sets it: false while the window is minimised or hidden, so nothing is analysed or
     // animated for nobody (the analyser, Q4's disc).
     Q_PROPERTY(bool windowVisible READ windowVisible WRITE setWindowVisible NOTIFY windowVisibleChanged FINAL)
+    // Q4: the disc spins while playing (persisted; off = it stays still).
+    Q_PROPERTY(bool discSpinEnabled READ discSpinEnabled WRITE setDiscSpinEnabled NOTIFY discSpinEnabledChanged FINAL)
 
 public:
     struct Options
@@ -93,6 +99,8 @@ public:
     QString artist() const;
     QString album() const;
     QString coverUrl() const;
+    QString discCoverUrl() const;
+    QString coverKey() const;
     qint64 position() const;
     qint64 duration() const;
     bool isSeekable() const;
@@ -110,6 +118,8 @@ public:
     void setAnalyzerEnabled(bool enabled);
     bool windowVisible() const { return m_windowVisible; }
     void setWindowVisible(bool visible);
+    bool discSpinEnabled() const { return m_discSpinEnabled; }
+    void setDiscSpinEnabled(bool enabled);
 
     // Play `model`'s rows (replacing the queue), starting at `index`.
     Q_INVOKABLE void playFromModel(TrackListModel *model, int index = 0);
@@ -152,6 +162,7 @@ Q_SIGNALS:
     void levelsChanged();
     void analyzerEnabledChanged();
     void windowVisibleChanged();
+    void discSpinEnabledChanged();
     void raiseRequested(); // MPRIS Raise
     void quitRequested();  // MPRIS Quit
 
@@ -179,4 +190,5 @@ private:
     QList<qreal> m_levels;
     bool m_analyzerEnabled = true;
     bool m_windowVisible = true;
+    bool m_discSpinEnabled = true;
 };

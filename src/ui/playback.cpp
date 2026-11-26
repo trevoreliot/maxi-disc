@@ -28,6 +28,7 @@ const QString kVolumeKey = QStringLiteral("playback/volume");
 const QString kRepeatKey = QStringLiteral("playback/repeat");
 const QString kReplayGainKey = QStringLiteral("playback/replayGain");
 const QString kAnalyzerKey = QStringLiteral("analyzer/enabled");
+const QString kDiscSpinKey = QStringLiteral("transport/discSpin");
 
 } // namespace
 
@@ -48,6 +49,7 @@ Playback::Playback(const Options &options, QObject *parent)
         q->setRepeatMode(static_cast<mmm::PlayQueue::RepeatMode>(std::clamp(s.value(kRepeatKey, 0).toInt(), 0, 2)));
         p->setReplayGainMode(static_cast<mmm::Player::ReplayGainMode>(std::clamp(s.value(kReplayGainKey, 2).toInt(), 0, 2)));
         m_analyzerEnabled = s.value(kAnalyzerKey, true).toBool();
+        m_discSpinEnabled = s.value(kDiscSpinKey, true).toBool();
     }
     m_levels.fill(0.0, mmm::kSpectrumBandCount);
     updateAnalyzer();
@@ -79,6 +81,7 @@ Playback::Playback(const Options &options, QObject *parent)
         connect(this, &Playback::repeatModeChanged, this, &Playback::saveSettings);
         connect(this, &Playback::replayGainModeChanged, this, &Playback::saveSettings);
         connect(this, &Playback::analyzerEnabledChanged, this, &Playback::saveSettings);
+        connect(this, &Playback::discSpinEnabledChanged, this, &Playback::saveSettings);
     }
 
     if (options.mpris) {
@@ -115,6 +118,15 @@ void Playback::saveSettings() const
     s.setValue(kRepeatKey, repeatMode());
     s.setValue(kReplayGainKey, replayGainMode());
     s.setValue(kAnalyzerKey, m_analyzerEnabled);
+    s.setValue(kDiscSpinKey, m_discSpinEnabled);
+}
+
+void Playback::setDiscSpinEnabled(bool enabled)
+{
+    if (m_discSpinEnabled == enabled)
+        return;
+    m_discSpinEnabled = enabled;
+    Q_EMIT discSpinEnabledChanged();
 }
 
 void Playback::setAnalyzerEnabled(bool enabled)
@@ -176,6 +188,9 @@ QString Playback::coverUrl() const
         return {};
     return CoverLoader::url(t->albumId, t->coverPath, t->hasEmbeddedArt ? t->path : QString());
 }
+
+QString Playback::discCoverUrl() const { return CoverLoader::roundUrl(coverUrl()); }
+QString Playback::coverKey() const { return CoverLoader::key(coverUrl()); }
 
 qint64 Playback::position() const { return m_controller.player()->position(); }
 

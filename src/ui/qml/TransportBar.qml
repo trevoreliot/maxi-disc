@@ -4,7 +4,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 // Bottom bar on every screen (docs/ui-draft/main-menu.jpeg): a now-playing + seek strip,
-// then four sections: media buttons | audio analyzer | volume | Discord / ListenBrainz.
+// then four sections: media buttons | audio analyser + spinning MiniDisc | volume | Discord / ListenBrainz.
 // Every command goes through the Playback singleton (the same commands MPRIS uses).
 Rectangle {
     id: root
@@ -216,6 +216,15 @@ Rectangle {
                 Layout.fillHeight: true
                 Layout.minimumWidth: 160
                 Layout.margins: Theme.spaceSM
+            }
+
+            // The spinning MiniDisc (Q4): as tall as the analyser's box, beside it like one deck window.
+            SpinningDisc {
+                objectName: "spinningDisc"
+                Layout.preferredWidth: 56
+                Layout.preferredHeight: 56
+                Layout.rightMargin: Theme.spaceSM
+                Layout.alignment: Qt.AlignVCenter
             }
 
             Rectangle {

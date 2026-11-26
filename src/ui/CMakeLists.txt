@@ -26,6 +26,7 @@ qt_add_qml_module(mmm_ui
         qml/Glyph.qml
         qml/VolumeWedge.qml
         qml/AudioAnalyzer.qml
+        qml/SpinningDisc.qml
         qml/PillToggle.qml
         qml/NavRow.qml
         qml/FocusBar.qml
