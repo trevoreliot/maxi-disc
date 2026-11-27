@@ -187,7 +187,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
   size; note the CPU %, spinning on vs off.
 
 ### Phase 6b: MD Visualizer (user-requested 2026-11-25; drawing: `docs/ui-draft/md-visualizer.jpeg`, local only)
-Main-menu tile 3: picking music the way you'd pick a MiniDisc off a shelf and play it on a portable.
+Main-menu tile 3: picking music the way you'd pick a MiniDisc from a pile and play it on a portable.
 Built on the `md-visualizer` branch, one milestone per session as usual; merged into main when V3's
 user test passes. Everything is drawn in Qt Quick from shapes and the cover art: 2.5D (Flipable,
 perspective `Rotation`), not Qt Quick 3D, unless V1 shows that's needed (then a decision record).
@@ -196,25 +196,29 @@ reference photos (`docs/ui-draft/Sony-MZ-M200-*.webp`, local only) are for its s
 What comes out of a slip case is the cartridge, as in real life: a clear shell (like clear MD
 blanks), so the disc inside shows through, with the cover as its label. The offscreen software
 renderer draws 3D-rotated items flat, so the real display is part of every user test.
-- [ ] **V1 Visualizer screen and the shelf** — Done when: tile 3 opens a new screen (in Main's
-  StackLayout and kept alive like the others; the tile gets a real icon). On the left: the Library's
-  browse dropdown (Artist / Genre / Album / Playlist) and list, with the same keys (j / k / h / l /
-  Enter, `/` search). Behind it, the chosen entry's albums stand as a shelf of MiniDisc slip cases
-  seen from the spine: title and artist printed along each spine, its colour taken from the cover
-  (a dominant colour, computed with the cover and cached), and the cursor's case pulled slightly
-  forward. The shelf follows the cursor and stays smooth with hundreds of albums (delegates recycled,
-  covers loaded off the UI thread). The case area and the player are placeholders. Tests: C++ for the
-  cover colour; QML for navigation and the shelf following the cursor; screenshot checked. User test:
-  browse a few artists by keyboard and by mouse; the shelf reads as MD cases; scroll a big genre
-  quickly.
-- [ ] **V2 Taking a case off the shelf** — Done when: Enter or a click on a spine animates that case
-  out of the shelf to the case area, turning to face front (the front insert: the cover, title and
+- [ ] **V1 Visualizer screen and the pile** — Done when: tile 3 opens a new screen (in Main's
+  StackLayout and kept alive like the others; the tile gets a real icon). As drawn, the left column
+  has the Library's browse dropdown (Artist / Genre / Album / Playlist) and its list, with the same
+  keys (j / k / h / l / Enter, `,`, `i`; `/` searches as everywhere). Choosing an artist or genre
+  (l / Enter / a click) turns the list into a pile of its albums: MiniDisc slip cases lying flat,
+  spines facing you, title (and artist, when the pile mixes artists) reading normally, each case
+  coloured from its cover (a dominant colour, computed off the UI thread and cached), the cursor's
+  case slid part-way out towards the case area. h / Esc / the "‹ Artist" crumb go back to the list.
+  Albums mode is the pile of every album; Playlists mode is a pile of mix discs: one home-recorded MD
+  per playlist (a blank-MD coloured case, its name on a paper label). The pile follows the cursor and
+  stays smooth with hundreds of albums. The case area and the player on the right are placeholders.
+  Plan: docs/plans/v1-visualizer-pile.md. Tests: C++ for the cover colour; QML for the drill-down,
+  each mode's pile and the cursor (incl. a 1,000-case pile); screenshots. User test: browse a few
+  artists by keyboard and by mouse; the pile reads as MD cases; scroll a big genre quickly.
+- [ ] **V2 Taking a case from the pile** — Done when: Enter or a click on the cursor's case slides it
+  out of the pile to the case area, turning to face front (the front insert: the cover, title and
   artist); then the cartridge slides part-way out of the case, its label showing the cover. A Flip button
   (and a key) turns the case round to its back: the track list (number, title, duration), with the
-  cursor in it (j / k; Enter plays, once V3 exists). Esc or Back puts the case back on the shelf,
-  animated. Each animation takes about half a second; pressing again finishes it at once; no work runs
-  on the GUI thread during them. Right-click on the case opens the album's menu (Q1's entries). Tests:
-  QML (shelf → out → disc out → flipped → back; the track list's rows; the keys); screenshots of the
+  cursor in it (j / k; Enter plays, once V3 exists); a mix disc's back lists the playlist on its
+  paper insert. Esc or Back puts the case back in the pile, animated. Each animation takes about half
+  a second; pressing again finishes it at once; no work runs on the GUI thread during them.
+  Right-click on the case opens the album's (or playlist's) menu (Q1's entries). Tests:
+  QML (pile → out → cartridge out → flipped → back; the track list's rows; the keys); screenshots of the
   front and the back. User test: take out, flip and put back several albums, by mouse and keyboard
   only; it feels like handling a real case.
 - [ ] **V3 The MiniDisc player** — Done when: below the case area stands a portable MD player drawn
@@ -228,11 +232,12 @@ renderer draws 3D-rotated items flat, so the real display is part of every user 
   ends and the mouse wheel go to the previous / next track). The OPEN slide on the top edge is Eject.
   Keys that would do nothing here (T MARK, REC, HOLD) and the maker's marks are left off. Play on the
   case, or Enter on a track on its back: the cartridge leaves the case and drops into the player, the
-  lid closes, and the album plays from that track (replacing the queue, like playing an album). The
+  lid closes, and the album plays from that track (replacing the queue, like playing an album; a mix
+  disc plays its playlist). The
   player's keys drive Playback (they're Playback commands, like the transport bar's). While a
-  cartridge is in the player, the shelf can still be browsed, but another case only comes out after an
+  cartridge is in the player, the pile can still be browsed, but another case only comes out after an
   Eject. Eject (the OPEN slide, and a key) stops playback, opens the lid, and puts the cartridge back
-  in its case and the case back on the shelf. If playback starts elsewhere (Library, MPRIS, the
+  in its case and the case back in the pile. If playback starts elsewhere (Library, MPRIS, the
   queue), the player shows that album's cartridge, swapped without the pull-out animation. Nothing
   animates while hidden or idle (Q3 / Q4's rules). Tests: QML (insert → playing; the keys → Playback;
   eject → stopped and a case can come out; playback started elsewhere shows its cartridge); screenshot
