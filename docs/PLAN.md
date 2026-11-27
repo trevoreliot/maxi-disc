@@ -196,7 +196,7 @@ reference photos (`docs/ui-draft/Sony-MZ-M200-*.webp`, local only) are for its s
 What comes out of a slip case is the cartridge, as in real life: a clear shell (like clear MD
 blanks), so the disc inside shows through, with the cover as its label. The offscreen software
 renderer draws 3D-rotated items flat, so the real display is part of every user test.
-- [ ] **V1 Visualizer screen and the pile** — Done when: tile 3 opens a new screen (in Main's
+- [x] **V1 Visualizer screen and the pile** — Done when: tile 3 opens a new screen (in Main's
   StackLayout and kept alive like the others; the tile gets a real icon). As drawn, the left column
   has the Library's browse dropdown (Artist / Genre / Album / Playlist) and its list, with the same
   keys (j / k / h / l / Enter, `,`, `i`; `/` searches as everywhere). Choosing an artist or genre
