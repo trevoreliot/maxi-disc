@@ -244,7 +244,7 @@ renderer draws 3D-rotated items flat, so the real display is part of every user 
   eject → stopped and a case can come out; playback started elsewhere shows its cartridge); screenshot
   of the player with a cartridge in, and of the side LCD. User test: pick an album, flip it, play
   track 3 from the back; pause, skip and set the volume on the player; eject and pick another;
-  start something from the Library and come back.
+  start something from the Library and come back. Plan: docs/plans/v3-visualizer-player.md.
 
 ### Phase 7: Emacs integration (depends on M5)
 - [ ] **M16 Doom Emacs client** — Done when: an Emacs package (in `contrib/emacs/`, loadable from
