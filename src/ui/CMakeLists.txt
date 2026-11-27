@@ -56,6 +56,9 @@ qt_add_qml_module(mmm_ui
         qml/MdCaseBack.qml
         qml/MdCartridge.qml
         qml/MdPlaceholder.qml
+        qml/MdDeck.qml
+        qml/MdPlayer.qml
+        qml/MdSideLcd.qml
     SOURCES
         appbridge.h appbridge.cpp
         library.h library.cpp

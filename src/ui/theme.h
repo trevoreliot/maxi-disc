@@ -92,6 +92,31 @@ class Theme : public QObject
     Q_PROPERTY(QColor mdShutterDark MEMBER m_mdShutterDark CONSTANT FINAL)
     Q_PROPERTY(QColor mdShutterSlot MEMBER m_mdShutterSlot CONSTANT FINAL)
     Q_PROPERTY(QColor mdLabelRule MEMBER m_mdLabelRule CONSTANT FINAL)
+    // The MiniDisc player (V3): its lacquered body and glossy key bezel, the chrome seam, the bay under
+    // the lid and its spindle ring, the smoked lid (tint, sheen, edge), the dark side panel, round keys
+    // (face, rim), silver keys and the OPEN slide (light, dark), the printed key names; and the side LCD
+    // (window, frame, digits, meter segments lit / peak / unlit).
+    Q_PROPERTY(QColor mdPlayerBody MEMBER m_mdPlayerBody CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerBezel MEMBER m_mdPlayerBezel CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerBezelLight MEMBER m_mdPlayerBezelLight CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerSeam MEMBER m_mdPlayerSeam CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerBay MEMBER m_mdPlayerBay CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerBayDetail MEMBER m_mdPlayerBayDetail CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerLidTint MEMBER m_mdPlayerLidTint CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerLidSheen MEMBER m_mdPlayerLidSheen CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerLidBorder MEMBER m_mdPlayerLidBorder CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerSide MEMBER m_mdPlayerSide CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerKey MEMBER m_mdPlayerKey CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerKeyRim MEMBER m_mdPlayerKeyRim CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerMetalLight MEMBER m_mdPlayerMetalLight CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerMetalDark MEMBER m_mdPlayerMetalDark CONSTANT FINAL)
+    Q_PROPERTY(QColor mdPlayerLabel MEMBER m_mdPlayerLabel CONSTANT FINAL)
+    Q_PROPERTY(QColor mdLcdBg MEMBER m_mdLcdBg CONSTANT FINAL)
+    Q_PROPERTY(QColor mdLcdBorder MEMBER m_mdLcdBorder CONSTANT FINAL)
+    Q_PROPERTY(QColor mdLcdText MEMBER m_mdLcdText CONSTANT FINAL)
+    Q_PROPERTY(QColor mdLcdMeter MEMBER m_mdLcdMeter CONSTANT FINAL)
+    Q_PROPERTY(QColor mdLcdPeak MEMBER m_mdLcdPeak CONSTANT FINAL)
+    Q_PROPERTY(QColor mdLcdDim MEMBER m_mdLcdDim CONSTANT FINAL)
     // Spacing
     Q_PROPERTY(int spaceXS MEMBER m_spaceXS CONSTANT FINAL)
     Q_PROPERTY(int spaceSM MEMBER m_spaceSM CONSTANT FINAL)
@@ -177,6 +202,27 @@ private:
     QColor m_mdShutterDark{0x7C, 0x83, 0x8E};
     QColor m_mdShutterSlot{0x55, 0x5C, 0x67};
     QColor m_mdLabelRule{0x9F, 0xB6, 0xD6, 0x8C};
+    QColor m_mdPlayerBody{0x1A, 0x1E, 0x2A};
+    QColor m_mdPlayerBezel{0x10, 0x13, 0x1A};
+    QColor m_mdPlayerBezelLight{0x2C, 0x32, 0x42};
+    QColor m_mdPlayerSeam{0x8E, 0x96, 0xA6};
+    QColor m_mdPlayerBay{0x0B, 0x0D, 0x12};
+    QColor m_mdPlayerBayDetail{0x2B, 0x31, 0x3D};
+    QColor m_mdPlayerLidTint{0x14, 0x17, 0x20, 0xA6};
+    QColor m_mdPlayerLidSheen{0xFF, 0xFF, 0xFF, 0x22};
+    QColor m_mdPlayerLidBorder{0x5A, 0x63, 0x75};
+    QColor m_mdPlayerSide{0x0E, 0x11, 0x17};
+    QColor m_mdPlayerKey{0x22, 0x27, 0x31};
+    QColor m_mdPlayerKeyRim{0x5A, 0x62, 0x73};
+    QColor m_mdPlayerMetalLight{0xE2, 0xE5, 0xEA};
+    QColor m_mdPlayerMetalDark{0x8C, 0x93, 0x9E};
+    QColor m_mdPlayerLabel{0x9A, 0xA3, 0xB2};
+    QColor m_mdLcdBg{0x0E, 0x1A, 0x1F};
+    QColor m_mdLcdBorder{0x2C, 0x3A, 0x42};
+    QColor m_mdLcdText{0x86, 0xD6, 0xF2};
+    QColor m_mdLcdMeter{0x4F, 0xB4, 0xE0};
+    QColor m_mdLcdPeak{0xE0, 0x6B, 0x5B};
+    QColor m_mdLcdDim{0x1D, 0x2E, 0x36};
     int m_spaceXS = 4;
     int m_spaceSM = 8;
     int m_spaceMD = 12;

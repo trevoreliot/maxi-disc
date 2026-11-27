@@ -36,6 +36,10 @@ Item {
     property real flipProgress: 0
     property rect origin: Qt.rect(0, 0, 0, 0)
     property bool fadeOut: false // going back to a pile that isn't showing: fade at the column's edge
+    // V3: the cartridge is in the player (the case stays out, empty, and still flips).
+    property bool cartridgeRemoved: false
+    // V3: false while the cartridge travels to or from the player (the buttons would cover it).
+    property bool controlsShown: true
     property int putStep: 0
     property string animProperty
     property real animTo: 0
@@ -63,7 +67,7 @@ Item {
     readonly property int underH: Math.min(Math.floor((height - 3 * margin - buttonsRowHeight) / 1.34),
                                            Math.floor((width - 2 * margin) / 0.95))
     readonly property bool buttonsBeside: sideH >= underH
-    readonly property int caseH: Math.max(150, Math.min(340, Math.max(sideH, underH)))
+    readonly property int caseH: Math.max(120, Math.min(340, Math.max(sideH, underH)))
     readonly property int caseW: Math.round(caseH * 0.95)
     readonly property int peek: Math.round(caseH * 0.34)
     readonly property int caseX: buttonsBeside ? Math.round((width - caseW - margin - buttonsWidth) / 2)
@@ -72,6 +76,12 @@ Item {
                                                : Math.round((height - caseH - peek - margin - buttonsRowHeight) / 2) + peek
     readonly property rect caseTargetRect: Qt.rect(caseX, caseY, caseW, caseH)
     readonly property int spineRest: Math.round(caseH * 0.13)
+    // `cartridge` at this value: the cartridge is clear of the case, just above it (V3 takes it from
+    // there to the player). 0 = in the case, 1 = its usual peek.
+    readonly property real fullOut: 1 + (Math.round(caseH * 0.92) + 6) / (peek + caseH * 0.04)
+    // How far V3 pulls it out: clear of the case if there's room above it, else up to this item's
+    // top edge (the rest stays behind the case; the deck draws the travelling cartridge behind it).
+    readonly property real pullOut: Math.max(1, Math.min(fullOut, 1 - (4 - caseY + peek) / (peek + caseH * 0.04)))
 
     // The orthographic box, taking out (take 0 → 1).
     readonly property real cosT: Math.cos(take * Math.PI / 2)
@@ -89,6 +99,7 @@ Item {
 
     signal playTrackRequested(TrackListModel model, int row)
     signal putBackRequested()
+    signal ejectRequested() // V3: the empty case's Eject button
     // Put back and gone (VisualizerView then takes out a case chosen meanwhile).
     signal returned()
     // The user clicked the case or its buttons (it takes the keyboard).
@@ -104,6 +115,7 @@ Item {
         cartridge = 0;
         flipProgress = 0;
         fadeOut = false;
+        cartridgeRemoved = false;
         showRows = false;
         trackIndex = 0;
         if (it.kind === "playlist") {
@@ -252,7 +264,22 @@ Item {
     }
 
     function finishPutBack() {
+        reset();
+        root.returned();
+    }
+
+    // Back to Idle at once, without animation and without `returned()` (V3: playback started
+    // elsewhere takes the case back to the pile).
+    function drop() {
+        if (phase === MdCaseStage.Idle)
+            return;
+        anim.stop();
+        reset();
+    }
+
+    function reset() {
         phase = MdCaseStage.Idle;
+        cartridgeRemoved = false;
         take = 0;
         cartridge = 0;
         flipProgress = 0;
@@ -263,7 +290,17 @@ Item {
         tracks.albumId = 0;
         takenKey = "";
         item = null;
-        root.returned();
+    }
+
+    // V3: where the cartridge is now, in `target`'s coordinates (a flip included).
+    function cartridgeRect(target: Item): rect {
+        return cart.mapToItem(target, 0, 0, cart.width, cart.height);
+    }
+
+    // Play from the first track (the Play button, Shift+Enter).
+    function playCase() {
+        if (settled && tracks !== null && tracks.count > 0)
+            root.playTrackRequested(tracks, 0);
     }
 
     onAnimationsEnabledChanged: if (!animationsEnabled) finishAnimation()
@@ -351,12 +388,11 @@ Item {
                 }
             ]
 
-            Item { // the slit at the top: the cartridge never shows below the case's top part
+            Item { // the cartridge's slot: it slides out of the case's top edge (V3: all the way out)
                 id: cartridgeClip
                 y: -root.peek
                 width: parent.width
                 height: root.peek + parent.height
-                clip: true
 
                 MdCartridge {
                     id: cart
@@ -365,7 +401,7 @@ Item {
                     height: Math.round(root.caseH * 0.92)
                     x: Math.round((parent.width - width) / 2)
                     y: (root.peek + root.caseH * 0.04) * (1 - root.cartridge)
-                    visible: root.cartridge > 0.005
+                    visible: root.cartridge > 0.005 && !root.cartridgeRemoved
                     mix: root.mix
                     caseId: root.item ? root.item.id : 0
                     title: root.item ? root.item.title : ""
@@ -461,16 +497,29 @@ Item {
         }
     }
 
-    GridLayout { // Flip / Put back
+    GridLayout { // Play / Flip / Put back (full case); Flip / Eject (empty case)
         id: buttons
-        visible: root.settled || root.flipping // not while the case flies in or out
+        visible: (root.settled || root.flipping) && root.controlsShown // not while anything flies
         x: root.buttonsBeside ? root.caseX + root.caseW + root.margin : root.caseX
         y: root.buttonsBeside ? root.caseY + root.caseH - height : root.caseY + root.caseH + root.margin
         width: root.buttonsBeside ? root.buttonsWidth : root.caseW
-        columns: root.buttonsBeside ? 1 : 2
+        columns: root.buttonsBeside ? 1 : 3
         rowSpacing: Theme.spaceXS
         columnSpacing: Theme.spaceXS
 
+        Button {
+            objectName: "playButton"
+            Layout.fillWidth: true
+            visible: !root.cartridgeRemoved
+            text: qsTr("Play  (⇧↵)")
+            focusPolicy: Qt.NoFocus
+            onClicked: {
+                root.interacted();
+                if (root.animating)
+                    root.finishAnimation();
+                root.playCase();
+            }
+        }
         Button {
             objectName: "flipButton"
             Layout.fillWidth: true
@@ -484,11 +533,23 @@ Item {
         Button {
             objectName: "putBackButton"
             Layout.fillWidth: true
+            visible: !root.cartridgeRemoved
             text: qsTr("Put back  (Esc)")
             focusPolicy: Qt.NoFocus
             onClicked: {
                 root.interacted();
                 root.putBackRequested();
+            }
+        }
+        Button {
+            objectName: "ejectButton"
+            Layout.fillWidth: true
+            visible: root.cartridgeRemoved
+            text: qsTr("Eject  (O)")
+            focusPolicy: Qt.NoFocus
+            onClicked: {
+                root.interacted();
+                root.ejectRequested();
             }
         }
     }

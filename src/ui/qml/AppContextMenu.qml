@@ -73,7 +73,7 @@ Menu {
     }
 
     function addPlaylistMenu(e: var) {
-        const menu = playlistComponent.createObject(root, { entry: e, title: e.text }); // a Popup: no warning
+        const menu = playlistComponent.createObject(root, { entry: e, title: e.text }) as Menu; // a Popup: no warning
         addMenu(menu);
         menu.enabled = e.enabled !== false;
         playlistMenu = menu;

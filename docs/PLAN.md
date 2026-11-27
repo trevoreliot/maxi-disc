@@ -222,7 +222,7 @@ renderer draws 3D-rotated items flat, so the real display is part of every user 
   QML (pile → out → cartridge out → flipped → back; the track list's rows; the keys); screenshots of the
   front and the back. User test: take out, flip and put back several albums, by mouse and keyboard
   only; it feels like handling a real case. Plan: docs/plans/v2-visualizer-case.md.
-- [ ] **V3 The MiniDisc player** — Done when: below the case area stands a portable MD player drawn
+- [x] **V3 The MiniDisc player** — Done when: below the case area stands a portable MD player drawn
   after the MZ-M200: a near-square body only a little bigger than the cartridge, rounded corners, its
   dark lid made smoked and translucent, so the cartridge and its turning disc (Q4's SpinningDisc) show
   through. The face is seen straight on and the left edge obliquely (an affine shear, which both

@@ -50,7 +50,10 @@ Item {
     readonly property alias browse: browsePane
     readonly property alias pile: mdPile
     readonly property alias crumbRow: crumbButton
-    readonly property alias caseArea: caseStage
+    // The case area and the player (inside MdDeck).
+    readonly property MdCaseStage caseStage: deck.caseStage
+    readonly property MdCaseStage caseArea: deck.caseStage
+    readonly property MdDeck deckArea: deck
 
     signal addFolderRequested()
     // The user clicked inside this screen (the window takes keyboard focus off the queue).
@@ -106,10 +109,16 @@ Item {
     // is taken out once that one is back.
     function takeOut(it: var, index: int) {
         pending = null;
+        if (deck.animating)
+            deck.finishAnimation();
         if (caseStage.animating)
             caseStage.finishAnimation(); // (a case going back is back; nothing queued follows it)
         if (caseStage.isOpen && it.kind + ":" + it.id === caseStage.takenKey) {
             caseFocused = true;
+            return;
+        }
+        if (deck.hasDisc) { // a disc is in the player: another case only comes out after an Eject
+            deck.showHint();
             return;
         }
         if (caseStage.isOpen) {
@@ -146,6 +155,8 @@ Item {
             pending = null;
         if (!caseStage.isOpen)
             return false;
+        if (caseStage.cartridgeRemoved)
+            return true; // its cartridge is in the player: only Eject brings it home
         if (caseStage.phase === MdCaseStage.PuttingBack) {
             caseStage.finishAnimation(); // Esc again: it's back at once
             return true;
@@ -164,6 +175,22 @@ Item {
         else
             caseStage.putBack(edgeRect(), true);
         return true;
+    }
+
+    // Play the case that's out from `row`: into the player (or, its cartridge in there already,
+    // straight to that track).
+    function playFromCase(model: TrackListModel, row: int) {
+        // A row clicked while something moves: finish it first (an eject that puts the case
+        // away uses the click up).
+        if (deck.animating)
+            deck.finishAnimation();
+        if (caseStage.animating)
+            caseStage.finishAnimation();
+        if (!caseStage.settled)
+            return;
+        caseFocused = true;
+        if (caseStage.cartridgeRemoved || !deck.insert(model, row))
+            Playback.playFromModel(model, row);
     }
 
     function caseReturned() {
@@ -211,6 +238,18 @@ Item {
                 root.addFolderRequested();
             return action !== KeyRouter.MoveRight;
         }
+        // A cartridge travelling (insert, eject): the same key again only finishes it; another one
+        // finishes it and goes ahead (unless that started the case's own return: used up).
+        if (deck.animating) {
+            if (action === KeyRouter.Eject) {
+                deck.eject(); // it finishes an eject itself, and cuts an insert short without playing
+                return true;
+            }
+            const repeatDeck = deck.isRepeat(action);
+            deck.finishAnimation();
+            if (repeatDeck || caseStage.animating)
+                return true;
+        }
         // A case moving: the key that started it again only finishes it (Enter only counts when
         // the case has the keyboard); any other finishes it and then goes ahead, unless finishing
         // it started the next case of a swap coming out: that key is used up.
@@ -219,6 +258,15 @@ Item {
             caseStage.finishAnimation();
             if (repeat || caseStage.animating)
                 return true;
+        }
+        if (action === KeyRouter.Eject) {
+            deck.eject();
+            return true;
+        }
+        if (action === KeyRouter.PlayCase) {
+            if (caseStage.settled)
+                caseStage.playCase();
+            return true;
         }
         if (caseFocused && caseStage.isOpen)
             return caseAction(action);
@@ -304,8 +352,15 @@ Item {
     // Esc inside the screen: a case that's out goes back into the pile; else from a pile back to
     // its list. False when there's nothing to back out of here (the window then goes to the menu).
     function back(): bool {
-        if (caseStage.isOpen)
+        if (caseStage.isOpen && caseStage.cartridgeRemoved) {
+            // Its cartridge is in the player: Esc only hands the keyboard back to the pile.
+            if (caseFocused) {
+                caseFocused = false;
+                return true;
+            }
+        } else if (caseStage.isOpen) {
             return putBackCase(false);
+        }
         if (level === VisualizerView.Pile && hasListLevel) {
             backToList();
             return true;
@@ -389,7 +444,7 @@ Item {
                 kind: root.mixDiscs ? "playlist" : "album"
                 showArtist: !root.hasListLevel || root.pileMixesArtists
                 paneActive: root.active && root.level === VisualizerView.Pile && !root.caseFocused
-                takenKey: caseStage.takenKey
+                takenKey: root.caseStage.takenKey
                 onCaseChosen: item => root.takeOut(item, mdPile.currentIndex)
                 onInteracted: {
                     root.caseFocused = false;
@@ -409,49 +464,46 @@ Item {
         color: Theme.border
     }
 
-    // Where the case comes out (V2) and the player stands (V3): stacked as drawn when there's
-    // room for both, side by side in a short window.
-    Item {
-        id: stage
+    // The case area and the player (V3): stacked as drawn when there's room, side by side in a
+    // short window; the cartridge travels between them.
+    MdDeck {
+        id: deck
+        objectName: "deck"
         visible: root.hasLibrary
         anchors.left: divider.right
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        anchors.margins: Theme.spaceXL
+        anchors.margins: Theme.spaceLG
+        casePaneActive: root.active && root.caseFocused
+        animationsEnabled: root.visible && Playback.windowVisible
+        onReturnCaseRequested: root.putBackCase(false)
+        onExternalLoaded: {
+            root.pending = null;
+            root.caseStage.drop();
+            root.caseFocused = false;
+        }
+        onInteracted: root.interacted()
+    }
 
-        readonly property bool stacked: height >= 2 * 220 + Theme.spaceLG
-
-        GridLayout {
-            anchors.fill: parent
-            columns: stage.stacked ? 1 : 2
-            rowSpacing: Theme.spaceLG
-            columnSpacing: Theme.spaceLG
-
-            MdCaseStage {
-                id: caseStage
-                objectName: "caseStage"
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                z: 1 // the case flies over the player's slot too
-                paneActive: root.active && root.caseFocused
-                animationsEnabled: root.visible && Playback.windowVisible
-                onPlayTrackRequested: (model, row) => Playback.playFromModel(model, row)
-                onPutBackRequested: root.putBackCase(false)
-                onReturned: root.caseReturned()
-                onInteracted: {
-                    if (caseStage.phase !== MdCaseStage.PuttingBack)
-                        root.caseFocused = true;
-                    root.interacted();
-                }
-            }
-            MdPlaceholder {
-                objectName: "playerPlaceholder"
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                heading: qsTr("MiniDisc player")
-                detail: ""
-            }
+    Connections {
+        target: root.caseStage
+        function onPlayTrackRequested(model: TrackListModel, row: int) {
+            root.playFromCase(model, row);
+        }
+        function onPutBackRequested() {
+            root.putBackCase(false);
+        }
+        function onEjectRequested() {
+            deck.eject();
+        }
+        function onReturned() {
+            root.caseReturned();
+        }
+        function onInteracted() {
+            if (root.caseStage.phase !== MdCaseStage.PuttingBack)
+                root.caseFocused = true;
+            root.interacted();
         }
     }
 }

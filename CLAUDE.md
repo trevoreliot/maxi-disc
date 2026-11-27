@@ -166,6 +166,13 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     turns (scaled fixed-size faces: `MdCaseSpine`, `MdCaseFront`, `MdCaseBack`, `MdCartridge` with a static
     `SpinningDisc { interactive: false }`). VisualizerView works out origin / destination (`takeOut`,
     `putBackCase`), `caseFocused` is the third pane, `f` = `FlipCase`. Tests: `tst_mdcase.qml`.
+    V3 (decisions/0014, docs/plans/v3-visualizer-player.md): `MdDeck` holds the case area, `MdPlayer` (flat 2D after
+    the MZ-M200: a `Matrix4x4`-sheared side panel with `MdSideLcd`, a smoked lid folding on its right hinge, keys
+    that are Playback commands) and the travelling cartridge; its phases Empty → … → Loaded → … → Empty step one
+    `NumberAnimation` (`run()` / `stepDone()`). The player mirrors Playback (a disc stays while the playing track
+    is one of its case's; anything else shows that album at once and the case that's out goes back). While a
+    disc is in, no case comes out (hint). Keys: `O` Eject, Shift+Enter `PlayCase`, `-` / `=` `+` volume.
+    Tests: `tst_mdplayer.qml`.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).

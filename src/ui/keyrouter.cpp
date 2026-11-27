@@ -49,6 +49,10 @@ constexpr std::array kTextBindings{
     TextBinding{u'X', KeyRouter::ClearQueue},
     TextBinding{u',', KeyRouter::ContextMenu}, // Doom's local leader: the "what can I do here" key
     TextBinding{u'f', KeyRouter::FlipCase},
+    TextBinding{u'O', KeyRouter::Eject}, // the MZ-style OPEN slide
+    TextBinding{u'-', KeyRouter::VolumeDown},
+    TextBinding{u'=', KeyRouter::VolumeUp}, // + without shift
+    TextBinding{u'+', KeyRouter::VolumeUp},
 };
 
 // Keys matched on key code + exact modifiers, in a context: outside text fields, inside
@@ -71,6 +75,9 @@ const std::array kKeyBindings{
     KeyBinding{Qt::Key_Right, Qt::NoModifier, KeyRouter::MoveRight, Where::Outside},
     KeyBinding{Qt::Key_Return, Qt::NoModifier, KeyRouter::Activate, Where::Outside},
     KeyBinding{Qt::Key_Enter, Qt::NoModifier, KeyRouter::Activate, Where::Outside},
+    KeyBinding{Qt::Key_Return, Qt::ShiftModifier, KeyRouter::PlayCase, Where::Outside},
+    KeyBinding{Qt::Key_Enter, Qt::ShiftModifier, KeyRouter::PlayCase, Where::Outside},
+    KeyBinding{Qt::Key_Eject, Qt::NoModifier, KeyRouter::Eject, Where::Outside},
     KeyBinding{Qt::Key_Delete, Qt::NoModifier, KeyRouter::ExportRemove, Where::Outside},
     KeyBinding{Qt::Key_Left, Qt::ControlModifier, KeyRouter::PreviousTrack, Where::Outside},
     KeyBinding{Qt::Key_Right, Qt::ControlModifier, KeyRouter::NextTrack, Where::Outside},

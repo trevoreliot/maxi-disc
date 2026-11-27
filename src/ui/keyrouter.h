@@ -71,6 +71,10 @@ public:
         MoveMdTrackUp,     // Export, MiniDisc: ... up
         ContextMenu,       // the right-click menu for what the cursor is on (`,`, Menu, Shift+F10)
         FlipCase,          // MD Visualizer: turn the case that's out to its back (track list) and back
+        Eject,             // MD Visualizer: the player's OPEN slide (stop, the cartridge back in its case)
+        PlayCase,          // MD Visualizer: the case that's out into the player, from its first track
+        VolumeDown,        // anywhere: a step quieter
+        VolumeUp,          // anywhere: a step louder
     };
     Q_ENUM(Action)
 

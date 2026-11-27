@@ -13,15 +13,15 @@ Dialog {
     id: root
 
     property string subtitle
-    readonly property bool multiple: editor.trackCount > 1
-    readonly property alias editor: editor
+    readonly property bool multiple: tagEditor.trackCount > 1
+    readonly property alias editor: tagEditor
 
     // Saved: `albumId` is the album all the tracks are in now (0 = several).
     signal saved(int albumId)
 
     function edit(paths: list<string>, label: string) {
         subtitle = label;
-        editor.paths = paths;
+        tagEditor.paths = paths;
         open();
     }
 
@@ -41,24 +41,24 @@ Dialog {
     }
 
     function save() {
-        if (!editor.loading && !editor.saving)
-            editor.apply(changes());
+        if (!tagEditor.loading && !tagEditor.saving)
+            tagEditor.apply(changes());
     }
 
     modal: true
     focus: true // keys go to the dialog, not the KeyRouter
     // A stray click outside mustn't throw away the edits; nothing closes it mid-save.
-    closePolicy: editor.saving ? Popup.NoAutoClose : Popup.CloseOnEscape
+    closePolicy: tagEditor.saving ? Popup.NoAutoClose : Popup.CloseOnEscape
     anchors.centerIn: Overlay.overlay
     width: Math.min(620, Overlay.overlay ? Overlay.overlay.width - 2 * Theme.spaceXL : 620)
     padding: Theme.spaceLG
-    title: multiple ? qsTr("Edit tags · %1 tracks").arg(editor.trackCount) : qsTr("Edit tags")
+    title: multiple ? qsTr("Edit tags · %1 tracks").arg(tagEditor.trackCount) : qsTr("Edit tags")
 
     onOpened: (multiple ? artistField : titleField).forceActiveFocus()
-    onClosed: editor.paths = []
+    onClosed: tagEditor.paths = []
 
     TagEditor {
-        id: editor
+        id: tagEditor
         onFinished: (ok, message, albumId) => {
             if (!ok)
                 return; // errorString shows what went wrong; the dialog stays open
@@ -72,24 +72,24 @@ Dialog {
         id: tf
 
         required property string field
-        readonly property bool mixed: editor.mixedFields.includes(field)
+        readonly property bool mixed: tagEditor.mixedFields.includes(field)
         property string initial
         readonly property bool changed: text.trim() !== initial
 
         function reset() {
-            initial = editor.values[field] ?? "";
+            initial = tagEditor.values[field] ?? "";
             text = initial;
         }
 
         objectName: field + "Field"
         Layout.fillWidth: true
-        enabled: !editor.loading && !editor.saving
+        enabled: !tagEditor.loading && !tagEditor.saving
         placeholderText: mixed ? qsTr("(multiple values)") : ""
         selectByMouse: true
         onAccepted: root.save()
 
         Connections {
-            target: editor
+            target: tagEditor
             function onValuesChanged() {
                 tf.reset();
             }
@@ -123,15 +123,15 @@ Dialog {
     footer: DialogButtonBox {
         Button {
             objectName: "saveButton"
-            text: editor.saving ? qsTr("Saving…") : qsTr("Save")
+            text: tagEditor.saving ? qsTr("Saving…") : qsTr("Save")
             highlighted: true
-            enabled: !editor.loading && !editor.saving && editor.trackCount > 0
+            enabled: !tagEditor.loading && !tagEditor.saving && tagEditor.trackCount > 0
             DialogButtonBox.buttonRole: DialogButtonBox.ApplyRole
             onClicked: root.save()
         }
         Button {
             text: qsTr("Cancel")
-            enabled: !editor.saving
+            enabled: !tagEditor.saving
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
         }
         onRejected: root.close()
@@ -203,7 +203,7 @@ Dialog {
             CheckBox {
                 id: compilationBox
 
-                readonly property bool mixed: editor.mixedFields.includes("compilation")
+                readonly property bool mixed: tagEditor.mixedFields.includes("compilation")
                 property int initialState: Qt.Unchecked
                 readonly property bool changed: checkState !== initialState
 
@@ -212,15 +212,15 @@ Dialog {
                 palette.base: Theme.surfaceElevated
                 Layout.columnSpan: 3
                 text: qsTr("Part of a compilation (various artists)")
-                enabled: !editor.loading && !editor.saving
+                enabled: !tagEditor.loading && !tagEditor.saving
                 focusPolicy: Qt.StrongFocus
 
                 Connections {
-                    target: editor
+                    target: tagEditor
                     function onValuesChanged() {
                         compilationBox.tristate = compilationBox.mixed;
                         compilationBox.initialState = compilationBox.mixed ? Qt.PartiallyChecked
-                            : (editor.values.compilation ? Qt.Checked : Qt.Unchecked);
+                            : (tagEditor.values.compilation ? Qt.Checked : Qt.Unchecked);
                         compilationBox.checkState = compilationBox.initialState;
                     }
                 }
@@ -230,20 +230,20 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spaceSM
-            visible: editor.loading || editor.saving || editor.errorString !== ""
+            visible: tagEditor.loading || tagEditor.saving || tagEditor.errorString !== ""
 
             BusyIndicator {
                 Layout.preferredWidth: 24
                 Layout.preferredHeight: 24
-                running: editor.loading || editor.saving
+                running: tagEditor.loading || tagEditor.saving
                 visible: running
             }
             Label {
                 objectName: "tagError"
                 Layout.fillWidth: true
-                text: editor.errorString !== "" ? editor.errorString
-                    : editor.loading ? qsTr("Reading tags…") : qsTr("Saving…")
-                color: editor.errorString !== "" ? Theme.errorText : Theme.textSecondary
+                text: tagEditor.errorString !== "" ? tagEditor.errorString
+                    : tagEditor.loading ? qsTr("Reading tags…") : qsTr("Saving…")
+                color: tagEditor.errorString !== "" ? Theme.errorText : Theme.textSecondary
                 wrapMode: Text.Wrap
             }
         }

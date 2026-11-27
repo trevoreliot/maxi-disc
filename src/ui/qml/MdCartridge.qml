@@ -5,8 +5,9 @@ import QtQuick.Shapes
 
 // The MiniDisc cartridge (V2; V3 puts it in the player): a clear shell, like clear MD blanks, with
 // the chamfered corner, through which the disc shows: Q4's SpinningDisc, still, with the cover
-// printed on it. On the front, a metal shutter and the label (the cover; a mix disc's is paper with
-// its name); on the back, the shutter on the other side and no label. An original drawing in MD
+// printed on it (still, unless the player turns it: discPlaying). On the front, a metal shutter and
+// the label (the cover; a mix disc's is paper with its name); on the back, the shutter on the other
+// side and no label. An original drawing in MD
 // proportions (68 × 72 mm): no maker's marks. Shapes, Rectangles, Images and Text only.
 Item {
     id: root
@@ -16,6 +17,10 @@ Item {
     property string title
     property string coverUrl // "image://cover/…" or ""
     property bool showingBack: false
+    // V3, in the player: the disc turns with Playback (off by default: in a case it stays still).
+    property bool discPlaying: false
+    property bool discPaused: false
+    property bool discShown: false
     readonly property alias disc: disc
 
     readonly property real chamfer: Math.round(width * 0.08)
@@ -50,8 +55,9 @@ Item {
         y: Math.round(root.height * 0.56 - height / 2)
         opacity: 0.92
         interactive: false
-        playing: false
-        paused: false
+        playing: root.discPlaying
+        paused: root.discPaused
+        shown: root.discShown
         coverUrl: root.coverUrl.startsWith("image://cover/") ? "image://coverround/" + root.coverUrl.substring(14) : ""
         coverKey: SpineColors.key(root.coverUrl)
     }

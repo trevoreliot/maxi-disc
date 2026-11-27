@@ -183,6 +183,12 @@ ApplicationWindow {
         case KeyRouter.PreviousTrack:
             Playback.previous();
             return;
+        case KeyRouter.VolumeDown:
+            Playback.volume = Math.max(0, Playback.volume - 0.05);
+            return;
+        case KeyRouter.VolumeUp:
+            Playback.volume = Math.min(1, Playback.volume + 0.05);
+            return;
         case KeyRouter.ToggleQueue:
             toggleQueue();
             return;

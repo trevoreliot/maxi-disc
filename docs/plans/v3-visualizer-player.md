@@ -5,6 +5,41 @@ Claude then checked it against the code, and changes from Neon's draft are liste
 PLAN.md "Done when" text is the contract. This file is the how. If the two disagree, PLAN.md wins:
 fix this file.
 
+**As built (2026-11-27):** the plan held, with these changes:
+- **The pull-out:** neon's 2.2× peek leaves half the cartridge in the case. Fully clear is about
+  3.4× (`fullOut`), but the case sits near the top of the screen, so the cartridge would leave the
+  window. It comes out only as far as there's room (`pullOut`). The travelling cartridge is drawn
+  behind the case (z 0.5, between the case at 1 and the player at 0), and in the stacked layout it
+  swings out to the right.
+- **The case's buttons hide** while a cartridge travels (`controlsShown`).
+- **"Started elsewhere"** reads the case's live track list (`isOurs`) instead of a snapshot of ids.
+  Until the list has loaded, the disc counts as its own. `awaitingPlay` (5 s at most) ignores
+  Playback until the inserted disc's own track starts.
+- **A stopped or paused queue** doesn't put a disc in; only playing does.
+- **Space** stays plain play / pause. Only the jog's middle replays the disc after the queue is
+  cleared.
+- **The new Qt (6.12.1) qmllint** also flagged two existing files, fixed here:
+  - `TagEditorDialog`: its id `editor` shadowed its alias; the id is now `tagEditor`.
+  - `AppContextMenu`: `createObject(...) as Menu`.
+- **Decision record:** 0014.
+- **Neon's review (fixed, with tests):**
+  - Eject during an insert no longer starts the music it then stops: `O` goes straight to
+    `eject()`, which lands the cartridge without playing (`playOnLanding`).
+  - `eject()` sets its phase before `Playback.stop()`, which may report back at once.
+  - What Playback said while the lid shut, or during an eject, is caught up on afterwards (on
+    Loaded, at the end of an eject, and when the 5 s wait for the play runs out).
+  - A row clicked while something moves finishes it first.
+  - An empty mix disc can't go in.
+  - An external disc of tracks without an album is matched by its track.
+  - The empty case's flip finishes before an eject measures it.
+  - `pullOut` is at least 1.
+  - The pause key works like the jog's middle.
+  - The LCD marquee restarts on a new title.
+  - Not changed:
+    - `back()` leaving the pile: `putBackCase` already fades a case back to a pile that isn't
+      showing.
+    - `O` vs `o`: `o` is taken on the Export screen, and hints show the key as typed (like `E` / `A`).
+
 ## Structure
 
 ```
