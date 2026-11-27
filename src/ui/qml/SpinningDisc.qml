@@ -23,6 +23,8 @@ Item {
     property bool paused: Playback.paused
     property bool spinEnabled: Playback.discSpinEnabled
     property bool shown: Playback.windowVisible
+    // False: just the picture (the MD Visualizer's cartridge): no tooltip, no clicks.
+    property bool interactive: true
 
     // State (tests read it).
     property real angle: 0 // degrees, the turning layer's rotation
@@ -247,14 +249,16 @@ Item {
 
     HoverHandler {
         id: hover
+        enabled: root.interactive
     }
-    ToolTip.visible: hover.hovered && Playback.hasTrack
+    ToolTip.visible: root.interactive && hover.hovered && Playback.hasTrack
     ToolTip.delay: 600
     ToolTip.text: Playback.album === "" ? Playback.title
                 : Playback.artist === "" ? Playback.album : Playback.album + " — " + Playback.artist
 
     TapHandler {
         acceptedButtons: Qt.LeftButton
+        enabled: root.interactive
         onTapped: {
             if (Playback.currentAlbumId > 0)
                 ContextMenus.goToAlbumRequested(Playback.currentAlbumId);
@@ -262,6 +266,7 @@ Item {
     }
     TapHandler {
         acceptedButtons: Qt.RightButton
+        enabled: root.interactive
         onTapped: point => root.openMenu(point.position.x, point.position.y)
     }
 }

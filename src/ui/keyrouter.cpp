@@ -48,6 +48,7 @@ constexpr std::array kTextBindings{
     TextBinding{u'R', KeyRouter::RefreshDevice},
     TextBinding{u'X', KeyRouter::ClearQueue},
     TextBinding{u',', KeyRouter::ContextMenu}, // Doom's local leader: the "what can I do here" key
+    TextBinding{u'f', KeyRouter::FlipCase},
 };
 
 // Keys matched on key code + exact modifiers, in a context: outside text fields, inside

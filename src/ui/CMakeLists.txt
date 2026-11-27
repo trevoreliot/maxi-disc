@@ -50,6 +50,12 @@ qt_add_qml_module(mmm_ui
         qml/VisualizerView.qml
         qml/MdPile.qml
         qml/MdCase.qml
+        qml/MdCaseSpine.qml
+        qml/MdCaseStage.qml
+        qml/MdCaseFront.qml
+        qml/MdCaseBack.qml
+        qml/MdCartridge.qml
+        qml/MdPlaceholder.qml
     SOURCES
         appbridge.h appbridge.cpp
         library.h library.cpp

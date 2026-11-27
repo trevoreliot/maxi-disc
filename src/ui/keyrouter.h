@@ -70,6 +70,7 @@ public:
         MoveMdTrackDown,   // Export, MiniDisc: move the cursor's track down a place
         MoveMdTrackUp,     // Export, MiniDisc: ... up
         ContextMenu,       // the right-click menu for what the cursor is on (`,`, Menu, Shift+F10)
+        FlipCase,          // MD Visualizer: turn the case that's out to its back (track list) and back
     };
     Q_ENUM(Action)
 

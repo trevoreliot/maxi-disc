@@ -4,14 +4,15 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Shapes
 
 // Screen 3, MD Visualizer (docs/ui-draft/md-visualizer.jpeg, docs/plans/v1-visualizer-pile.md):
 // picking music the way you'd pick a MiniDisc from a pile. The left column is the Library's browse
 // dropdown and list; choosing an artist or genre (l, Enter, a click) turns the list into a pile of
 // its albums' cases, and h / Esc / the crumb go back to the list. Albums mode is the pile of every
-// album, Playlists mode a pile of mix discs. The right side is where a case comes out (V2) and
-// the player stands (V3): placeholders for now. The window routes keys here via handleAction().
+// album, Playlists mode a pile of mix discs. On the right, the case area (V2, MdCaseStage): Enter
+// or a click on the cursor's case takes it out, turned to its front with the cartridge part-way
+// out; it flips to its track list and goes back into its gap in the pile. Below it the player
+// will stand (V3). Panes: list / pile | case; the window routes keys here via handleAction().
 Item {
     id: root
 
@@ -27,9 +28,16 @@ Item {
     // Which pile is showing ("artists:5", "genres:0", "albums", "playlists"): a different one
     // starts with the cursor on its top case; the same one again keeps the cursor.
     property string pileKey
-    // The case chosen last (Enter / a click on the cursor's case): V1 shows it in the case
-    // area's placeholder; V2 takes it out of the pile.
-    property var chosen: null
+    // The case that's out (MdPile's item shape), or null.
+    readonly property var chosen: caseStage.item
+    // The case that's out has the keyboard (else the left column does).
+    property bool caseFocused: false
+    // Where the case that's out came from (it goes back there if that pile still shows), and a
+    // case chosen while another was out (taken out once that one is back).
+    property string takenPileKey
+    property int takenIndex: -1
+    // { item, index, pileKey } of the case to take out once the one that's out is back.
+    property var pending: null
     // Shown at least once: until then the pile has no model, so the screen, alive but hidden
     // from startup, builds no cases and asks for no colours.
     property bool opened: false
@@ -42,6 +50,7 @@ Item {
     readonly property alias browse: browsePane
     readonly property alias pile: mdPile
     readonly property alias crumbRow: crumbButton
+    readonly property alias caseArea: caseStage
 
     signal addFolderRequested()
     // The user clicked inside this screen (the window takes keyboard focus off the queue).
@@ -92,8 +101,93 @@ Item {
             level = VisualizerView.List;
     }
 
-    // The album under the cursor (`a` finds its cover), else 0.
+    // A case from the pile (at `index` in it): out to the case area. The latest choice wins: a
+    // case moving finishes first; the one that's out already only takes the keyboard; another one
+    // is taken out once that one is back.
+    function takeOut(it: var, index: int) {
+        pending = null;
+        if (caseStage.animating)
+            caseStage.finishAnimation(); // (a case going back is back; nothing queued follows it)
+        if (caseStage.isOpen && it.kind + ":" + it.id === caseStage.takenKey) {
+            caseFocused = true;
+            return;
+        }
+        if (caseStage.isOpen) {
+            pending = { item: it, index: index, pileKey: pileKey };
+            putBackCase(true);
+            return;
+        }
+        const here = pileIndexOf(it, index, pileKey);
+        let origin = Qt.rect(0, 0, 0, 0);
+        if (here >= 0) {
+            mdPile.ensureVisible(here);
+            origin = mdPile.caseRect(here, caseStage);
+        }
+        if (origin.width <= 0)
+            origin = edgeRect();
+        takenPileKey = pileKey;
+        takenIndex = here;
+        caseFocused = true;
+        caseStage.takeCase(it, origin);
+    }
+
+    // `index` if the pile showing is `key`'s and the case there is still `it`; else -1.
+    function pileIndexOf(it: var, index: int, key: string): int {
+        if (level !== VisualizerView.Pile || key !== pileKey || index < 0 || index >= mdPile.count)
+            return -1;
+        const r = mdPile.itemAt(index);
+        return r && r.kind === it.kind && r.id === it.id ? index : -1;
+    }
+
+    // The case back into its gap, if its pile still shows; else to the column's edge, fading.
+    // `forSwap`: another case is queued to come out next; otherwise (Esc, Put back) nothing is.
+    function putBackCase(forSwap: bool): bool {
+        if (!forSwap)
+            pending = null;
+        if (!caseStage.isOpen)
+            return false;
+        if (caseStage.phase === MdCaseStage.PuttingBack) {
+            caseStage.finishAnimation(); // Esc again: it's back at once
+            return true;
+        }
+        if (caseStage.animating)
+            caseStage.finishAnimation();
+        const here = pileIndexOf(caseStage.item, takenIndex, takenPileKey);
+        let dest = Qt.rect(0, 0, 0, 0);
+        if (here >= 0) {
+            mdPile.ensureVisible(here);
+            dest = mdPile.caseRect(here, caseStage);
+        }
+        caseFocused = false;
+        if (dest.width > 0)
+            caseStage.putBack(dest, false);
+        else
+            caseStage.putBack(edgeRect(), true);
+        return true;
+    }
+
+    function caseReturned() {
+        const next = pending;
+        pending = null;
+        caseFocused = false;
+        if (next)
+            takeOut(next.item, pileIndexOf(next.item, next.index, next.pileKey));
+    }
+
+    // A case-sized strip at the left column's edge, in the case area's coordinates.
+    function edgeRect(): rect {
+        const p = column.mapToItem(caseStage, Theme.spaceMD, column.height / 2);
+        return Qt.rect(p.x, p.y, column.width - 2 * Theme.spaceMD, mdPile.caseHeight);
+    }
+
+    function sendItem(it: var) {
+        SendToDevice.sendItem(it.kind, it.id, it.artist ? it.title + " – " + it.artist : it.title);
+    }
+
+    // The album under the cursor, or out with the keyboard on it (`a` finds its cover), else 0.
     function currentAlbumId(): int {
+        if (caseFocused && caseStage.isOpen)
+            return caseStage.item.kind === "album" ? caseStage.item.id : 0;
         return level === VisualizerView.Pile ? mdPile.currentAlbumId() : 0;
     }
 
@@ -101,7 +195,9 @@ Item {
     function openContextMenu() {
         if (!hasLibrary)
             return;
-        if (level === VisualizerView.List)
+        if (caseFocused && caseStage.isOpen)
+            caseStage.openContextMenuForCase();
+        else if (level === VisualizerView.List)
             browsePane.openContextMenuForCurrent();
         else
             mdPile.openContextMenuForCurrent();
@@ -114,6 +210,24 @@ Item {
             if (action === KeyRouter.Activate)
                 root.addFolderRequested();
             return action !== KeyRouter.MoveRight;
+        }
+        // A case moving: the key that started it again only finishes it (Enter only counts when
+        // the case has the keyboard); any other finishes it and then goes ahead, unless finishing
+        // it started the next case of a swap coming out: that key is used up.
+        if (caseStage.animating) {
+            const repeat = caseStage.isRepeat(action) && (caseFocused || action === KeyRouter.FlipCase);
+            caseStage.finishAnimation();
+            if (repeat || caseStage.animating)
+                return true;
+        }
+        if (caseFocused && caseStage.isOpen)
+            return caseAction(action);
+        if (action === KeyRouter.FlipCase) {
+            if (caseStage.isOpen) {
+                caseFocused = true;
+                caseStage.flipCase();
+            }
+            return true;
         }
         if (level === VisualizerView.List) {
             switch (action) {
@@ -147,9 +261,12 @@ Item {
             backToList();
             return true;
         case KeyRouter.MoveRight:
-            return false;
+            if (!caseStage.isOpen)
+                return false;
+            caseFocused = true;
+            return true;
         case KeyRouter.Activate:
-            mdPile.chooseCurrent();
+            mdPile.chooseCurrent(); // → caseChosen → takeOut()
             return true;
         case KeyRouter.AddToDevice:
             mdPile.sendCurrent();
@@ -158,9 +275,37 @@ Item {
         return false;
     }
 
-    // Esc inside the screen: from a pile back to its list. False when there's nothing to back
-    // out of here (the window then goes to the main menu).
+    // Keys while the case has them: h back to the left column, j/k along its track list, Enter
+    // flips the front / plays from the back's track, f flips, i sends it.
+    function caseAction(action: int): bool {
+        switch (action) {
+        case KeyRouter.MoveLeft:
+            caseFocused = false;
+            return true;
+        case KeyRouter.MoveRight:
+            return false;
+        case KeyRouter.MoveDown:
+        case KeyRouter.MoveUp:
+            caseStage.moveTrack(action === KeyRouter.MoveDown ? 1 : -1);
+            return true;
+        case KeyRouter.Activate:
+            caseStage.activate();
+            return true;
+        case KeyRouter.FlipCase:
+            caseStage.flipCase();
+            return true;
+        case KeyRouter.AddToDevice:
+            sendItem(caseStage.item);
+            return true;
+        }
+        return false;
+    }
+
+    // Esc inside the screen: a case that's out goes back into the pile; else from a pile back to
+    // its list. False when there's nothing to back out of here (the window then goes to the menu).
     function back(): bool {
+        if (caseStage.isOpen)
+            return putBackCase(false);
         if (level === VisualizerView.Pile && hasListLevel) {
             backToList();
             return true;
@@ -207,10 +352,13 @@ Item {
                 listsShown: root.level === VisualizerView.List
                 showPlaylistTools: false
                 contextMenus: true
-                paneActive: root.active && root.level === VisualizerView.List
+                paneActive: root.active && root.level === VisualizerView.List && !root.caseFocused
                 onSelected: (m, entry) => root.openEntry(m, entry)
                 onModeChanged: root.modeSwitched(browsePane.mode)
-                onInteracted: root.interacted()
+                onInteracted: {
+                    root.caseFocused = false;
+                    root.interacted();
+                }
             }
 
             ItemDelegate {
@@ -226,6 +374,7 @@ Item {
                 ToolTip.delay: 600
                 ToolTip.text: qsTr("Back to the list (h, Esc)")
                 onClicked: {
+                    root.caseFocused = false;
                     root.interacted();
                     root.backToList();
                 }
@@ -239,9 +388,13 @@ Item {
                 model: !root.opened ? null : root.mixDiscs ? pilePlaylists : pileAlbums
                 kind: root.mixDiscs ? "playlist" : "album"
                 showArtist: !root.hasListLevel || root.pileMixesArtists
-                paneActive: root.active && root.level === VisualizerView.Pile
-                onCaseChosen: item => root.chosen = item
-                onInteracted: root.interacted()
+                paneActive: root.active && root.level === VisualizerView.Pile && !root.caseFocused
+                takenKey: caseStage.takenKey
+                onCaseChosen: item => root.takeOut(item, mdPile.currentIndex)
+                onInteracted: {
+                    root.caseFocused = false;
+                    root.interacted();
+                }
             }
         }
     }
@@ -275,68 +428,29 @@ Item {
             rowSpacing: Theme.spaceLG
             columnSpacing: Theme.spaceLG
 
-            Placeholder {
-                objectName: "casePlaceholder"
+            MdCaseStage {
+                id: caseStage
+                objectName: "caseStage"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                heading: root.chosen ? root.chosen.title : qsTr("Pick a MiniDisc")
-                detail: !root.chosen ? qsTr("Choose a case from the pile on the left")
-                      : root.chosen.kind === "playlist" ? qsTr("Mix disc") : root.chosen.artist
+                z: 1 // the case flies over the player's slot too
+                paneActive: root.active && root.caseFocused
+                animationsEnabled: root.visible && Playback.windowVisible
+                onPlayTrackRequested: (model, row) => Playback.playFromModel(model, row)
+                onPutBackRequested: root.putBackCase(false)
+                onReturned: root.caseReturned()
+                onInteracted: {
+                    if (caseStage.phase !== MdCaseStage.PuttingBack)
+                        root.caseFocused = true;
+                    root.interacted();
+                }
             }
-            Placeholder {
+            MdPlaceholder {
                 objectName: "playerPlaceholder"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 heading: qsTr("MiniDisc player")
                 detail: ""
-            }
-        }
-    }
-
-    component Placeholder: Item {
-        id: placeholder
-
-        property string heading
-        property string detail
-
-        Shape {
-            anchors.fill: parent
-            ShapePath {
-                fillColor: "transparent"
-                strokeColor: Theme.border
-                strokeWidth: 1.5
-                strokeStyle: ShapePath.DashLine
-                dashPattern: [4, 3]
-                PathRectangle {
-                    x: 1
-                    y: 1
-                    width: placeholder.width - 2
-                    height: placeholder.height - 2
-                    radius: Theme.radiusLarge
-                }
-            }
-        }
-        ColumnLayout {
-            anchors.centerIn: parent
-            width: parent.width - 2 * Theme.spaceLG
-            spacing: Theme.spaceXS
-
-            Label {
-                objectName: "placeholderHeading"
-                Layout.fillWidth: true
-                horizontalAlignment: Text.AlignHCenter
-                text: placeholder.heading
-                elide: Text.ElideRight
-                font.pixelSize: Theme.fontHeading
-                color: Theme.textSecondary
-            }
-            Label {
-                Layout.fillWidth: true
-                visible: text !== ""
-                horizontalAlignment: Text.AlignHCenter
-                text: placeholder.detail
-                elide: Text.ElideRight
-                color: Theme.textMuted
             }
         }
     }

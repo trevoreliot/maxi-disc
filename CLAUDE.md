@@ -160,6 +160,12 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     `SpineColors` (C++ singleton; construct before the engine with the cover cache dir: main.cpp, tst_qml's
     Setup): `request` / `release` by cover URL, computed newest first from CoverLoader's 128 px thumbnail,
     kept in memory by `CoverLoader::key`. Tests: `tst_visualizer.qml`, tst_uimodels' `spine*`.
+    V2 (decisions/0013, docs/plans/v2-visualizer-case.md): `MdCaseStage` (the case area; drawn after the left
+    column so the case flies over it) owns the case that's out: phases Idle → TakingOut → CartridgeOut → Front ⇄
+    Back (flips) → PuttingBack, one `NumberAnimation` stepping `take` / `cartridge` / `flipProgress`; flat 2D
+    turns (scaled fixed-size faces: `MdCaseSpine`, `MdCaseFront`, `MdCaseBack`, `MdCartridge` with a static
+    `SpinningDisc { interactive: false }`). VisualizerView works out origin / destination (`takeOut`,
+    `putBackCase`), `caseFocused` is the third pane, `f` = `FlipCase`. Tests: `tst_mdcase.qml`.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).

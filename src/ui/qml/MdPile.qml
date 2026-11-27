@@ -9,7 +9,7 @@ import QtQuick.Controls
 // playlist (a PlaylistListModel's). j/k move the cursor (its case slides out); a click moves it,
 // a click on the cursor's case (or Enter, via chooseCurrent()) chooses it: caseChosen(item), which
 // V2 turns into taking the case out. `item` has one shape for both kinds:
-// { kind: "album" | "playlist", id, title, artist, year, coverUrl, count, color }.
+// { kind: "album" | "playlist", id, title, artist, year, coverUrl, count, color, detail (what its spine shows) }.
 Item {
     id: root
 
@@ -62,8 +62,10 @@ Item {
         const known = kind === "playlist" ? Theme.mdBlankColor(r.playlistId) : SpineColors.color(r.coverUrl);
         const c = d ? d.caseColor : known.valid ? known : Theme.spineDefault;
         if (kind === "playlist")
-            return { kind: "playlist", id: r.playlistId, title: r.name, artist: "", year: 0, coverUrl: "", count: r.availableCount, color: c };
-        return { kind: "album", id: r.albumId, title: r.title, artist: r.artist, year: r.year, coverUrl: r.coverUrl, count: 0, color: c };
+            return { kind: "playlist", id: r.playlistId, title: r.name, artist: "", year: 0, coverUrl: "", count: r.availableCount, color: c,
+                     detail: trackCount(r.availableCount) };
+        return { kind: "album", id: r.albumId, title: r.title, artist: r.artist, year: r.year, coverUrl: r.coverUrl, count: 0, color: c,
+                 detail: showArtist ? r.artist : "" };
     }
 
     function currentItem(): var {

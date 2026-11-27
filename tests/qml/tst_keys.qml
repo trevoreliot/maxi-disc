@@ -128,6 +128,7 @@ TestCase {
             { tag: "R", key: "R", action: KeyRouter.RefreshDevice },
             { tag: "X", key: "X", action: KeyRouter.ClearQueue },
             { tag: "comma", key: ",", action: KeyRouter.ContextMenu },
+            { tag: "f", key: "f", action: KeyRouter.FlipCase },
             { tag: "menu", key: Qt.Key_Menu, action: KeyRouter.ContextMenu },
             { tag: "shift+f10", key: Qt.Key_F10, mods: Qt.ShiftModifier, action: KeyRouter.ContextMenu },
             { tag: "f10", key: Qt.Key_F10, action: -1 },

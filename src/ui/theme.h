@@ -74,6 +74,24 @@ class Theme : public QObject
     Q_PROPERTY(QColor spineShadow MEMBER m_spineShadow CONSTANT FINAL)
     Q_PROPERTY(QColor mdLabelPaper MEMBER m_mdLabelPaper CONSTANT FINAL)
     Q_PROPERTY(QColor mdLabelInk MEMBER m_mdLabelInk CONSTANT FINAL)
+    // The case taken out (V2): its clear plastic sleeve (tint, edge, sheen), the shadow under it and
+    // the shading that darkens a face as it turns away, the scrim under the front's caption, the back
+    // insert, the clear cartridge shell, its metal shutter (light, mid, dark, the slot), and the
+    // rules on a mix disc's paper.
+    Q_PROPERTY(QColor mdCasePlastic MEMBER m_mdCasePlastic CONSTANT FINAL)
+    Q_PROPERTY(QColor mdCaseBorder MEMBER m_mdCaseBorder CONSTANT FINAL)
+    Q_PROPERTY(QColor mdCaseSheen MEMBER m_mdCaseSheen CONSTANT FINAL)
+    Q_PROPERTY(QColor mdCaseShadow MEMBER m_mdCaseShadow CONSTANT FINAL)
+    Q_PROPERTY(QColor mdFaceShade MEMBER m_mdFaceShade CONSTANT FINAL)
+    Q_PROPERTY(QColor mdInsertScrim MEMBER m_mdInsertScrim CONSTANT FINAL)
+    Q_PROPERTY(QColor mdBackInsertBg MEMBER m_mdBackInsertBg CONSTANT FINAL)
+    Q_PROPERTY(QColor mdShellFill MEMBER m_mdShellFill CONSTANT FINAL)
+    Q_PROPERTY(QColor mdShellBorder MEMBER m_mdShellBorder CONSTANT FINAL)
+    Q_PROPERTY(QColor mdShutterLight MEMBER m_mdShutterLight CONSTANT FINAL)
+    Q_PROPERTY(QColor mdShutterMid MEMBER m_mdShutterMid CONSTANT FINAL)
+    Q_PROPERTY(QColor mdShutterDark MEMBER m_mdShutterDark CONSTANT FINAL)
+    Q_PROPERTY(QColor mdShutterSlot MEMBER m_mdShutterSlot CONSTANT FINAL)
+    Q_PROPERTY(QColor mdLabelRule MEMBER m_mdLabelRule CONSTANT FINAL)
     // Spacing
     Q_PROPERTY(int spaceXS MEMBER m_spaceXS CONSTANT FINAL)
     Q_PROPERTY(int spaceSM MEMBER m_spaceSM CONSTANT FINAL)
@@ -145,6 +163,20 @@ private:
     QColor m_spineShadow{0x00, 0x00, 0x00, 0x8C};
     QColor m_mdLabelPaper{0xEE, 0xEA, 0xDF};
     QColor m_mdLabelInk{0x1F, 0x2D, 0x52};
+    QColor m_mdCasePlastic{0xC8, 0xD2, 0xE0, 0x30};
+    QColor m_mdCaseBorder{0xD8, 0xE0, 0xEC, 0x8C};
+    QColor m_mdCaseSheen{0xFF, 0xFF, 0xFF, 0x2E};
+    QColor m_mdCaseShadow{0x00, 0x00, 0x00, 0x80};
+    QColor m_mdFaceShade{0x05, 0x06, 0x09};
+    QColor m_mdInsertScrim{0x0B, 0x0D, 0x12, 0xD9};
+    QColor m_mdBackInsertBg{0x1A, 0x1D, 0x24};
+    QColor m_mdShellFill{0xD6, 0xDE, 0xEA, 0x3A};
+    QColor m_mdShellBorder{0xE4, 0xEA, 0xF2, 0xA6};
+    QColor m_mdShutterLight{0xDC, 0xE0, 0xE6};
+    QColor m_mdShutterMid{0xAA, 0xB0, 0xB9};
+    QColor m_mdShutterDark{0x7C, 0x83, 0x8E};
+    QColor m_mdShutterSlot{0x55, 0x5C, 0x67};
+    QColor m_mdLabelRule{0x9F, 0xB6, 0xD6, 0x8C};
     int m_spaceXS = 4;
     int m_spaceSM = 8;
     int m_spaceMD = 12;

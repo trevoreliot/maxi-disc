@@ -5,6 +5,32 @@ Plan for PLAN.md's **V2 Taking a case from the pile** (Phase 6b). Gemini 4 Neon 
 at the end. The PLAN.md "Done when" text is the contract. This file is the how. If the two
 disagree, PLAN.md wins: fix this file.
 
+**As built (2026-11-26):** the plan held, with these changes:
+- **No overlay item:** the case that moves lives in `MdCaseStage`. That item is drawn after the left
+  column, and nothing clips it, so the case flies over the pile without an overlay or reparenting.
+- **One animation:** a single `NumberAnimation` steps through `take`, `cartridge` and `flipProgress`
+  (`run()` / `stepDone()`). `finishAnimation()` completes the running operation. While a case is
+  going back, it stops once that case is back, so a case chosen meanwhile still comes out animated.
+- **Buttons:** Flip / Put back show only while the case is settled or flipping, not while it flies.
+- **Names:** `VisualizerView.caseArea` is the stage; `MdCaseBack.tracksView` is its list.
+- **Tests:** `tst_mdcase.qml` (10 cases, plus screenshots mid-turn and mid-flip),
+  `tst_disc`'s `test_notInteractive`, and `tst_keys` (`f`).
+- **Decision record:** 0013.
+- **Fixed after Neon's review of the code:**
+  - **Latest choice wins:** choosing a case first finishes a case that's moving and drops anything
+    queued. A click on the gap of a case going back now takes it out again; before, the click was
+    lost and the keyboard got stuck on the empty case area.
+  - **Esc / Put back during a swap** cancel it; only a swap queues the next case
+    (`putBackCase(forSwap)`).
+  - **A key that finishes a swap's put-back is used up:** it doesn't go to the case now coming out.
+  - **Enter only counts as "again"** while the case has the keyboard. Clicking the pile mid-flight and
+    pressing Enter chooses from the pile.
+  - **A case going back takes no clicks:** no menu and no track rows. `caseReturned()` gives the
+    keyboard back to the left column.
+  - **A queued case** remembers its pile index and pile, so it comes out of its own slot. If that pile
+    is gone, it comes from the column's edge, and so does its return.
+  - Tests: `tst_mdcase`'s `test_swapEdgeCases`.
+
 ## Decisions
 
 - **Flat 2D geometry only.** No perspective `Rotation`. The software renderer then draws in test

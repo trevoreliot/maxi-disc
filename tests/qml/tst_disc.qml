@@ -192,6 +192,16 @@ TestCase {
         verify(Playback.discSpinEnabled);
     }
 
+    // V2: the cartridge's disc is only a picture: no menu, no going to the album.
+    function test_notInteractive() {
+        const d = createTemporaryObject(freeDiscComp, tc, { interactive: false });
+        menuSpy.clear();
+        mouseClick(d, d.width / 2, d.height / 2, Qt.RightButton);
+        mouseClick(d, d.width / 2, d.height / 2);
+        compare(menuSpy.count, 0);
+        verify(!d.ToolTip.visible);
+    }
+
     // The analyser keeps its 160 px beside the disc in the smallest window.
     function test_smallestWindow() {
         const win = createTemporaryObject(mainComp, tc);

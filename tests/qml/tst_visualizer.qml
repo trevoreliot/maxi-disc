@@ -143,13 +143,17 @@ TestCase {
         tryCompare(caseAt(v, 1), "slide", 1);
         tryCompare(caseAt(v, 0), "slide", 0);
 
-        // Enter chooses it (V1: the case area's placeholder shows it).
+        // Enter takes it out (V2: tst_mdcase.qml); Esc puts it back.
         act(win, KeyRouter.Activate);
         verify(v.chosen);
         compare(v.chosen.kind, "album");
         compare(v.chosen.title, titles(v)[1]);
         compare(v.chosen.artist, "Radiohead");
-        compare(findChild(findChild(v, "casePlaceholder"), "placeholderHeading").text, titles(v)[1]);
+        tryCompare(v.caseArea, "phase", MdCaseStage.Front, 3000);
+        compare(findChild(v.caseArea.front, "frontTitle").text, titles(v)[1]);
+        act(win, KeyRouter.Back);
+        tryCompare(v.caseArea, "phase", MdCaseStage.Idle, 3000);
+        compare(v.level, VisualizerView.Pile);
 
         // h back to the list, cursor still on Radiohead; in again: the same pile, cursor kept.
         act(win, KeyRouter.MoveLeft);
@@ -243,7 +247,8 @@ TestCase {
         compare(v.chosen.kind, "playlist");
         compare(v.chosen.id, playlistId);
         compare(v.chosen.title, "Road trip");
-        compare(findChild(findChild(v, "casePlaceholder"), "placeholderHeading").text, "Road trip");
+        tryCompare(v.caseArea, "phase", MdCaseStage.Front, 3000);
+        compare(findChild(v.caseArea.front, "frontMixTitle").text, "Road trip");
     }
 
     function test_coversColourTheCases() {
@@ -282,6 +287,7 @@ TestCase {
         mouseClick(caseAt(v, 1));
         verify(v.chosen);
         compare(v.chosen.title, titles(v)[1]);
+        tryCompare(v.caseArea, "phase", MdCaseStage.Front, 3000);
 
         // Right-click: the album's menu, for that case (outlined while open).
         mouseClick(caseAt(v, 0), 20, 10, Qt.RightButton);

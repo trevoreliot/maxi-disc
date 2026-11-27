@@ -210,7 +210,7 @@ renderer draws 3D-rotated items flat, so the real display is part of every user 
   Plan: docs/plans/v1-visualizer-pile.md. Tests: C++ for the cover colour; QML for the drill-down,
   each mode's pile and the cursor (incl. a 1,000-case pile); screenshots. User test: browse a few
   artists by keyboard and by mouse; the pile reads as MD cases; scroll a big genre quickly.
-- [ ] **V2 Taking a case from the pile** — Done when: Enter or a click on the cursor's case slides it
+- [x] **V2 Taking a case from the pile** — Done when: Enter or a click on the cursor's case slides it
   out of the pile to the case area, turning to face front (the front insert: the cover, title and
   artist); then the cartridge slides part-way out of the case, its label showing the cover. A Flip button
   (and a key) turns the case round to its back: the track list (number, title, duration), with the
