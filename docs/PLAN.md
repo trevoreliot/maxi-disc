@@ -214,13 +214,14 @@ renderer draws 3D-rotated items flat, so the real display is part of every user 
   out of the pile to the case area, turning to face front (the front insert: the cover, title and
   artist); then the cartridge slides part-way out of the case, its label showing the cover. A Flip button
   (and a key) turns the case round to its back: the track list (number, title, duration), with the
-  cursor in it (j / k; Enter plays, once V3 exists); a mix disc's back lists the playlist on its
+  cursor in it (j / k; Enter plays from that track: V3 puts the insert animation in front of it;
+  Enter or a click on the front flips, as drawn); a mix disc's back lists the playlist on its
   paper insert. Esc or Back puts the case back in the pile, animated. Each animation takes about half
   a second; pressing again finishes it at once; no work runs on the GUI thread during them.
   Right-click on the case opens the album's (or playlist's) menu (Q1's entries). Tests:
   QML (pile → out → cartridge out → flipped → back; the track list's rows; the keys); screenshots of the
   front and the back. User test: take out, flip and put back several albums, by mouse and keyboard
-  only; it feels like handling a real case.
+  only; it feels like handling a real case. Plan: docs/plans/v2-visualizer-case.md.
 - [ ] **V3 The MiniDisc player** — Done when: below the case area stands a portable MD player drawn
   after the MZ-M200: a near-square body only a little bigger than the cartridge, rounded corners, its
   dark lid made smoked and translucent, so the cartridge and its turning disc (Q4's SpinningDisc) show
