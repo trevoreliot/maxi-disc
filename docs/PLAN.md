@@ -572,7 +572,7 @@ renderer draws 3D-rotated items flat, so the real display is part of every user 
   - Stubs in the UI waiting on core work: shuffle (PlayQueue shuffle order + MPRIS `Shuffle`);
     audio analyzer (now Q3); Discord / ListenBrainz toggles
     (M15 / M14); Export screen devices, sync and MD options (M8–M12).
-  - MD Visualizer (main-menu tile 3): a disabled placeholder until Phase 6b (V1-V3).
+  - MD Visualizer (main-menu tile 3): Phase 6b (V1-V3), on the `md-visualizer` branch.
   - Keyboard ideas not done: switch the browse dropdown mode from the keyboard (it needs a click
     today), `1`/`2` to open main-menu tiles, `gg`/`G`, `n`/`N`, a key-help overlay. All go in
     KeyRouter's tables + Main.handleAction().

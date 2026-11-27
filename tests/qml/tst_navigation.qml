@@ -42,8 +42,10 @@ TestCase {
         compare(win.mainMenu.currentTile, 0);
         act(win, KeyRouter.MoveRight);
         compare(win.mainMenu.currentTile, 1);
-        act(win, KeyRouter.MoveRight); // tile 3 (MD Visualizer) is skipped
-        compare(win.mainMenu.currentTile, 1);
+        act(win, KeyRouter.MoveRight); // tile 3 (MD Visualizer)
+        compare(win.mainMenu.currentTile, 2);
+        act(win, KeyRouter.MoveRight); // past the last tile (the queue is closed): stays
+        compare(win.mainMenu.currentTile, 2);
         act(win, KeyRouter.MoveLeft, 3);
         compare(win.mainMenu.currentTile, 0);
         act(win, KeyRouter.Back); // Esc on the menu does nothing (never quits)

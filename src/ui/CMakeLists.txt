@@ -47,6 +47,9 @@ qt_add_qml_module(mmm_ui
         qml/SendToDeviceButton.qml
         qml/AppContextMenu.qml
         qml/ContextMenus.qml
+        qml/VisualizerView.qml
+        qml/MdPile.qml
+        qml/MdCase.qml
     SOURCES
         appbridge.h appbridge.cpp
         library.h library.cpp
@@ -54,6 +57,7 @@ qt_add_qml_module(mmm_ui
         coverimageprovider.h coverimageprovider.cpp
         playback.h playback.cpp
         spectrummeter.h spectrummeter.cpp
+        spinecolors.h spinecolors.cpp
         listenbrainz.h listenbrainz.cpp
         desktop.h desktop.cpp
         discord.h discord.cpp

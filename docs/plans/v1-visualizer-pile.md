@@ -6,6 +6,31 @@ user's drawing and the code, and the user chose the pile instead. Changes from N
 listed at the end. The PLAN.md "Done when" text is the contract. This file is the how. If the two
 disagree, PLAN.md wins: fix this file.
 
+**As built (2026-11-26):** the plan held, with these changes:
+- **Tests:** the C++ colour tests are in `tst_uimodels` (`spineDominantColor`, `spineTextContrast`,
+  `spineColorsAsync`), next to the cover provider's, not a new `tst_spinecolors`.
+- **Header height:** `BrowsePane.headerHeight` is computed from the dropdown's size. Measuring the
+  rule's position fed back through the pane's own height and left a gap.
+- **Mode switches:** `VisualizerView.modeSwitched(m)` takes the new mode from BrowsePane. The
+  screen's own `mode` binding hadn't updated yet when `onModeChanged` ran.
+- **Spines:** they are rounded with a light-to-dark gradient overlay, not a 1 px top edge.
+- **Newest-first order:** not tested, because two workers finish in any order. Skipping released
+  requests is tested, with the workers held.
+- **Decision record:** 0012.
+- **Fixed after Neon's review of the code (and a probe):**
+  - **One delegate:** a single pile delegate reads its row through `model`, defensively. The pile's
+    model and `kind` change one after the other, so separate album and mix-disc delegates briefly
+    met the other kind's rows and failed on their required properties.
+  - **Startup work:** the screen, alive but hidden from startup, built its cases and asked for
+    colours before anyone opened it. The pile now gets its model on first show (`opened`).
+  - **Cursor resets:** they follow which pile is showing (`pileKey`: "artists:5", "albums", …), via
+    `Qt.callLater`. "All artists" after Albums mode is a new pile, so the cursor starts on top.
+  - **Hidden animations:** the colour fade and the slide-out run only while the case is visible.
+  - **`SpineColors` queue:** an id leaves the queue when it's taken or released. Compaction keeps
+    each held key once.
+  - **Smaller fixes:** an off-screen case's chosen colour uses the cached one; `,` scrolls the
+    cursor's case into view before opening its menu.
+
 User's choices (2026-11-26):
 - **The pile, drill-down:** as drawn, MiniDisc cases lying flat in the left column, spines facing
   you. Choosing an artist turns the list into that artist's pile.
@@ -210,14 +235,14 @@ Q_SIGNALS:
 - **New:**
   - `src/ui/spinecolors.{h,cpp}`;
   - `src/ui/qml/VisualizerView.qml`, `MdPile.qml`, `MdCase.qml`;
-  - `tests/ui/tst_spinecolors.cpp`;
   - `tests/qml/tst_visualizer.qml`.
 - **Changed:**
   - `Main.qml`, `MainMenuView.qml`, `MenuIcon.qml`;
   - `BrowsePane.qml` (`livePreview`, `listsShown`);
   - `theme.h` (`spineDefault`, `spineInkDark`, `spineInkLight`, `spinePlastic`, `spineShadow`,
     `mdBlankColors`, `mdLabelPaper`, `mdLabelInk`);
-  - `src/ui/CMakeLists.txt`, `tests/CMakeLists.txt`;
+  - `src/ui/CMakeLists.txt`;
+  - `tests/ui/tst_uimodels.cpp` (the colour tests);
   - `src/app/main.cpp` and `tests/qml/tst_qml.cpp` (construct `SpineColors` with the cover cache dir);
   - `tst_navigation.qml` (tile 3 is reachable);
   - CLAUDE.md layout bullet.

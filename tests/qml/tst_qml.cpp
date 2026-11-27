@@ -9,6 +9,7 @@
 #include "fakenetmd.h"
 #include "minidisc.h"
 #include "sendtodevice.h"
+#include "spinecolors.h"
 #include "ondevice.h"
 #include "sync.h"
 #include "fixturelibrary.h"
@@ -144,6 +145,8 @@ public Q_SLOTS:
         m_miniDisc = std::make_unique<MiniDisc>(MiniDisc::Options{mmm::test::fakeNetMd(m_recorder), false, mmm::test::fakeEncoder(),
                                                                   m_dir.filePath(QStringLiteral("md-record")), false});
         m_send = std::make_unique<SendToDevice>(nullptr);
+        // The MD Visualizer's case colours (V1), from the same cover cache as the provider.
+        m_spineColors = std::make_unique<SpineColors>(m_dir.filePath(QStringLiteral("covers")), nullptr);
     }
 
     void qmlEngineAvailable(QQmlEngine *engine)
@@ -161,6 +164,7 @@ public Q_SLOTS:
 
     void cleanupTestCase()
     {
+        m_spineColors.reset();
         m_send.reset();
         m_miniDisc.reset();
         m_onDevice.reset();
@@ -194,6 +198,7 @@ private:
     FakeRecorderControl m_recorderControl{m_recorder};
     std::unique_ptr<MiniDisc> m_miniDisc;
     std::unique_ptr<SendToDevice> m_send;
+    std::unique_ptr<SpineColors> m_spineColors;
 };
 
 QUICK_TEST_MAIN_WITH_SETUP(mmm_qml, Setup)

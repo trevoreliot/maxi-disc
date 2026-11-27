@@ -39,7 +39,7 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
   - `Playback` (QML singleton): wraps core `PlaybackController` + owns `MprisService`; persists
     volume/repeat/ReplayGain in QSettings. Construct before the engine, like `Library`.
   - Shell (M5b, after the drawings in `docs/ui-draft/`, local only): `Main.qml` = `TopChrome` header, a `StackLayout` of
-    screens (`MainMenuView`, `LibraryView`, `ExportView`), `QueuePanel` docked right, `TransportBar`
+    screens (`MainMenuView`, `LibraryView`, `ExportView`, `VisualizerView`), `QueuePanel` docked right, `TransportBar`
     footer. Screens stay alive, so their state (browse selection, open album) survives switching.
   - Keyboard: `KeyRouter` (C++, keyrouter.cpp) is the **one** place keys are bound; it filters the
     window's key events into actions. `Main.handleAction()` handles global ones and forwards
@@ -152,6 +152,14 @@ Done-when gate for every milestone: debug preset builds with **zero warnings**
     (coverUrl names the track for embedded art). Spin = a FrameAnimation integrating an animated `speed` (no
     RotationAnimator); `Playback.discSpinEnabled` (QSettings). Its inputs are plain properties (bound to Playback)
     so tests drive it directly (`tst_disc.qml`). `Main.minimumWidth` 960 keeps the analyser at 160 px.
+  - MD Visualizer (Phase 6b, branch `md-visualizer`; V1: decisions/0012, docs/plans/v1-visualizer-pile.md):
+    `VisualizerView.qml` is screen 3 (`Main.VisualizerScreen`). The left column is a `BrowsePane` with
+    `autoSelect: false` (selects only on commit) and `listsShown: false` at the pile level, then `MdPile`
+    (a ListView of `MdCase`: an AlbumListModel's albums, or mix discs from a PlaylistListModel;
+    `caseChosen(item)` is V2's hook). Levels: List (Artists / Genres) → Pile; h / Esc go back. Case colours:
+    `SpineColors` (C++ singleton; construct before the engine with the cover cache dir: main.cpp, tst_qml's
+    Setup): `request` / `release` by cover URL, computed newest first from CoverLoader's 128 px thumbnail,
+    kept in memory by `CoverLoader::key`. Tests: `tst_visualizer.qml`, tst_uimodels' `spine*`.
   - `Theme` (C++ QML singleton): colours, spacing, radii, font sizes. Use its tokens, not literals.
     Fusion ignores the application palette: `Main.qml` maps Theme onto the window `palette`, so
     standalone components in tests render with default colours (only `Main` screenshots are themed).

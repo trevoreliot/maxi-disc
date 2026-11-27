@@ -61,6 +61,19 @@ class Theme : public QObject
     Q_PROPERTY(QColor discHub MEMBER m_discHub CONSTANT FINAL)
     Q_PROPERTY(QColor discHubHighlight MEMBER m_discHubHighlight CONSTANT FINAL)
     Q_PROPERTY(QColor discHubBorder MEMBER m_discHubBorder CONSTANT FINAL)
+    // The MD Visualizer's pile (V1): MiniDisc cases seen from the spine. A case without art, the
+    // ink on spines (dark or light, by contrast), the clear plastic at the case's ends, the light
+    // and dark edges that make a spine look rounded, the shadow under the case slid out, and the
+    // mix discs' paper label and pen.
+    Q_PROPERTY(QColor spineDefault MEMBER m_spineDefault CONSTANT FINAL)
+    Q_PROPERTY(QColor spineInkDark MEMBER m_spineInkDark CONSTANT FINAL)
+    Q_PROPERTY(QColor spineInkLight MEMBER m_spineInkLight CONSTANT FINAL)
+    Q_PROPERTY(QColor spinePlastic MEMBER m_spinePlastic CONSTANT FINAL)
+    Q_PROPERTY(QColor spineEdgeLight MEMBER m_spineEdgeLight CONSTANT FINAL)
+    Q_PROPERTY(QColor spineEdgeDark MEMBER m_spineEdgeDark CONSTANT FINAL)
+    Q_PROPERTY(QColor spineShadow MEMBER m_spineShadow CONSTANT FINAL)
+    Q_PROPERTY(QColor mdLabelPaper MEMBER m_mdLabelPaper CONSTANT FINAL)
+    Q_PROPERTY(QColor mdLabelInk MEMBER m_mdLabelInk CONSTANT FINAL)
     // Spacing
     Q_PROPERTY(int spaceXS MEMBER m_spaceXS CONSTANT FINAL)
     Q_PROPERTY(int spaceSM MEMBER m_spaceSM CONSTANT FINAL)
@@ -83,6 +96,9 @@ class Theme : public QObject
 
 public:
     explicit Theme(QObject *parent = nullptr);
+
+    // A mix disc's case (V1): blank MDs came in coloured plastic; each playlist keeps one.
+    Q_INVOKABLE QColor mdBlankColor(int id) const;
 
 private:
     QColor m_bg{0x16, 0x18, 0x1D};
@@ -120,6 +136,15 @@ private:
     QColor m_discHub{0x8C, 0x94, 0xA3};
     QColor m_discHubHighlight{0xD3, 0xD8, 0xE1};
     QColor m_discHubBorder{0x5A, 0x62, 0x72};
+    QColor m_spineDefault{0x3B, 0x42, 0x52};
+    QColor m_spineInkDark{0x15, 0x17, 0x1C};
+    QColor m_spineInkLight{0xF1, 0xF2, 0xF4};
+    QColor m_spinePlastic{0xDC, 0xE4, 0xF0, 0x59};
+    QColor m_spineEdgeLight{0xFF, 0xFF, 0xFF, 0x40};
+    QColor m_spineEdgeDark{0x00, 0x00, 0x00, 0x73};
+    QColor m_spineShadow{0x00, 0x00, 0x00, 0x8C};
+    QColor m_mdLabelPaper{0xEE, 0xEA, 0xDF};
+    QColor m_mdLabelInk{0x1F, 0x2D, 0x52};
     int m_spaceXS = 4;
     int m_spaceSM = 8;
     int m_spaceMD = 12;

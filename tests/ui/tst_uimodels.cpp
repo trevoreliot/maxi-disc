@@ -20,6 +20,7 @@
 #include "fakenetmd.h"
 #include "minidisc.h"
 #include "sendtodevice.h"
+#include "spinecolors.h"
 #include "ondevice.h"
 #include "sync.h"
 #include "profileeditor.h"
@@ -303,6 +304,152 @@ private Q_SLOTS:
     }
 
     // Q4: the transport bar's disc gets the cover cut round, keyed by the picture, not the track.
+    // V1: the MD pile's case colours.
+    void spineDominantColor()
+    {
+        const auto hueOf = [](const QColor &c) { return c.toHsv().hue(); };
+        // A solid colour: its own hue.
+        QImage solid(64, 64, QImage::Format_RGB32);
+        solid.fill(QColor(30, 90, 200));
+        QCOMPARE(hueOf(SpineColors::dominantColor(solid)), hueOf(QColor(30, 90, 200)));
+
+        // 70 % neutral (dark grey and white), 30 % orange: orange.
+        QImage mixed(100, 100, QImage::Format_RGB32);
+        mixed.fill(QColor(40, 40, 40));
+        for (int y = 0; y < 100; ++y) {
+            for (int x = 0; x < 100; ++x) {
+                if (x < 30)
+                    mixed.setPixelColor(x, y, QColor(230, 120, 20));
+                else if (x > 80)
+                    mixed.setPixelColor(x, y, QColor(250, 250, 250));
+            }
+        }
+        const QColor orange = SpineColors::dominantColor(mixed);
+        QVERIFY2(std::abs(hueOf(orange) - hueOf(QColor(230, 120, 20))) <= 6, qPrintable(orange.name()));
+
+        // Black and white with a few red specks: grey (the average), not red.
+        QImage bw(96, 96, QImage::Format_RGB32);
+        bw.fill(Qt::black);
+        for (int y = 0; y < 96; ++y) {
+            for (int x = 48; x < 96; ++x)
+                bw.setPixelColor(x, y, Qt::white);
+        }
+        for (int i = 0; i < 4; ++i)
+            bw.setPixelColor(10 + i, 10, Qt::red);
+        const QColor grey = SpineColors::dominantColor(bw);
+        QVERIFY2(grey.toHsv().saturation() < 30, qPrintable(grey.name()));
+
+        // Never black (it would vanish into the theme), never white.
+        QImage black(32, 32, QImage::Format_RGB32);
+        black.fill(Qt::black);
+        QVERIFY(SpineColors::dominantColor(black).valueF() >= 0.21F);
+        QImage white(32, 32, QImage::Format_RGB32);
+        white.fill(Qt::white);
+        QVERIFY(SpineColors::dominantColor(white).valueF() <= 0.87F);
+
+        QVERIFY(!SpineColors::dominantColor(QImage()).isValid());
+
+        // The fixture's real covers: OK Computer's folder art is red, Kid A's embedded art blue.
+        const auto load = [this](const QString &album) {
+            const QString url = coverUrlOf(album);
+            return SpineColors::dominantColor(CoverLoader::load(url.mid(QStringLiteral("image://cover/").size()), QSize(128, 128), m_cacheDir));
+        };
+        const QColor ok = load(QStringLiteral("OK Computer"));
+        const QColor kidA = load(QStringLiteral("Kid A"));
+        QVERIFY(ok.isValid() && kidA.isValid());
+        QVERIFY2(ok.red() > ok.blue() && kidA.blue() > kidA.red(), qPrintable(ok.name() + u' ' + kidA.name()));
+    }
+
+    void spineTextContrast()
+    {
+        SpineColors colors(m_cacheDir, nullptr);
+        QVERIFY(colors.prefersDarkText(Qt::white));
+        QVERIFY(!colors.prefersDarkText(Qt::black));
+        QVERIFY(colors.prefersDarkText(QColor(240, 220, 40)));  // yellow
+        QVERIFY(!colors.prefersDarkText(QColor(30, 60, 170)));  // blue
+        QVERIFY(!colors.prefersDarkText(QColor(0x3B, 0x42, 0x52))); // the default case
+        QVERIFY(colors.prefersDarkText(QColor(200, 200, 200)));
+        QCOMPARE(SpineColors::relativeLuminance(Qt::white), 1.0);
+        QCOMPARE(SpineColors::relativeLuminance(Qt::black), 0.0);
+    }
+
+    void spineColorsAsync()
+    {
+        SpineColors colors(m_cacheDir, nullptr);
+        QCOMPARE(SpineColors::instance(), &colors);
+        const QString ok = coverUrlOf(QStringLiteral("OK Computer"));
+        const QString kidA = coverUrlOf(QStringLiteral("Kid A"));
+        QSignalSpy ready(&colors, &SpineColors::colorReady);
+
+        // Two cases with one cover: computed once, then known at once.
+        QVERIFY(!colors.color(ok).isValid());
+        colors.request(ok);
+        colors.request(ok);
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, kTimeoutMs);
+        QCOMPARE(ready.at(0).at(0).toString(), colors.key(ok));
+        QVERIFY(colors.color(ok).isValid());
+        QCOMPARE(colors.computedCount(), 1);
+        colors.request(ok); // known: nothing to do
+        QTest::qWait(50);
+        QCOMPARE(ready.count(), 1);
+        colors.release(ok);
+        colors.release(ok);
+        colors.release(ok);
+
+        // Requested then let go before a worker got to it (scrolled past): never computed.
+        colors.setHeld(true);
+        colors.request(kidA);
+        colors.release(kidA);
+        colors.setHeld(false);
+        QTest::qWait(100);
+        QCOMPARE(colors.computedCount(), 1);
+        QVERIFY(!colors.color(kidA).isValid());
+
+        // Held requests all run once let go; a cover without a picture stays the default case.
+        colors.setHeld(true);
+        colors.request(kidA);
+        const QString none = CoverLoader::url(777, QString(), m_dir.filePath(QStringLiteral("nope.flac")));
+        colors.request(none);
+        ready.clear();
+        colors.setHeld(false);
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 2, kTimeoutMs);
+        QVERIFY(colors.color(kidA).isValid());
+        QVERIFY(!colors.color(none).isValid()); // no picture: stays the default case
+        QCOMPARE(colors.computedCount(), 3);
+
+        // Art changed in place: a new key, computed again.
+        const QString okId = colors.key(ok);
+        CoverLoader::bumpRevision(okId.section(u'.', 0, 0).toLongLong());
+        const QString bumped = coverUrlOf(QStringLiteral("OK Computer"));
+        QVERIFY(colors.key(bumped) != okId);
+        QVERIFY(!colors.color(bumped).isValid());
+        colors.request(bumped);
+        QTRY_VERIFY_WITH_TIMEOUT(colors.color(bumped).isValid(), kTimeoutMs);
+        QCOMPARE(colors.computedCount(), 4);
+
+        // Many requests for one cover while the workers are busy: queued once (compacted), and
+        // nothing left behind once every case has let go.
+        colors.setHeld(true);
+        const QString busy = CoverLoader::url(778, QString(), m_dir.filePath(QStringLiteral("busy.flac")));
+        for (int i = 0; i < 5000; ++i)
+            colors.request(busy);
+        QVERIFY2(colors.pendingCount() <= 4097, qPrintable(QString::number(colors.pendingCount())));
+        QCOMPARE(colors.queuedIdCount(), 1);
+        for (int i = 0; i < 5000; ++i)
+            colors.release(busy);
+        QCOMPARE(colors.queuedIdCount(), 0);
+        colors.setHeld(false);
+        QTest::qWait(100);
+        QCOMPARE(colors.computedCount(), 4);
+        QCOMPARE(colors.pendingCount(), 0);
+
+        // Not a cover URL: ignored.
+        colors.request(QString());
+        colors.request(QStringLiteral("image://coverround/1/x"));
+        QTest::qWait(50);
+        QCOMPARE(colors.computedCount(), 4);
+    }
+
     void roundCover()
     {
         const QString url = coverUrlOf(QStringLiteral("OK Computer"));

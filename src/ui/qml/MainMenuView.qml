@@ -2,14 +2,13 @@
 import QtQuick
 import QtQuick.Layouts
 
-// Main menu (docs/ui-draft/main-menu.jpeg): 1 Music Library, 2 Export, 3 MD Visualizer
-// (not designed yet: a disabled placeholder the keyboard skips).
+// Main menu (docs/ui-draft/main-menu.jpeg): 1 Music Library, 2 Export, 3 MD Visualizer.
 Item {
     id: root
 
     property bool active: false // this screen has keyboard focus
     property int currentTile: 0
-    readonly property int enabledTiles: 2 // tiles 0..1; tile 2 is the placeholder
+    readonly property int enabledTiles: 3
 
     signal tileActivated(int index)
 
@@ -86,9 +85,13 @@ Item {
             number: 3
             label: qsTr("MD Visualizer")
             iconKind: "visualizer"
-            subtitle: qsTr("Coming soon")
-            interactive: false
-            toolTip: qsTr("A retro MiniDisc-style player view. Not designed yet.")
+            subtitle: qsTr("Pick a MiniDisc from the pile")
+            current: root.currentTile === 2
+            paneActive: root.active
+            onActivated: {
+                root.currentTile = 2;
+                root.tileActivated(2);
+            }
         }
     }
 }

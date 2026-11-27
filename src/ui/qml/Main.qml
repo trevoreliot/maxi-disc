@@ -6,7 +6,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
-// App shell (docs/ui-draft): header, one of three screens (main menu, library, export),
+// App shell (docs/ui-draft): header, one of four screens (main menu, library, export, MD visualizer),
 // the queue docked on the right, and the transport bar at the bottom.
 //
 // Keyboard: KeyRouter (C++) turns key presses into actions; handleAction() sends global
@@ -16,7 +16,7 @@ import QtQuick.Layouts
 ApplicationWindow {
     id: root
 
-    enum Screen { MenuScreen, LibraryScreen, ExportScreen }
+    enum Screen { MenuScreen, LibraryScreen, ExportScreen, VisualizerScreen }
 
     property int currentScreen: Main.MenuScreen
     property bool queueOpen: false
@@ -27,6 +27,7 @@ ApplicationWindow {
     readonly property alias libraryView: libraryScreen
     readonly property alias mainMenu: menuScreen
     readonly property alias exportView: exportScreen
+    readonly property alias visualizerView: visualizerScreen
     readonly property alias queuePanel: queueDock
     readonly property alias contextMenu: appContextMenu
     // The menu being asked for comes from the keyboard (`,`): its first item gets the cursor.
@@ -120,6 +121,8 @@ ApplicationWindow {
             // handled inside the library
         } else if (currentScreen === Main.ExportScreen && exportScreen.back()) {
             // closed the sync plan
+        } else if (currentScreen === Main.VisualizerScreen && visualizerScreen.back()) {
+            // from a pile back to its list
         } else if (currentScreen !== Main.MenuScreen) {
             showScreen(Main.MenuScreen);
         }
@@ -150,6 +153,8 @@ ApplicationWindow {
                 libraryScreen.openContextMenu();
             else if (currentScreen === Main.ExportScreen)
                 exportScreen.openContextMenu();
+            else if (currentScreen === Main.VisualizerScreen)
+                visualizerScreen.openContextMenu();
             menuFromKeyboard = false;
             return;
         }
@@ -191,6 +196,8 @@ ApplicationWindow {
         case KeyRouter.FindArt:
             if (currentScreen === Main.LibraryScreen && !queueFocused && libraryScreen.currentAlbumId() > 0)
                 artDialog.openAlbum(libraryScreen.currentAlbumId());
+            else if (currentScreen === Main.VisualizerScreen && !queueFocused && visualizerScreen.currentAlbumId() > 0)
+                artDialog.openAlbum(visualizerScreen.currentAlbumId());
             return;
         case KeyRouter.Skip:
         case KeyRouter.Retry:
@@ -212,8 +219,10 @@ ApplicationWindow {
             handled = menuScreen.handleAction(action);
         else if (currentScreen === Main.LibraryScreen)
             handled = libraryScreen.handleAction(action);
-        else
+        else if (currentScreen === Main.ExportScreen)
             handled = exportScreen.handleAction(action);
+        else
+            handled = visualizerScreen.handleAction(action);
         if (!handled && action === KeyRouter.MoveRight && queueOpen)
             queueFocused = true;
     }
@@ -227,7 +236,8 @@ ApplicationWindow {
     header: TopChrome {
         id: topChrome
         title: root.currentScreen === Main.MenuScreen ? qsTr("Main Menu")
-             : root.currentScreen === Main.LibraryScreen ? qsTr("1  Music Library") : qsTr("2  Export")
+             : root.currentScreen === Main.LibraryScreen ? qsTr("1  Music Library")
+             : root.currentScreen === Main.ExportScreen ? qsTr("2  Export") : qsTr("3  MD Visualizer")
         showBack: root.currentScreen !== Main.MenuScreen
         queueOpen: root.queueOpen
         searchEnabled: root.hasLibrary
@@ -486,7 +496,7 @@ ApplicationWindow {
                 active: screens.screenActive && root.currentScreen === Main.MenuScreen
                 onTileActivated: (index) => {
                     root.paneClicked(false);
-                    root.showScreen(index === 0 ? Main.LibraryScreen : Main.ExportScreen);
+                    root.showScreen([Main.LibraryScreen, Main.ExportScreen, Main.VisualizerScreen][index]);
                 }
             }
 
@@ -507,6 +517,13 @@ ApplicationWindow {
                 onEditProfileRequested: id => profileDialog.edit(id)
                 onRenameMdRequested: (disc, index) => disc ? mdRenameDialog.renameDisc() : mdRenameDialog.renameTrack(index)
                 onConfirmRequested: options => confirm.ask(options)
+            }
+
+            VisualizerView {
+                id: visualizerScreen
+                active: screens.screenActive && root.currentScreen === Main.VisualizerScreen
+                onAddFolderRequested: folderDialog.open()
+                onInteracted: root.paneClicked(false)
             }
         }
 

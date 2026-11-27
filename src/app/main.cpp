@@ -19,6 +19,7 @@
 #include "ondevice.h"
 #include "playback.h"
 #include "sendtodevice.h"
+#include "spinecolors.h"
 #include "sync.h"
 
 int main(int argc, char *argv[])
@@ -83,6 +84,7 @@ int main(int argc, char *argv[])
     OnDevice onDevice({.databasePath = databasePath});
     MiniDisc miniDisc({.backend = {}, .monitor = !parser.isSet(noDevicesOpt)});
     SendToDevice sendToDevice(nullptr);
+    SpineColors spineColors(mmm::AppPaths::coverCacheDir(), nullptr); // V1: the MD pile's case colours
     QObject::connect(&playback, &Playback::quitRequested, &app, &QCoreApplication::quit);
 
     QQmlApplicationEngine engine;

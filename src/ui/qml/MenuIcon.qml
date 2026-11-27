@@ -6,7 +6,7 @@ import QtQuick.Shapes
 // drawn on a 120×100 grid in theme colours and scaled to fit.
 //   "library":    vinyl record, MiniDisc, stacked cases
 //   "export":     folder → arrow → MiniDisc, plus USB and CD
-//   "visualizer": placeholder outline (not designed yet)
+//   "visualizer": a pile of MiniDisc cases (one slid out) and a cartridge
 Item {
     id: root
 
@@ -132,19 +132,52 @@ Item {
             PathSvg { path: root.circle(100, 22, 15) + " " + root.circle(100, 22, 4) }
         }
 
-        // ---- visualizer (placeholder) ----
-        ShapePath {
+        // ---- visualizer: a pile of MD cases, the middle one slid out, a cartridge above ----
+        ShapePath { // cartridge (a clear shell: the disc shows through)
+            fillColor: root.kind === "visualizer" ? Theme.surfaceElevated : "transparent"
+            strokeColor: root.kind === "visualizer" ? root.ink : "transparent"
+            strokeWidth: 1.5
+            joinStyle: ShapePath.RoundJoin
+            PathSvg { path: "M36 4 H86 V48 H42 L36 42 Z" }
+        }
+        ShapePath { // the disc inside
+            fillColor: "transparent"
+            strokeColor: root.kind === "visualizer" ? Theme.borderStrong : "transparent"
+            strokeWidth: 1
+            PathSvg { path: root.circle(61, 27, 17) }
+        }
+        ShapePath { // shutter + hub
+            fillColor: root.kind === "visualizer" ? Theme.borderStrong : "transparent"
+            strokeColor: "transparent"
+            PathSvg { path: "M50 4 H72 V20 H50 Z " + root.circle(61, 27, 4) }
+        }
+        ShapePath { // cases in the pile
+            fillColor: root.kind === "visualizer" ? Theme.surfaceElevated : "transparent"
+            strokeColor: root.kind === "visualizer" ? root.ink : "transparent"
+            strokeWidth: 1.5
+            joinStyle: ShapePath.RoundJoin
+            PathSvg { path: "M14 56 H98 V67 H14 Z M12 80 H96 V91 H12 Z" }
+        }
+        ShapePath { // the case slid out
+            fillColor: root.kind === "visualizer" ? Theme.surfaceElevated : "transparent"
+            strokeColor: root.kind === "visualizer" ? root.accent : "transparent"
+            strokeWidth: 1.5
+            joinStyle: ShapePath.RoundJoin
+            PathSvg { path: "M26 68 H110 V79 H26 Z" }
+        }
+        ShapePath { // titles on the spines
             fillColor: "transparent"
             strokeColor: root.kind === "visualizer" ? root.ink : "transparent"
             strokeWidth: 1.5
-            strokeStyle: ShapePath.DashLine
-            dashPattern: [4, 3]
-            PathSvg { path: "M22 10 H98 V90 H22 Z" }
+            capStyle: ShapePath.RoundCap
+            PathSvg { path: "M21 61.5 H60 M19 85.5 H52" }
         }
         ShapePath {
-            fillColor: root.kind === "visualizer" ? root.ink : "transparent"
-            strokeColor: "transparent"
-            PathSvg { path: "M38 70 H46 V78 H38 Z M50 54 H58 V78 H50 Z M62 40 H70 V78 H62 Z M74 60 H82 V78 H74 Z" }
+            fillColor: "transparent"
+            strokeColor: root.kind === "visualizer" ? root.accent : "transparent"
+            strokeWidth: 2
+            capStyle: ShapePath.RoundCap
+            PathSvg { path: "M33 73.5 H76" }
         }
     }
 }

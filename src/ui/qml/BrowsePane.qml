@@ -19,6 +19,15 @@ Pane {
     property int mode: BrowsePane.Artists
     property bool paneActive: false
     property bool showPlaylistTools: true
+    // Library / Export: the selection follows the cursor (after a short pause) and a new mode
+    // selects its current row. False (the MD Visualizer): `selected` only comes from commit(),
+    // i.e. a click, Enter or l.
+    property bool autoSelect: true
+    // False: only the dropdown shows (the MD Visualizer puts its pile of cases below it).
+    property bool listsShown: true
+    // The dropdown and the rule under it: the pane's height when the lists aren't shown.
+    // (From sizes, not positions: those depend on the pane's height, which this sets.)
+    readonly property real headerHeight: modeBox.implicitHeight + 2 * Theme.spaceSM + 1
 
     readonly property ListView currentList: [artistList, genreList, albumList, playlistList][mode]
     readonly property bool hasAllRow: mode === BrowsePane.Artists || mode === BrowsePane.Genres
@@ -63,7 +72,8 @@ Pane {
             list.positionViewAtIndex(i, ListView.Contain);
         else
             list.positionViewAtBeginning();
-        commitTimer.restart();
+        if (autoSelect)
+            commitTimer.restart();
     }
 
     // The album under the cursor in Albums mode, else 0.
@@ -89,7 +99,8 @@ Pane {
             return;
         mode = m;
         modeBox.currentIndex = m;
-        commit();
+        if (autoSelect)
+            commit();
     }
 
     // Right-click menus (Q1; the library's browse pane, not Export's yet). The row with a menu
@@ -212,7 +223,7 @@ Pane {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.spaceSM
             Layout.rightMargin: Theme.spaceSM
-            visible: root.showPlaylistTools && root.mode === BrowsePane.Playlists
+            visible: root.showPlaylistTools && root.listsShown && root.mode === BrowsePane.Playlists
 
             Button {
                 Layout.fillWidth: true
@@ -224,14 +235,22 @@ Pane {
         }
 
         Rectangle {
+            id: rule
             Layout.fillWidth: true
             Layout.preferredHeight: 1
             color: Theme.border
         }
 
+        Item { // keeps the dropdown at the top while the lists are hidden
+            Layout.fillHeight: true
+            visible: !root.listsShown
+        }
+
         StackLayout {
+            id: lists
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: root.listsShown
             currentIndex: root.mode
 
             ListView {
