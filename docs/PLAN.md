@@ -186,6 +186,60 @@ and the user has run the "User test". Tick the box, commit, then stop.
   album to another; on the real display (not just offscreen) the disc reads as a MiniDisc at that
   size; note the CPU %, spinning on vs off.
 
+### Phase 6b: MD Visualizer (user-requested 2026-11-25; drawing: `docs/ui-draft/md-visualizer.jpeg`, local only)
+Main-menu tile 3: picking music the way you'd pick a MiniDisc off a shelf and play it on a portable.
+Built on the `md-visualizer` branch, one milestone per session as usual; merged into main when V3's
+user test passes. Everything is drawn in Qt Quick from shapes and the cover art: 2.5D (Flipable,
+perspective `Rotation`), not Qt Quick 3D, unless V1 shows that's needed (then a decision record).
+No bitmaps of real products and no Sony / MiniDisc / Walkman logos or wordmarks. The player's
+reference photos (`docs/ui-draft/Sony-MZ-M200-*.webp`, local only) are for its shape and layout.
+What comes out of a slip case is the cartridge, as in real life: a clear shell (like clear MD
+blanks), so the disc inside shows through, with the cover as its label. The offscreen software
+renderer draws 3D-rotated items flat, so the real display is part of every user test.
+- [ ] **V1 Visualizer screen and the shelf** — Done when: tile 3 opens a new screen (in Main's
+  StackLayout and kept alive like the others; the tile gets a real icon). On the left: the Library's
+  browse dropdown (Artist / Genre / Album / Playlist) and list, with the same keys (j / k / h / l /
+  Enter, `/` search). Behind it, the chosen entry's albums stand as a shelf of MiniDisc slip cases
+  seen from the spine: title and artist printed along each spine, its colour taken from the cover
+  (a dominant colour, computed with the cover and cached), and the cursor's case pulled slightly
+  forward. The shelf follows the cursor and stays smooth with hundreds of albums (delegates recycled,
+  covers loaded off the UI thread). The case area and the player are placeholders. Tests: C++ for the
+  cover colour; QML for navigation and the shelf following the cursor; screenshot checked. User test:
+  browse a few artists by keyboard and by mouse; the shelf reads as MD cases; scroll a big genre
+  quickly.
+- [ ] **V2 Taking a case off the shelf** — Done when: Enter or a click on a spine animates that case
+  out of the shelf to the case area, turning to face front (the front insert: the cover, title and
+  artist); then the cartridge slides part-way out of the case, its label showing the cover. A Flip button
+  (and a key) turns the case round to its back: the track list (number, title, duration), with the
+  cursor in it (j / k; Enter plays, once V3 exists). Esc or Back puts the case back on the shelf,
+  animated. Each animation takes about half a second; pressing again finishes it at once; no work runs
+  on the GUI thread during them. Right-click on the case opens the album's menu (Q1's entries). Tests:
+  QML (shelf → out → disc out → flipped → back; the track list's rows; the keys); screenshots of the
+  front and the back. User test: take out, flip and put back several albums, by mouse and keyboard
+  only; it feels like handling a real case.
+- [ ] **V3 The MiniDisc player** — Done when: below the case area stands a portable MD player drawn
+  after the MZ-M200: a near-square body only a little bigger than the cartridge, rounded corners, its
+  dark lid made smoked and translucent, so the cartridge and its turning disc (Q4's SpinningDisc) show
+  through. The face is seen straight on and the left edge obliquely (an affine shear, which both
+  renderers draw), as in the perspective photo. That edge carries the narrow side LCD: track number,
+  elapsed time and a two-bar level meter from `Playback.levels` (blank while the analyser is off);
+  DISPLAY cycles elapsed / remaining / the scrolling title. Down the face's left edge: DISPLAY,
+  VOL − / +, the ■ stop and ❚❚ pause keys, and the jog lever at the bottom corner (click plays; its two
+  ends and the mouse wheel go to the previous / next track). The OPEN slide on the top edge is Eject.
+  Keys that would do nothing here (T MARK, REC, HOLD) and the maker's marks are left off. Play on the
+  case, or Enter on a track on its back: the cartridge leaves the case and drops into the player, the
+  lid closes, and the album plays from that track (replacing the queue, like playing an album). The
+  player's keys drive Playback (they're Playback commands, like the transport bar's). While a
+  cartridge is in the player, the shelf can still be browsed, but another case only comes out after an
+  Eject. Eject (the OPEN slide, and a key) stops playback, opens the lid, and puts the cartridge back
+  in its case and the case back on the shelf. If playback starts elsewhere (Library, MPRIS, the
+  queue), the player shows that album's cartridge, swapped without the pull-out animation. Nothing
+  animates while hidden or idle (Q3 / Q4's rules). Tests: QML (insert → playing; the keys → Playback;
+  eject → stopped and a case can come out; playback started elsewhere shows its cartridge); screenshot
+  of the player with a cartridge in, and of the side LCD. User test: pick an album, flip it, play
+  track 3 from the back; pause, skip and set the volume on the player; eject and pick another;
+  start something from the Library and come back.
+
 ### Phase 7: Emacs integration (depends on M5)
 - [ ] **M16 Doom Emacs client** — Done when: an Emacs package (in `contrib/emacs/`, loadable from
   Doom's `packages.el` via `:recipe` with a local path) uses `dbus.el` to show now playing
@@ -513,7 +567,7 @@ and the user has run the "User test". Tick the box, commit, then stop.
   - Stubs in the UI waiting on core work: shuffle (PlayQueue shuffle order + MPRIS `Shuffle`);
     audio analyzer (now Q3); Discord / ListenBrainz toggles
     (M15 / M14); Export screen devices, sync and MD options (M8–M12).
-  - MD Visualizer (main-menu tile 3) isn't designed yet: a disabled placeholder tile.
+  - MD Visualizer (main-menu tile 3): a disabled placeholder until Phase 6b (V1-V3).
   - Keyboard ideas not done: switch the browse dropdown mode from the keyboard (it needs a click
     today), `1`/`2` to open main-menu tiles, `gg`/`G`, `n`/`N`, a key-help overlay. All go in
     KeyRouter's tables + Main.handleAction().
